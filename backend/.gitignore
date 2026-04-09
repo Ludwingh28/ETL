@@ -20,6 +20,7 @@ __pycache__/
 *$py.class
 *.pyc
 *.pyo
+.claude
 
 # ── Archivos estáticos generados ─────────────────────────────────────────────
 staticfiles/

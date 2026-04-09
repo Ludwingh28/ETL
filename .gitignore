@@ -6,6 +6,7 @@ test_running_server.py
 .idea/
 .DS_Store
 Thumbs.db
+.claude
 
 # ── Scripts de parche temporales ─────────────────────────────────────────────
 _patch_*.py
