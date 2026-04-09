@@ -120,7 +120,7 @@ export default function DashboardVentas() {
                 <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
                 <XAxis dataKey="mes" tick={{ fontSize: 11 }} />
                 <YAxis tick={{ fontSize: 11 }} tickFormatter={v => `${(Number(v) / 1000).toFixed(0)}k`} />
-                <Tooltip formatter={(v: number) => fmt(v)} labelFormatter={(l: string) => `Mes: ${l}`} />
+                <Tooltip formatter={(v) => fmt(Number(v))} labelFormatter={(l) => `Mes: ${l}`} />
                 <Bar dataKey="total_venta_neta" fill="#3b82f6" radius={[4, 4, 0, 0]} name="Venta Neta" />
               </BarChart>
             </ResponsiveContainer>
@@ -149,7 +149,7 @@ export default function DashboardVentas() {
                     <Cell key={i} fill={PIE_COLORS[i % PIE_COLORS.length]} />
                   ))}
                 </Pie>
-                <Tooltip formatter={(v: number) => fmt(v)} />
+                <Tooltip formatter={(v) => fmt(Number(v))} />
                 <Legend iconType="circle" iconSize={8} />
               </PieChart>
             </ResponsiveContainer>

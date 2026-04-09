@@ -4,8 +4,8 @@ import {
   TrendingUp, Users, LogOut, Menu, X,
   BarChart2, User as UserIcon, ChevronDown, Layers, Table2,
   ClipboardList, Activity, Package, MapPin,
-  Receipt, Tag, List, Archive, CalendarX, DollarSign,
-  Users2, UserPlus, KeyRound, UserCheck,
+  Tag, List, Archive, CalendarX, DollarSign,
+  Users2, KeyRound, UserCheck,
   type LucideIcon,
 } from 'lucide-react'
 import { useAuth } from '../context/AuthContext'

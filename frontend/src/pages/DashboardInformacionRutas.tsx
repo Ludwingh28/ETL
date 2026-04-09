@@ -303,7 +303,7 @@ export default function DashboardInformacionRutas() {
                 <XAxis dataKey="name" tick={{ fontSize: 11, fontWeight: 600, fill: "#64748b" }} />
                 <YAxis tick={{ fontSize: 10 }} tickFormatter={fmtAbbr} width={52} />
                 <Tooltip
-                  formatter={(val: number) => [fmt(val), "Ruta"]}
+                  formatter={(val) => [fmt(Number(val)), "Ruta"]}
                   contentStyle={{ borderRadius: 12, border: "1px solid #e2e8f0", fontSize: 12 }}
                 />
 

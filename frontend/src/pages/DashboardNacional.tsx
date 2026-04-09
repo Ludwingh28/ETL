@@ -45,10 +45,12 @@ interface CanalRow {
 }
 
 interface CategoriaRow {
-  categoria: string;
-  venta_neta: number;
-  cantidad: number;
-  productos: number;
+  categoria:   string;
+  venta_neta:  number;
+  cantidad:    number;
+  productos:   number;
+  presupuesto?: number | null;
+  porcentaje?:  number | null;
 }
 
 interface Periodo {
@@ -58,71 +60,6 @@ interface Periodo {
 }
 
 // ─── Mock data ────────────────────────────────────────────────────────────────
-
-const USE_MOCK = false;
-
-const MOCK_KPIS: KpisData = {
-  total_nacional: 8_450_320,
-  santa_cruz: 4_120_150,
-  cochabamba: 2_380_090,
-  la_paz: 1_950_080,
-  fecha_corte: "2026-03-23",
-  presupuesto: {
-    total: 12_400_000,
-    santa_cruz: 5_000_000,
-    cochabamba: 3_000_000,
-    la_paz: 2_500_000,
-  },
-};
-
-const _buildTendencia = (): TendenciaDia[] => {
-  const dias = 31;
-  const hoy = 23;
-  const pptoMes = 12_400_000;
-  const pptoDaily = pptoMes / dias;
-  const avanceAcum = [
-    0, 350_000, 740_000, 1_100_000, 1_520_000, 1_890_000, 2_200_000, 2_600_000, 2_980_000, 3_310_000, 3_700_000, 3_960_000, 4_210_000, 4_580_000, 4_910_000, 5_300_000, 5_660_000, 5_980_000, 6_320_000,
-    6_710_000, 7_050_000, 7_380_000, 7_890_000, 8_450_320,
-  ];
-  const tasa = avanceAcum[hoy]! / hoy;
-  return Array.from({ length: dias }, (_, i) => {
-    const dia = i + 1;
-    return {
-      dia,
-      avance_acumulado: dia <= hoy ? (avanceAcum[dia] ?? null) : null,
-      presupuesto_acumulado: Math.round(pptoDaily * dia),
-      proyeccion_acumulada: dia > hoy ? Math.round(avanceAcum[hoy]! + tasa * (dia - hoy)) : null,
-    };
-  });
-};
-const MOCK_TENDENCIA = _buildTendencia();
-
-const MOCK_REGIONALES: RegionalRow[] = [
-  { regional: "Santa Cruz", avance: 4_120_150, presupuesto: 5_000_000, porcentaje: 82.4 },
-  { regional: "Cochabamba", avance: 2_380_090, presupuesto: 3_000_000, porcentaje: 79.3 },
-  { regional: "La Paz", avance: 1_950_080, presupuesto: 2_500_000, porcentaje: 78.0 },
-];
-
-const MOCK_CANALES: CanalRow[] = [
-  // DTS unificado Nacional: DTS (SCZ) + DTS-LP (LPZ) + DTS-EA (LPZ)
-  { canal: "DTS", avance: 2_620_000, presupuesto: 3_120_000, porcentaje: 84.0 },
-  // WHS unificado Nacional: WHS (SCZ+CBB) + WHS-LP (LPZ) + WHS-EA (LPZ) — sin WHS-LICORES
-  { canal: "WHS", avance: 1_580_000, presupuesto: 1_900_000, porcentaje: 83.2 },
-  { canal: "HORECA", avance: 850_000, presupuesto: 1_020_000, porcentaje: 83.3 },
-  { canal: "SPM", avance: 670_000, presupuesto: 800_000, porcentaje: 83.8 },
-  { canal: "CORP", avance: 410_000, presupuesto: 480_000, porcentaje: 85.4 },
-  { canal: "ECOM", avance: 150_000, presupuesto: 180_000, porcentaje: 83.3 },
-  { canal: "WHS-LICORES", avance: 670_170, presupuesto: 630_000, porcentaje: 106.4 },
-  { canal: "PROV", avance: 1_020_150, presupuesto: 1_190_000, porcentaje: 85.7 },
-  { canal: "CODIS", avance: 480_000, presupuesto: 550_000, porcentaje: 87.3 },
-];
-
-const MOCK_CATEGORIAS: CategoriaRow[] = [
-  { categoria: "Alimentos", venta_neta: 3_750_000, cantidad: 12_000, productos: 45 },
-  { categoria: "Apego", venta_neta: 2_020_170, cantidad: 8_500, productos: 30 },
-  { categoria: "Licores", venta_neta: 1_520_150, cantidad: 4_200, productos: 22 },
-  { categoria: "Home & Personal Care", venta_neta: 1_160_000, cantidad: 6_800, productos: 18 },
-];
 
 // ─── Formatters ──────────────────────────────────────────────────────────────
 
@@ -640,7 +577,7 @@ export default function DashboardNacional() {
                   {categorias.map((cat) => (
                     <tr key={cat.categoria} className="border-b border-slate-50 hover:bg-slate-50 transition-colors">
                       <td className="py-1.5 font-bold text-slate-700 text-xs">{cat.categoria}</td>
-                      <td className="py-1.5 text-right text-slate-400 text-xs">{fmtM(cat.presupuesto)}</td>
+                      <td className="py-1.5 text-right text-slate-400 text-xs">{cat.presupuesto != null ? fmtM(cat.presupuesto) : "—"}</td>
                       <td className="py-1.5 text-right font-semibold text-slate-800 text-xs">{fmtM(cat.venta_neta)}</td>
                       <td
                         className={`py-1.5 text-right font-bold text-xs ${
