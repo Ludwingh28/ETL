@@ -1,0 +1,62 @@
+@import "tailwindcss";
+
+@theme {
+  --color-brand-50:  #eff6ff;
+  --color-brand-100: #dbeafe;
+  --color-brand-200: #bfdbfe;
+  --color-brand-300: #93c5fd;
+  --color-brand-400: #60a5fa;
+  --color-brand-500: #3b82f6;
+  --color-brand-600: #2563eb;
+  --color-brand-700: #1d4ed8;
+  --color-brand-800: #1e40af;
+  --color-brand-900: #1e3a8a;
+}
+
+@layer base {
+  *, *::before, *::after {
+    box-sizing: border-box;
+  }
+  body {
+    @apply bg-slate-100 text-slate-900 antialiased;
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  }
+}
+
+@layer components {
+  .nav-item {
+    @apply flex items-center gap-3 px-4 py-2.5 rounded-lg text-slate-300
+           hover:bg-white/10 hover:text-white transition-all duration-200
+           cursor-pointer select-none;
+  }
+  .nav-item-active {
+    @apply bg-brand-600 text-white shadow-lg;
+  }
+  .card {
+    @apply bg-white rounded-2xl shadow-sm border border-slate-200 p-6;
+  }
+  .kpi-card {
+    @apply bg-white rounded-2xl shadow-sm border border-slate-200 p-6 flex flex-col gap-2;
+  }
+  .btn-primary {
+    @apply bg-brand-600 hover:bg-brand-700 text-white font-semibold
+           px-5 py-2.5 rounded-lg transition-colors duration-200
+           focus:outline-none focus:ring-2 focus:ring-brand-500 focus:ring-offset-2
+           disabled:opacity-60 disabled:cursor-not-allowed;
+  }
+  .btn-ghost {
+    @apply text-slate-500 hover:text-slate-700 hover:bg-slate-100
+           px-3 py-2 rounded-lg transition-colors duration-200;
+  }
+  .input-field {
+    @apply w-full px-4 py-2.5 border border-slate-300 rounded-xl text-slate-800
+           focus:outline-none focus:ring-2 focus:ring-brand-500 focus:border-transparent
+           placeholder:text-slate-400 transition-shadow text-sm
+           disabled:opacity-60 disabled:bg-slate-50;
+  }
+}
+
+/* ─── react-pivottable: sin overrides, usa el CSS nativo del paquete ─────────── */
+.pivot-wrapper {
+  overflow-x: auto;
+}

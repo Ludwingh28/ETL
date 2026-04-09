@@ -1,0 +1,41 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(python3 -c \":*)",
+      "Bash(py -c \"content = open\\(''c:/Users/ludwi/OneDrive/Escritorio/kj/Cruzimex/ETL/backend/api/views.py''\\).read\\(\\); print\\(content[-100:]\\)\")",
+      "Bash(py -c \":*)",
+      "Bash(npm install:*)",
+      "Bash(npx tsc:*)",
+      "Bash(node -e \"const p = require\\(''C:/Users/ludwi/OneDrive/Escritorio/kj/Cruzimex/ETL/frontend/node_modules/react-pivottable/PivotTableUI''\\); console.log\\(''type:'', typeof p\\); console.log\\(''keys:'', Object.keys\\(p\\)\\); console.log\\(''default:'', typeof p.default\\);\")",
+      "Bash(node -e \"const r = require\\(''C:/Users/ludwi/OneDrive/Escritorio/kj/Cruzimex/ETL/frontend/node_modules/react-pivottable/TableRenderers''\\); console.log\\(''TR type:'', typeof r\\); console.log\\(''TR keys:'', Object.keys\\(r\\).slice\\(0,5\\)\\);\")",
+      "Bash(node -e \"const u = require\\(''C:/Users/ludwi/OneDrive/Escritorio/kj/Cruzimex/ETL/frontend/node_modules/react-pivottable/Utilities''\\); console.log\\(Object.keys\\(u\\)\\)\")",
+      "Bash(node -e \"const p = require\\(''C:/Users/ludwi/OneDrive/Escritorio/kj/Cruzimex/ETL/frontend/node_modules/react-pivottable/PlotlyRenderers''\\); console.log\\(''type:'', typeof p, ''| keys:'', Object.keys\\(p\\)\\)\")",
+      "Bash(node -e \"const u = require\\(''C:/Users/ludwi/OneDrive/Escritorio/kj/Cruzimex/ETL/frontend/node_modules/react-pivottable/Utilities''\\); console.log\\(Object.keys\\(u.aggregators\\)\\)\")",
+      "Bash(node -e \"require\\(''./node_modules/react-plotly.js''\\); console.log\\(''ok''\\)\")",
+      "Bash(node -e \"const p = require\\(''C:/Users/ludwi/OneDrive/Escritorio/kj/Cruzimex/ETL/frontend/node_modules/xlsx''\\); console.log\\(''xlsx ok, version:'', p.version\\)\")",
+      "Bash(node -e \"const p = require\\(''C:/Users/ludwi/OneDrive/Escritorio/kj/Cruzimex/ETL/frontend/node_modules/plotly.js/package.json''\\); console.log\\(''version:'', p.version, ''| main:'', p.main, ''| exports:'', JSON.stringify\\(p.exports\\)?.slice\\(0,200\\)\\)\")",
+      "Bash(node -e \"const f = require\\(''C:/Users/ludwi/OneDrive/Escritorio/kj/Cruzimex/ETL/frontend/node_modules/react-plotly.js/factory''\\); console.log\\(''factory type:'', typeof f, typeof f.default\\)\")",
+      "Bash(node -e \"const P = require\\(''C:/Users/ludwi/OneDrive/Escritorio/kj/Cruzimex/ETL/frontend/node_modules/plotly.js-dist-min''\\); console.log\\(''plotly-dist-min:'', typeof P, Object.keys\\(P\\).slice\\(0,5\\)\\)\")",
+      "Bash(1 cat:*)",
+      "Bash(node -e \":*)",
+      "Bash(find /c/Users/ludwi/OneDrive/Escritorio/kj/Cruzimex/ETL/backend -type f -not -path */venv/* -not -path */__pycache__/*)",
+      "Bash(\"C:\\\\Users\\\\ludwi\\\\OneDrive\\\\Escritorio\\\\kj\\\\Cruzimex\\\\ETL\\\\backend\\\\api\\\\views.py\")",
+      "Bash(del \"C:\\\\Users\\\\ludwi\\\\OneDrive\\\\Escritorio\\\\kj\\\\Cruzimex\\\\ETL\\\\backend\\\\api\\\\admin_views_append.py\")",
+      "Bash(cmd /c \"type \"\"C:\\\\Users\\\\ludwi\\\\OneDrive\\\\Escritorio\\\\kj\\\\Cruzimex\\\\ETL\\\\backend\\\\api\\\\admin_views_append.py\"\" >> \"\"C:\\\\Users\\\\ludwi\\\\OneDrive\\\\Escritorio\\\\kj\\\\Cruzimex\\\\ETL\\\\backend\\\\api\\\\views.py\"\" && del \"\"C:\\\\Users\\\\ludwi\\\\OneDrive\\\\Escritorio\\\\kj\\\\Cruzimex\\\\ETL\\\\backend\\\\api\\\\admin_views_append.py\"\"\")",
+      "Bash(python manage.py makemigrations api)",
+      "Bash(cmd /c \"where python\")",
+      "Bash(./venv/Scripts/python manage.py makemigrations api)",
+      "Bash(./venv/Scripts/python manage.py migrate)",
+      "Bash(./venv/Scripts/python manage.py check)",
+      "Bash(./venv/Scripts/python -c \"from api.views import admin_create_user, admin_list_users, admin_update_user, admin_update_permissions, admin_set_password, auth_change_password; print\\(''Todas las vistas cargadas OK''\\)\")",
+      "Bash(./venv/Scripts/python -c \"import django, os; os.environ.setdefault\\(''DJANGO_SETTINGS_MODULE'',''cruzimex.settings''\\); django.setup\\(\\); from api.views import admin_create_user, admin_list_users, admin_update_user, admin_update_permissions, admin_set_password, auth_change_password; print\\(''OK''\\)\")",
+      "Bash(./venv/Scripts/python manage.py shell -c \"from django.urls import reverse; print\\(reverse\\(''admin-create-user''\\)\\); print\\(reverse\\(''admin-list-users''\\)\\); print\\(reverse\\(''change-password''\\)\\)\")",
+      "Bash(python -c \"import api.views; print\\(''OK''\\)\")",
+      "Bash(python -m py_compile api/views.py)",
+      "Bash(python -m py_compile api/urls.py)",
+      "Bash(venv/Scripts/python.exe -c \":*)",
+      "Bash(venv/Scripts/pip show:*)",
+      "Bash(venv/Scripts/pip install:*)"
+    ]
+  }
+}

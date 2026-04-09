@@ -1,0 +1,11 @@
+# ── Archivos de prueba sueltos ────────────────────────────────────────────────
+test_running_server.py
+
+# ── IDEs ─────────────────────────────────────────────────────────────────────
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+
+# ── Scripts de parche temporales ─────────────────────────────────────────────
+_patch_*.py

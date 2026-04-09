@@ -1,0 +1,27 @@
+# Variables de entorno
+.env
+*.env
+.env.*
+
+# Carpetas
+data/
+venv/
+
+# Python
+__pycache__/
+*.py[cod]
+*.log
+*.pid
+*.sqlite3
+
+# Django
+*.db
+*.db-journal
+*.sqlite3-journal
+
+# Streamlit
+.streamlit/secrets.toml
+
+# Otros
+.DS_Store
+Thumbs.db

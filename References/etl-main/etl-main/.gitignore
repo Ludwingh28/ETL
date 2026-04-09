@@ -1,0 +1,19 @@
+# Variables de entorno
+.env
+*.env
+.env.*
+
+# Carpetas
+data/
+venv/
+
+# Python
+__pycache__/
+*.py[cod]
+*.log
+*.pid
+*.sqlite3
+
+# IDE
+.vscode/
+.idea/

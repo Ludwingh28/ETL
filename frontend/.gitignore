@@ -1,0 +1,40 @@
+# ── Dependencias ─────────────────────────────────────────────────────────────
+node_modules/
+
+# ── Build de producción ──────────────────────────────────────────────────────
+dist/
+dist-ssr/
+build/
+
+# ── Variables de entorno (pueden contener URLs o claves) ─────────────────────
+.env
+.env.*
+!.env.example
+
+# ── Caché de Vite y herramientas ─────────────────────────────────────────────
+.vite/
+.vite-cache/
+*.local
+
+# ── Logs ─────────────────────────────────────────────────────────────────────
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# ── IDEs y editores ──────────────────────────────────────────────────────────
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+Thumbs.db
+
+# ── TypeScript ───────────────────────────────────────────────────────────────
+*.tsbuildinfo
+
+# ── Testing ──────────────────────────────────────────────────────────────────
+coverage/
+.nyc_output/

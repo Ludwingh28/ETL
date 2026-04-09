@@ -1,0 +1,64 @@
+# ── Entorno virtual ───────────────────────────────────────────────────────────
+venv/
+env/
+.venv/
+.env/
+
+# ── Variables de entorno (contienen credenciales) ────────────────────────────
+.env
+.env.*
+!.env.example
+
+# ── Base de datos SQLite (usuarios/tokens del sistema) ───────────────────────
+*.db
+*.sqlite3
+django_system.db
+
+# ── Archivos compilados Python ───────────────────────────────────────────────
+__pycache__/
+*.py[cod]
+*$py.class
+*.pyc
+*.pyo
+
+# ── Archivos estáticos generados ─────────────────────────────────────────────
+staticfiles/
+static_collected/
+mediafiles/
+media/
+
+# ── Logs ─────────────────────────────────────────────────────────────────────
+*.log
+logs/
+
+# ── Archivos de cobertura y tests ────────────────────────────────────────────
+.coverage
+htmlcov/
+.pytest_cache/
+nosetests.xml
+coverage.xml
+*.cover
+
+# ── Scripts de parche temporales ─────────────────────────────────────────────
+_patch_*.py
+
+# ── IDEs y editores ──────────────────────────────────────────────────────────
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+Thumbs.db
+
+# ── Distribución / empaquetado ───────────────────────────────────────────────
+dist/
+build/
+*.egg-info/
+.eggs/
+
+# ── Archivos de carga de datos (pueden tener info sensible) ──────────────────
+data/
+*.csv
+*.xlsx
+*.xls
