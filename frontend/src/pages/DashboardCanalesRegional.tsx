@@ -43,7 +43,9 @@ interface SkuRow {
   venta_neta: number;
   clientes: number;
   presupuesto: number;
+  presupuesto_uds: number;
   porcentaje: number | null;
+  porcentaje_uds: number | null;
 }
 
 type Regional = "Nacional" | "Santa Cruz" | "Cochabamba" | "La Paz";
@@ -273,6 +275,7 @@ export default function DashboardCanalesRegional() {
   const [categoria, setCategoria] = useState<Categoria>("Alimentos");
 
   const [pptoDir, setPptoDir]           = useState<"desc" | "asc">("desc");
+  const [metrica, setMetrica]           = useState<"bs" | "uds">("bs");
   const [selectedSkuCode, setSelectedSkuCode] = useState<string | null>(null);
   const [skuSearch, setSkuSearch]       = useState("");
 
@@ -653,15 +656,27 @@ export default function DashboardCanalesRegional() {
             </div>
           </div>
 
-          {/* Botón ordenar por presupuesto */}
+          {/* Ordenar + toggle Bs/Uds */}
           <div className="flex flex-col gap-1">
-            <label className="text-[10px] uppercase tracking-widest text-slate-400 font-semibold">Ordenar</label>
-            <button
-              onClick={() => setPptoDir((d) => d === "desc" ? "asc" : "desc")}
-              className="text-xs font-semibold px-3 py-1.5 rounded-lg border bg-white text-slate-600 border-slate-200 hover:border-brand-400 hover:text-brand-600 transition-all flex items-center gap-1.5"
-            >
-              Presupuesto {pptoDir === "desc" ? "↓" : "↑"}
-            </button>
+            <label className="text-[10px] uppercase tracking-widest text-slate-400 font-semibold">Ordenar / Vista</label>
+            <div className="flex gap-2">
+              <button
+                onClick={() => setPptoDir((d) => d === "desc" ? "asc" : "desc")}
+                className="text-xs font-semibold px-3 py-1.5 rounded-lg border bg-white text-slate-600 border-slate-200 hover:border-brand-400 hover:text-brand-600 transition-all flex items-center gap-1.5"
+              >
+                Presupuesto {pptoDir === "desc" ? "↓" : "↑"}
+              </button>
+              <div className="flex rounded-lg overflow-hidden border border-slate-200 text-xs font-semibold">
+                <button
+                  onClick={() => setMetrica("bs")}
+                  className={`px-3 py-1.5 transition-colors ${metrica === "bs" ? "bg-brand-600 text-white" : "bg-white text-slate-500 hover:bg-slate-50"}`}
+                >Bs</button>
+                <button
+                  onClick={() => setMetrica("uds")}
+                  className={`px-3 py-1.5 transition-colors ${metrica === "uds" ? "bg-brand-600 text-white" : "bg-white text-slate-500 hover:bg-slate-50"}`}
+                >Uds</button>
+              </div>
+            </div>
           </div>
         </div>
 
@@ -714,17 +729,17 @@ export default function DashboardCanalesRegional() {
                         }}
                       />
                       <Bar
-                        dataKey="venta_neta"
-                        name="Venta Neta"
+                        dataKey={metrica === "bs" ? "venta_neta" : "cantidad"}
+                        name={metrica === "bs" ? "Venta Neta" : "Unidades"}
                         radius={[0, 3, 3, 0]}
                         barSize={10}
-                        label={{ position: "right", fontSize: 9, fill: "#94a3b8", formatter: ((v: number) => fmtN(v)) as any }}
+                        label={{ position: "right", fontSize: 9, fill: "#94a3b8", formatter: ((v: number) => fmtAbbr(v)) as any }}
                       >
                         {filteredSkus.map((entry) => (
                           <Cell key={entry.codigo} fill={entry.codigo === selectedSkuCode ? "#1d4ed8" : "#3b82f6"} />
                         ))}
                       </Bar>
-                      <Bar dataKey="presupuesto" name="Presupuesto" radius={[0, 3, 3, 0]} barSize={10}>
+                      <Bar dataKey={metrica === "bs" ? "presupuesto" : "presupuesto_uds"} name="Presupuesto" radius={[0, 3, 3, 0]} barSize={10}>
                         {filteredSkus.map((entry) => (
                           <Cell key={entry.codigo} fill={entry.codigo === selectedSkuCode ? "#15803d" : "#22c55e"} />
                         ))}
@@ -763,9 +778,9 @@ export default function DashboardCanalesRegional() {
                   <tr className="text-slate-400">
                     <th className="text-left py-2 font-semibold">Código</th>
                     <th className="text-left py-2 font-semibold">Producto</th>
-                    <th className="text-right py-2 font-semibold">Venta Neta</th>
-                    <th className="text-right py-2 font-semibold">Uds.</th>
-                    <th className="text-right py-2 font-semibold">%</th>
+                    <th className="text-right py-2 font-semibold">{metrica === "bs" ? "Venta Bs" : "Uds. Vend."}</th>
+                    <th className="text-right py-2 font-semibold">Presupuesto</th>
+                    <th className="text-right py-2 font-semibold">Cumplimiento</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -783,11 +798,20 @@ export default function DashboardCanalesRegional() {
                       >
                         <td className={`py-1.5 font-mono font-bold text-[10px] ${isSelected ? "text-brand-600" : "text-slate-500"}`}>{s.codigo}</td>
                         <td className={`py-1.5 max-w-32 truncate ${isSelected ? "text-brand-700 font-semibold" : "text-slate-700"}`} title={s.producto}>{s.producto}</td>
-                        <td className="py-1.5 text-right font-semibold text-slate-800">{fmtN(s.venta_neta)}</td>
-                        <td className="py-1.5 text-right text-slate-500">{s.cantidad.toLocaleString()}</td>
-                        <td className={`py-1.5 text-right font-bold ${
-                          s.porcentaje == null ? "text-slate-300" : s.porcentaje >= 100 ? "text-emerald-600" : s.porcentaje >= 80 ? "text-amber-500" : "text-red-500"
-                        }`}>{fmtPct(s.porcentaje)}</td>
+                        <td className="py-1.5 text-right font-semibold text-slate-800 tabular-nums">
+                          {metrica === "bs" ? fmtN(s.venta_neta) : fmtN(s.cantidad)}
+                        </td>
+                        <td className="py-1.5 text-right text-emerald-700 tabular-nums">
+                          {metrica === "bs" ? fmtN(s.presupuesto) : fmtN(s.presupuesto_uds)}
+                        </td>
+                        {(() => {
+                          const pct = metrica === "bs" ? s.porcentaje : s.porcentaje_uds;
+                          return (
+                            <td className={`py-1.5 text-right font-bold tabular-nums ${pct == null ? "text-slate-300" : pct >= 100 ? "text-emerald-600" : pct >= 80 ? "text-amber-500" : "text-red-500"}`}>
+                              {fmtPct(pct)}
+                            </td>
+                          );
+                        })()}
                       </tr>
                     );
                   })}

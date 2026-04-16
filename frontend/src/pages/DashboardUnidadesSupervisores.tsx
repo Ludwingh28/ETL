@@ -13,11 +13,11 @@ import DashboardLayout from "../components/DashboardLayout";
 interface VendedorRow {
   vendedor_sk:    number;
   vendedor:       string;
-  alimentos:      number; alimentos_cant: number; alimentos_pct: number | null;
-  apego:          number; apego_cant:     number; apego_pct:     number | null;
-  licores:        number; licores_cant:   number; licores_pct:   number | null;
-  hpc:            number; hpc_cant:       number; hpc_pct:       number | null;
-  total:          number; total_cant:     number; total_pct:     number | null;
+  alimentos:      number; alimentos_cant: number; alimentos_pct: number | null; alimentos_ppto: number; alimentos_ppto_uds: number; alimentos_pct_uds: number | null;
+  apego:          number; apego_cant:     number; apego_pct:     number | null; apego_ppto:     number; apego_ppto_uds:     number; apego_pct_uds:     number | null;
+  licores:        number; licores_cant:   number; licores_pct:   number | null; licores_ppto:   number; licores_ppto_uds:   number; licores_pct_uds:   number | null;
+  hpc:            number; hpc_cant:       number; hpc_pct:       number | null; hpc_ppto:       number; hpc_ppto_uds:       number; hpc_pct_uds:       number | null;
+  total:          number; total_cant:     number; total_pct:     number | null; total_ppto:     number; total_ppto_uds:     number; total_pct_uds:     number | null;
 }
 
 interface ApiData {
@@ -28,18 +28,24 @@ interface ApiData {
 }
 
 interface SkuRow {
-  codigo:     string;
-  producto:   string;
-  cantidad:   number;
-  venta_neta: number;
+  codigo:          string;
+  producto:        string;
+  cantidad:        number;
+  venta_neta:      number;
+  presupuesto:     number;
+  presupuesto_uds: number;
+  porcentaje:      number | null;
+  porcentaje_uds:  number | null;
 }
 
 interface SubgrupoRow {
-  subgrupo:    string;
-  cantidad:    number;
-  venta_neta:  number;
-  presupuesto: number;
-  porcentaje:  number | null;
+  subgrupo:        string;
+  cantidad:        number;
+  venta_neta:      number;
+  presupuesto:     number;
+  presupuesto_uds: number;
+  porcentaje:      number | null;
+  porcentaje_uds:  number | null;
 }
 
 type Regional  = "Nacional" | "Santa Cruz" | "Cochabamba" | "La Paz";
@@ -70,7 +76,10 @@ interface CatCfg {
   label:       string;
   cantKey:     keyof VendedorRow;
   bsKey:       keyof VendedorRow;
+  pptoKey:     keyof VendedorRow;
+  pptoUdsKey:  keyof VendedorRow;
   pctKey:      keyof VendedorRow;
+  pctUdsKey:   keyof VendedorRow;
   color:       string;
   activeClass: string;
   barColor:    string;
@@ -78,11 +87,11 @@ interface CatCfg {
 }
 
 const CAT_CFG: Record<CatKey, CatCfg> = {
-  total:     { label: "Total",                cantKey: "total_cant",     bsKey: "total",     pctKey: "total_pct",     color: "text-slate-700", activeClass: "bg-slate-700 text-white",  barColor: "#3b82f6", barColorSel: "#1d4ed8" },
-  alimentos: { label: "Alimentos",            cantKey: "alimentos_cant", bsKey: "alimentos", pctKey: "alimentos_pct", color: "text-green-700", activeClass: "bg-green-600 text-white",  barColor: "#22c55e", barColorSel: "#15803d" },
-  apego:     { label: "Apego",                cantKey: "apego_cant",     bsKey: "apego",     pctKey: "apego_pct",     color: "text-pink-700",  activeClass: "bg-pink-600 text-white",   barColor: "#ec4899", barColorSel: "#be185d" },
-  licores:   { label: "Licores",              cantKey: "licores_cant",   bsKey: "licores",   pctKey: "licores_pct",   color: "text-rose-700",  activeClass: "bg-rose-600 text-white",   barColor: "#f43f5e", barColorSel: "#be123c" },
-  hpc:       { label: "Home & Personal Care", cantKey: "hpc_cant",       bsKey: "hpc",       pctKey: "hpc_pct",       color: "text-sky-700",   activeClass: "bg-sky-600 text-white",    barColor: "#0ea5e9", barColorSel: "#0369a1" },
+  total:     { label: "Total",                cantKey: "total_cant",     bsKey: "total",     pptoKey: "total_ppto",     pptoUdsKey: "total_ppto_uds",     pctKey: "total_pct",     pctUdsKey: "total_pct_uds",     color: "text-slate-700", activeClass: "bg-slate-700 text-white",  barColor: "#3b82f6", barColorSel: "#1d4ed8" },
+  alimentos: { label: "Alimentos",            cantKey: "alimentos_cant", bsKey: "alimentos", pptoKey: "alimentos_ppto", pptoUdsKey: "alimentos_ppto_uds", pctKey: "alimentos_pct", pctUdsKey: "alimentos_pct_uds", color: "text-green-700", activeClass: "bg-green-600 text-white",  barColor: "#22c55e", barColorSel: "#15803d" },
+  apego:     { label: "Apego",                cantKey: "apego_cant",     bsKey: "apego",     pptoKey: "apego_ppto",     pptoUdsKey: "apego_ppto_uds",     pctKey: "apego_pct",     pctUdsKey: "apego_pct_uds",     color: "text-pink-700",  activeClass: "bg-pink-600 text-white",   barColor: "#ec4899", barColorSel: "#be185d" },
+  licores:   { label: "Licores",              cantKey: "licores_cant",   bsKey: "licores",   pptoKey: "licores_ppto",   pptoUdsKey: "licores_ppto_uds",   pctKey: "licores_pct",   pctUdsKey: "licores_pct_uds",   color: "text-rose-700",  activeClass: "bg-rose-600 text-white",   barColor: "#f43f5e", barColorSel: "#be123c" },
+  hpc:       { label: "Home & Personal Care", cantKey: "hpc_cant",       bsKey: "hpc",       pptoKey: "hpc_ppto",       pptoUdsKey: "hpc_ppto_uds",       pctKey: "hpc_pct",       pctUdsKey: "hpc_pct_uds",       color: "text-sky-700",   activeClass: "bg-sky-600 text-white",    barColor: "#0ea5e9", barColorSel: "#0369a1" },
 };
 
 // Cargos que pueden ver y cambiar los filtros de regional/canal
@@ -132,6 +141,9 @@ export default function DashboardUnidadesSupervisores() {
   const [canalList, setCanalList] = useState<string[]>([]);
   const [anho,      setAnho]      = useState(now.getFullYear());
   const [mes,       setMes]       = useState(now.getMonth() + 1);
+
+  // Toggle global Bs / Uds (afecta toda la página)
+  const [metrica, setMetrica] = useState<"bs" | "uds">("bs");
 
   // Segmentador categoría
   const [catKey, setCatKey] = useState<CatKey>("alimentos");
@@ -242,15 +254,19 @@ export default function DashboardUnidadesSupervisores() {
 
   // ── Derived ───────────────────────────────────────────────────────────────
   const cfg = CAT_CFG[catKey];
+  const [vendSort, setVendSort] = useState<"valor" | "ppto">("valor");
 
   const filteredVendedores = useMemo(() => {
     if (!data) return [];
     const q = vendSearch.trim().toLowerCase();
+    const sortKey = vendSort === "ppto"
+      ? (metrica === "bs" ? cfg.pptoKey : cfg.pptoUdsKey)
+      : (metrica === "bs" ? cfg.bsKey   : cfg.cantKey);
     const rows = [...data.vendedores].sort((a, b) =>
-      (b[cfg.cantKey] as number) - (a[cfg.cantKey] as number)
+      (b[sortKey] as number) - (a[sortKey] as number)
     );
     return q ? rows.filter((r) => r.vendedor.toLowerCase().includes(q)) : rows;
-  }, [data, cfg, vendSearch]);
+  }, [data, cfg, vendSearch, vendSort, metrica]);
 
   const filteredSkus = useMemo(() => {
     const q = skuSearch.trim().toLowerCase();
@@ -258,8 +274,12 @@ export default function DashboardUnidadesSupervisores() {
   }, [skus, skuSearch]);
 
   const skuChartData = useMemo(
-    () => filteredSkus.map((s) => ({ name: s.producto, codigo: s.codigo, value: s.venta_neta })),
-    [filteredSkus]
+    () => filteredSkus.map((s) => ({
+      name: s.producto, codigo: s.codigo,
+      avance:      metrica === "bs" ? s.venta_neta      : s.cantidad,
+      presupuesto: metrica === "bs" ? s.presupuesto     : s.presupuesto_uds,
+    })),
+    [filteredSkus, metrica]
   );
 
   const anhos = [...new Set(periodos.map(p => p.anho))].sort((a, b) => b - a);
@@ -275,7 +295,20 @@ export default function DashboardUnidadesSupervisores() {
       {/* ── Header + Filtros ────────────────────────────────────────────── */}
       <div className="flex flex-wrap items-start justify-between gap-4 mb-6">
         <div>
-          <h1 className="text-2xl font-bold text-slate-800">Unidades por Vendedor — SKU</h1>
+          <div className="flex items-center gap-3">
+            <h1 className="text-2xl font-bold text-slate-800">Unidades por Vendedor — SKU</h1>
+            {/* Toggle global Bs / Uds */}
+            <div className="flex rounded-lg overflow-hidden border border-slate-200 text-xs font-semibold">
+              <button onClick={() => setMetrica("bs")}
+                className={`px-3 py-1.5 transition-colors ${metrica === "bs" ? "bg-brand-600 text-white" : "bg-white text-slate-500 hover:bg-slate-50"}`}>
+                Bs
+              </button>
+              <button onClick={() => setMetrica("uds")}
+                className={`px-3 py-1.5 transition-colors ${metrica === "uds" ? "bg-brand-600 text-white" : "bg-white text-slate-500 hover:bg-slate-50"}`}>
+                Uds
+              </button>
+            </div>
+          </div>
           <p className="text-slate-500 text-sm mt-0.5">
             Qué SKU vendió cada vendedor por categoría ·&nbsp;
             <span className="font-semibold text-slate-700">{MESES[mes]} {anho}</span>
@@ -368,7 +401,7 @@ export default function DashboardUnidadesSupervisores() {
             <div className="overflow-y-auto scrollbar-thin scrollbar-thumb-slate-200 scrollbar-track-transparent space-y-1.5 pr-1" style={{ maxHeight: 400 }}>
               {subgrupos.map((sg) => {
                 const isSel = selectedSubgrupo === sg.subgrupo;
-                const pct   = sg.porcentaje;
+                const pct   = metrica === "uds" ? sg.porcentaje_uds : sg.porcentaje;
                 return (
                   <button key={sg.subgrupo}
                     onClick={() => setSelectedSubgrupo(isSel ? null : sg.subgrupo)}
@@ -379,7 +412,9 @@ export default function DashboardUnidadesSupervisores() {
                     }`}>
                     <span className={`font-semibold flex-1 text-left truncate ${isSel ? "text-brand-700" : "text-slate-700"}`}
                       title={sg.subgrupo}>{sg.subgrupo}</span>
-                    <span className="text-slate-400 shrink-0 ml-3">{fmtN(sg.cantidad)} uds.</span>
+                    <span className="text-slate-400 shrink-0 ml-3">
+                      {metrica === "uds" ? `${fmtN(sg.cantidad)} uds.` : fmt(sg.venta_neta)}
+                    </span>
                     <span className={`font-bold shrink-0 ml-3 w-14 text-right ${
                       pct == null ? "text-slate-300" : pct >= 100 ? "text-emerald-600" : pct >= 80 ? "text-amber-500" : "text-red-500"
                     }`}>{fmtPct(pct)}</span>
@@ -409,25 +444,29 @@ export default function DashboardUnidadesSupervisores() {
                     <Tooltip content={(props: any) => {
                       if (!props.active || !props.payload?.length) return null;
                       const row: SubgrupoRow = props.payload[0]?.payload;
+                      const isUds = metrica === "uds";
+                      const avance = isUds ? row.cantidad : row.venta_neta;
+                      const ppto   = isUds ? row.presupuesto_uds : row.presupuesto;
+                      const pct    = isUds ? row.porcentaje_uds : row.porcentaje;
+                      const fV = (n: number) => isUds ? fmtN(n) : fmt(n);
                       return (
                         <div className="bg-white border border-slate-200 rounded-xl shadow-xl px-4 py-3 text-sm max-w-64">
                           <p className="font-bold text-slate-800 mb-1">{row.subgrupo}</p>
                           <div className="flex gap-4 flex-wrap text-xs">
-                            <div><p className="text-slate-400">Unidades</p><p className="font-semibold text-blue-600">{fmtN(row.cantidad)}</p></div>
-                            <div><p className="text-slate-400">Venta Neta</p><p className="font-semibold text-slate-700">{fmt(row.venta_neta)}</p></div>
-                            {row.presupuesto > 0 && <div><p className="text-slate-400">Presupuesto</p><p className="font-semibold text-emerald-600">{fmt(row.presupuesto)}</p></div>}
-                            {row.porcentaje != null && <div><p className="text-slate-400">Cumpl.</p><p className={`font-bold ${row.porcentaje >= 100 ? "text-emerald-600" : row.porcentaje >= 80 ? "text-amber-500" : "text-red-500"}`}>{fmtPct(row.porcentaje)}</p></div>}
+                            <div><p className="text-slate-400">Avance</p><p className="font-semibold text-blue-600">{fV(avance)}</p></div>
+                            {ppto > 0 && <div><p className="text-slate-400">Presupuesto</p><p className="font-semibold text-emerald-600">{fV(ppto)}</p></div>}
+                            {pct != null && <div><p className="text-slate-400">Cumpl.</p><p className={`font-bold ${pct >= 100 ? "text-emerald-600" : pct >= 80 ? "text-amber-500" : "text-red-500"}`}>{fmtPct(pct)}</p></div>}
                           </div>
                         </div>
                       );
                     }} />
-                    <Bar dataKey="venta_neta" name="Venta Neta" radius={[0, 3, 3, 0]} barSize={9}
-                      label={{ position: "right", fontSize: 9, fill: "#94a3b8", formatter: ((_v: unknown, _e: unknown, idx: number) => fmtPct(subgrupos[idx]?.porcentaje)) as any }}>
+                    <Bar dataKey={metrica === "uds" ? "cantidad" : "venta_neta"} name={metrica === "uds" ? "Uds. Vendidas" : "Venta Bs"} radius={[0, 3, 3, 0]} barSize={9}>
                       {subgrupos.map((entry) => (
                         <Cell key={entry.subgrupo} fill={selectedSubgrupo === entry.subgrupo ? cfg.barColorSel : cfg.barColor} />
                       ))}
                     </Bar>
-                    <Bar dataKey="presupuesto" name="Presupuesto" radius={[0, 3, 3, 0]} barSize={9}>
+                    <Bar dataKey={metrica === "uds" ? "presupuesto_uds" : "presupuesto"} name="Presupuesto" radius={[0, 3, 3, 0]} barSize={9}
+                      label={{ position: "right", fontSize: 9, fill: "#94a3b8", formatter: ((_v: unknown, _e: unknown, idx: number) => fmtPct(metrica === "uds" ? subgrupos[idx]?.porcentaje_uds : subgrupos[idx]?.porcentaje)) as any }}>
                       {subgrupos.map((entry) => (
                         <Cell key={entry.subgrupo} fill={selectedSubgrupo === entry.subgrupo ? "#15803d" : "#22c55e"} />
                       ))}
@@ -446,17 +485,23 @@ export default function DashboardUnidadesSupervisores() {
           <div>
             <h2 className="font-semibold text-slate-700 text-sm">Tabla de Vendedores</h2>
             <p className="text-[11px] text-slate-400">
-              {MESES[mes]} {anho}
+              {MESES[mes]} {anho} · {metrica === "bs" ? "en Bs" : "en Unidades"}
               {selectedSubgrupo && <span> · filtrado por <span className="font-semibold text-slate-600">{selectedSubgrupo}</span></span>}
               {selVendedor && <span> · seleccionado: <span className={`font-semibold ${cfg.color}`}>{selVendedor.vendedor}</span></span>}
             </p>
           </div>
-          <div className="relative">
-            <Search size={12} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-400" />
-            <input type="text" value={vendSearch}
-              onChange={(e: ChangeEvent<HTMLInputElement>) => setVendSearch(e.target.value)}
-              placeholder="Buscar vendedor…"
-              className="text-xs pl-7 pr-3 py-1.5 border border-slate-200 rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-brand-400 placeholder:text-slate-300 w-44" />
+          <div className="flex items-center gap-2">
+            <button onClick={() => setVendSort((s) => s === "valor" ? "ppto" : "valor")}
+              className="text-xs font-semibold px-3 py-1.5 rounded-lg border bg-white text-slate-600 border-slate-200 hover:border-brand-400 hover:text-brand-600 transition-all">
+              Ordenar: {vendSort === "valor" ? "Ventas ↓" : "Presupuesto ↓"}
+            </button>
+            <div className="relative">
+              <Search size={12} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-400" />
+              <input type="text" value={vendSearch}
+                onChange={(e: ChangeEvent<HTMLInputElement>) => setVendSearch(e.target.value)}
+                placeholder="Buscar vendedor…"
+                className="text-xs pl-7 pr-3 py-1.5 border border-slate-200 rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-brand-400 placeholder:text-slate-300 w-44" />
+            </div>
           </div>
         </div>
 
@@ -468,41 +513,49 @@ export default function DashboardUnidadesSupervisores() {
               <thead className="sticky top-0 bg-white z-10 shadow-[0_1px_0_0_#f1f5f9]">
                 <tr className="text-slate-500">
                   <th className="text-left py-2 pr-4 font-semibold w-48">Vendedor</th>
-                  <th className="text-right py-2 px-3 font-semibold text-green-700">Alimentos</th>
-                  <th className="text-right py-2 px-3 font-semibold text-green-600 text-[10px]">Cumpl.</th>
-                  <th className="text-right py-2 px-3 font-semibold text-pink-700">Apego</th>
-                  <th className="text-right py-2 px-3 font-semibold text-pink-600 text-[10px]">Cumpl.</th>
-                  <th className="text-right py-2 px-3 font-semibold text-rose-700">Licores</th>
-                  <th className="text-right py-2 px-3 font-semibold text-rose-600 text-[10px]">Cumpl.</th>
-                  <th className="text-right py-2 px-3 font-semibold text-sky-700">HPC</th>
-                  <th className="text-right py-2 px-3 font-semibold text-sky-600 text-[10px]">Cumpl.</th>
-                  <th className="text-right py-2 pl-3 font-semibold text-slate-700">Total uds.</th>
-                  <th className="text-right py-2 px-3 font-semibold text-slate-600">Venta Bs</th>
+                  <th className="text-right py-2 px-2 font-semibold text-green-700">Alimentos</th>
+                  <th className="text-right py-2 px-1 font-semibold text-green-600 text-[10px]">Cumpl.</th>
+                  <th className="text-right py-2 px-2 font-semibold text-pink-700">Apego</th>
+                  <th className="text-right py-2 px-1 font-semibold text-pink-600 text-[10px]">Cumpl.</th>
+                  <th className="text-right py-2 px-2 font-semibold text-rose-700">Licores</th>
+                  <th className="text-right py-2 px-1 font-semibold text-rose-600 text-[10px]">Cumpl.</th>
+                  <th className="text-right py-2 px-2 font-semibold text-sky-700">HPC</th>
+                  <th className="text-right py-2 px-1 font-semibold text-sky-600 text-[10px]">Cumpl.</th>
+                  <th className="text-right py-2 pl-3 font-semibold text-slate-700">Total</th>
+                  <th className="text-right py-2 px-2 font-semibold text-slate-500 text-[10px]">Ppto.</th>
                   <th className="text-right py-2 pl-1 font-semibold text-slate-500 text-[10px]">Cumpl.</th>
                 </tr>
               </thead>
               <tbody>
                 {filteredVendedores.map((vend) => {
                   const isSel = selVendedor?.vendedor_sk === vend.vendedor_sk;
+                  const isUds = metrica === "uds";
+                  const vA = isUds ? vend.alimentos_cant : vend.alimentos; const cA = isUds ? vend.alimentos_pct_uds : vend.alimentos_pct;
+                  const vE = isUds ? vend.apego_cant     : vend.apego;     const cE = isUds ? vend.apego_pct_uds     : vend.apego_pct;
+                  const vL = isUds ? vend.licores_cant   : vend.licores;   const cL = isUds ? vend.licores_pct_uds   : vend.licores_pct;
+                  const vH = isUds ? vend.hpc_cant       : vend.hpc;       const cH = isUds ? vend.hpc_pct_uds       : vend.hpc_pct;
+                  const vT = isUds ? vend.total_cant     : vend.total;
+                  const pT = isUds ? vend.total_ppto_uds : vend.total_ppto;
+                  const cT = isUds ? vend.total_pct_uds  : vend.total_pct;
+                  const fVal = (n: number) => isUds ? fmtN(n) : fmt(n);
                   return (
                     <tr key={vend.vendedor_sk}
                       onClick={() => setSelVendedor(isSel ? null : vend)}
                       className={`border-b border-slate-50 cursor-pointer transition-colors ${
                         isSel ? "bg-brand-50 ring-1 ring-inset ring-brand-300" : "hover:bg-slate-50"
                       }`}>
-                      <td className={`py-2 pr-4 font-semibold truncate max-w-48 ${isSel ? "text-brand-700" : "text-slate-700"}`}
-                        title={vend.vendedor}>{vend.vendedor}</td>
-                      <td className="py-2 px-3 text-right tabular-nums text-slate-700">{fmtN(vend.alimentos_cant)}</td>
-                      <td className={`py-2 px-3 text-right tabular-nums text-[10px] font-semibold ${pctColor(vend.alimentos_pct)}`}>{fmtPct(vend.alimentos_pct)}</td>
-                      <td className="py-2 px-3 text-right tabular-nums text-slate-700">{fmtN(vend.apego_cant)}</td>
-                      <td className={`py-2 px-3 text-right tabular-nums text-[10px] font-semibold ${pctColor(vend.apego_pct)}`}>{fmtPct(vend.apego_pct)}</td>
-                      <td className="py-2 px-3 text-right tabular-nums text-slate-700">{fmtN(vend.licores_cant)}</td>
-                      <td className={`py-2 px-3 text-right tabular-nums text-[10px] font-semibold ${pctColor(vend.licores_pct)}`}>{fmtPct(vend.licores_pct)}</td>
-                      <td className="py-2 px-3 text-right tabular-nums text-slate-700">{fmtN(vend.hpc_cant)}</td>
-                      <td className={`py-2 px-3 text-right tabular-nums text-[10px] font-semibold ${pctColor(vend.hpc_pct)}`}>{fmtPct(vend.hpc_pct)}</td>
-                      <td className={`py-2 pl-3 text-right tabular-nums font-bold ${isSel ? "text-brand-700" : "text-slate-800"}`}>{fmtN(vend.total_cant)}</td>
-                      <td className={`py-2 px-3 text-right tabular-nums font-semibold ${isSel ? "text-brand-700" : "text-slate-700"}`}>{fmt(vend.total)}</td>
-                      <td className={`py-2 pl-1 text-right tabular-nums text-[10px] font-bold ${pctColor(vend.total_pct)}`}>{fmtPct(vend.total_pct)}</td>
+                      <td className={`py-2 pr-4 font-semibold truncate max-w-48 ${isSel ? "text-brand-700" : "text-slate-700"}`} title={vend.vendedor}>{vend.vendedor}</td>
+                      <td className="py-2 px-2 text-right tabular-nums text-slate-700">{fVal(vA)}</td>
+                      <td className={`py-2 px-1 text-right tabular-nums text-[10px] font-semibold ${pctColor(cA)}`}>{fmtPct(cA)}</td>
+                      <td className="py-2 px-2 text-right tabular-nums text-slate-700">{fVal(vE)}</td>
+                      <td className={`py-2 px-1 text-right tabular-nums text-[10px] font-semibold ${pctColor(cE)}`}>{fmtPct(cE)}</td>
+                      <td className="py-2 px-2 text-right tabular-nums text-slate-700">{fVal(vL)}</td>
+                      <td className={`py-2 px-1 text-right tabular-nums text-[10px] font-semibold ${pctColor(cL)}`}>{fmtPct(cL)}</td>
+                      <td className="py-2 px-2 text-right tabular-nums text-slate-700">{fVal(vH)}</td>
+                      <td className={`py-2 px-1 text-right tabular-nums text-[10px] font-semibold ${pctColor(cH)}`}>{fmtPct(cH)}</td>
+                      <td className={`py-2 pl-3 text-right tabular-nums font-bold ${isSel ? "text-brand-700" : "text-slate-800"}`}>{fVal(vT)}</td>
+                      <td className="py-2 px-2 text-right tabular-nums text-[10px] text-emerald-600">{fVal(pT)}</td>
+                      <td className={`py-2 pl-1 text-right tabular-nums text-[10px] font-bold ${pctColor(cT)}`}>{fmtPct(cT)}</td>
                     </tr>
                   );
                 })}
@@ -561,21 +614,32 @@ export default function DashboardUnidadesSupervisores() {
                             if (!props.active || !props.payload?.length) return null;
                             const row = filteredSkus.find((s) => s.codigo === props.payload[0]?.payload?.codigo);
                             if (!row) return null;
+                            const isUds = metrica === "uds";
+                            const avance = isUds ? row.cantidad    : row.venta_neta;
+                            const ppto   = isUds ? row.presupuesto_uds : row.presupuesto;
+                            const pct    = isUds ? row.porcentaje_uds  : row.porcentaje;
+                            const fV = (n: number) => isUds ? fmtN(n) : fmt(n);
                             return (
                               <div className="bg-white border border-slate-200 rounded-xl shadow-xl px-4 py-3 text-sm max-w-72">
                                 <p className="font-bold text-slate-800 mb-0.5">{row.codigo}</p>
                                 <p className="text-slate-500 text-xs mb-2 leading-tight">{row.producto}</p>
                                 <div className="flex gap-4 text-xs">
-                                  <div><p className="text-slate-400">Unidades</p><p className="font-semibold text-blue-600">{fmtN(row.cantidad)}</p></div>
-                                  <div><p className="text-slate-400">Venta Neta</p><p className="font-semibold text-emerald-600">{fmt(row.venta_neta)}</p></div>
+                                  <div><p className="text-slate-400">Avance</p><p className="font-semibold text-blue-600">{fV(avance)}</p></div>
+                                  {ppto > 0 && <div><p className="text-slate-400">Presupuesto</p><p className="font-semibold text-emerald-600">{fV(ppto)}</p></div>}
+                                  {pct != null && <div><p className="text-slate-400">Cumpl.</p><p className={`font-bold ${pctColor(pct)}`}>{fmtPct(pct)}</p></div>}
                                 </div>
                               </div>
                             );
                           }} />
-                          <Bar dataKey="value" name="Venta Neta" radius={[0, 3, 3, 0]} barSize={10}
-                            label={{ position: "right", fontSize: 9, fill: "#94a3b8", formatter: ((v: number) => fmtAbbr(v)) as any }}>
+                          <Bar dataKey="avance" name={metrica === "bs" ? "Venta Bs" : "Uds. Vendidas"} radius={[0, 3, 3, 0]} barSize={9}>
                             {skuChartData.map((entry) => (
                               <Cell key={entry.codigo} fill={selSkuCode === entry.codigo ? cfg.barColorSel : cfg.barColor} />
+                            ))}
+                          </Bar>
+                          <Bar dataKey="presupuesto" name="Presupuesto" radius={[0, 3, 3, 0]} barSize={9}
+                            label={{ position: "right", fontSize: 9, fill: "#94a3b8", formatter: ((v: number) => v > 0 ? fmtAbbr(v) : "") as any }}>
+                            {skuChartData.map((entry) => (
+                              <Cell key={entry.codigo} fill={selSkuCode === entry.codigo ? "#15803d" : "#22c55e"} />
                             ))}
                           </Bar>
                         </BarChart>
@@ -591,13 +655,19 @@ export default function DashboardUnidadesSupervisores() {
                       <thead className="sticky top-0 bg-white z-10 shadow-[0_1px_0_0_#f1f5f9]">
                         <tr className="text-slate-400">
                           <th className="text-left py-2 font-semibold">SKU</th>
-                          <th className="text-right py-2 font-semibold">Uds.</th>
-                          <th className="text-right py-2 font-semibold">Venta Neta</th>
+                          <th className="text-right py-2 font-semibold">{metrica === "bs" ? "Venta Bs" : "Uds. Vend."}</th>
+                          <th className="text-right py-2 font-semibold">Presup.</th>
+                          <th className="text-right py-2 font-semibold">Cumpl.</th>
                         </tr>
                       </thead>
                       <tbody>
                         {filteredSkus.map((s) => {
                           const isSel = selSkuCode === s.codigo;
+                          const isUds = metrica === "uds";
+                          const avance = isUds ? s.cantidad        : s.venta_neta;
+                          const ppto   = isUds ? s.presupuesto_uds : s.presupuesto;
+                          const pct    = isUds ? s.porcentaje_uds  : s.porcentaje;
+                          const fV = (n: number) => isUds ? fmtN(n) : fmt(n);
                           return (
                             <tr key={s.codigo}
                               onClick={() => setSelSkuCode((prev) => prev === s.codigo ? null : s.codigo)}
@@ -606,8 +676,9 @@ export default function DashboardUnidadesSupervisores() {
                               }`}>
                               <td className={`py-1.5 max-w-35 truncate ${isSel ? "text-brand-700 font-semibold" : "text-slate-700"}`}
                                 title={s.producto}>{s.producto}</td>
-                              <td className="py-1.5 text-right font-semibold text-slate-800 tabular-nums">{fmtN(s.cantidad)}</td>
-                              <td className="py-1.5 text-right text-slate-500 tabular-nums">{fmt(s.venta_neta)}</td>
+                              <td className="py-1.5 text-right font-semibold text-slate-800 tabular-nums">{fV(avance)}</td>
+                              <td className="py-1.5 text-right text-emerald-600 tabular-nums text-[11px]">{ppto > 0 ? fV(ppto) : "—"}</td>
+                              <td className={`py-1.5 text-right font-bold tabular-nums text-[11px] ${pctColor(pct)}`}>{fmtPct(pct)}</td>
                             </tr>
                           );
                         })}

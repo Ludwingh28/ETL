@@ -1541,13 +1541,6 @@ def dashboard_canales_por_sku(request):
         if regional not in REGIONALES_VALID:
             return JsonResponse({'success': False, 'error': 'Regional inválida'}, status=400)
 
-        _CAT_GRUPOS = {
-            'Alimentos':            ('ALIMENTOS', 'NO PERECIBLES', 'BEBIDAS REFRESCANTES'),
-            'Licores':              ('BEBIDAS ALCOHOLICAS',),
-            'Home & Personal Care': ('CUIDADO PERSONAL', 'LIMPIEZA'),
-            'Apego':                ('MEZCLADOR', 'CATEGORÍA PENDIENTE'),
-        }
-
         ciudad_cond = _regional_filter(regional)
         canal_cond  = "AND dv.canal_rrhh = %s" if canal else ""
 
@@ -1555,13 +1548,10 @@ def dashboard_canales_por_sku(request):
         if canal:
             params.append(canal)
 
-        if categoria and categoria in _CAT_GRUPOS:
-            grupos = _CAT_GRUPOS[categoria]
-            placeholders = ', '.join(['%s'] * len(grupos))
-            cat_cond = f"AND dp.grupo_descripcion IN ({placeholders})"
-            params.extend(grupos)
-        else:
-            cat_cond = ""
+        cat_cond = ""
+        if categoria and categoria in _UNIDADES_CAT_LINEA:
+            cat_cond = "AND dp.linea = %s"
+            params.append(_UNIDADES_CAT_LINEA[categoria])
 
         params_ventas = list(params) + [limit]
 
@@ -1569,8 +1559,8 @@ def dashboard_canales_por_sku(request):
             SELECT
                 dp.producto_codigo_erp                           AS codigo,
                 dp.producto_nombre                               AS producto,
-                COALESCE(dp.grupo_descripcion, 'Sin Categoría') AS categoria,
-                COALESCE(dp.subgrupo_descripcion, '')           AS subgrupo,
+                COALESCE(dp.linea, 'Sin Línea')                  AS categoria,
+                COALESCE(dp.subgrupo_descripcion, '')            AS subgrupo,
                 COALESCE(SUM(fv.cantidad), 0)                    AS cantidad,
                 COALESCE(SUM(fv.venta_neta), 0)                  AS venta_neta,
                 COUNT(DISTINCT fv.cliente_sk)                    AS clientes
@@ -1581,18 +1571,19 @@ def dashboard_canales_por_sku(request):
             WHERE df.anho = %s AND df.mes_numero = %s
               AND ({ciudad_cond}) {canal_cond} {cat_cond}
             GROUP BY dp.producto_codigo_erp, dp.producto_nombre,
-                     dp.grupo_descripcion, dp.subgrupo_descripcion
+                     dp.linea, dp.subgrupo_descripcion
             ORDER BY venta_neta DESC
             LIMIT %s
         """
         _, rows = _run_dw_query(sql, params_ventas)
 
-        # Presupuesto por producto
+        # Presupuesto por producto (Bs + Uds)
         ppto_map = {}
         try:
             sql_ppto = f"""
-                SELECT dp.producto_codigo_erp AS codigo,
-                       COALESCE(SUM(fp.venta_neta_presupuestada), 0) AS presupuesto
+                SELECT dp.producto_codigo_erp                              AS codigo,
+                       COALESCE(SUM(fp.venta_neta_presupuestada), 0)       AS presupuesto,
+                       COALESCE(SUM(fp.cantidad_presupuestada), 0)         AS presupuesto_uds
                 FROM dw.fact_presupuesto fp
                 JOIN dw.dim_presupuesto_version dpv ON fp.version_sk  = dpv.version_sk
                 JOIN dw.dim_vendedor dv              ON fp.vendedor_sk = dv.vendedor_sk
@@ -1602,19 +1593,24 @@ def dashboard_canales_por_sku(request):
                 GROUP BY dp.producto_codigo_erp
             """
             _, ppto_rows = _run_dw_query(sql_ppto, params)
-            ppto_map = {r['codigo']: float(r['presupuesto'] or 0) for r in ppto_rows}
+            ppto_map = {r['codigo']: r for r in ppto_rows}
         except Exception:
             pass
 
         result = []
         for row in rows:
-            vn   = float(row['venta_neta'] or 0)
-            ppto = ppto_map.get(row['codigo'], 0)
+            vn       = float(row['venta_neta'] or 0)
+            cant     = int(row['cantidad'] or 0)
+            p        = ppto_map.get(row['codigo'], {})
+            ppto_bs  = float(p.get('presupuesto',     0) or 0)
+            ppto_uds = float(p.get('presupuesto_uds', 0) or 0)
             result.append({
                 **row,
-                'venta_neta':  vn,
-                'presupuesto': ppto,
-                'porcentaje':  round(vn / ppto * 100, 1) if ppto > 0 else None,
+                'venta_neta':    vn,
+                'presupuesto':   ppto_bs,
+                'presupuesto_uds': int(ppto_uds),
+                'porcentaje':    round(vn   / ppto_bs  * 100, 1) if ppto_bs  > 0 else None,
+                'porcentaje_uds': round(cant / ppto_uds * 100, 1) if ppto_uds > 0 else None,
             })
         return JsonResponse({'success': True, 'data': result})
     except Exception as e:
@@ -1709,7 +1705,12 @@ def dashboard_supervisores_vendedores(request):
                     COALESCE(SUM(CASE WHEN dp.linea = 'APEGO'                THEN fp.venta_neta_presupuestada ELSE 0 END), 0) AS apego_ppto,
                     COALESCE(SUM(CASE WHEN dp.linea = 'BEBIDAS ALC'          THEN fp.venta_neta_presupuestada ELSE 0 END), 0) AS licores_ppto,
                     COALESCE(SUM(CASE WHEN dp.linea = 'HOME Y PERSONAL CARE' THEN fp.venta_neta_presupuestada ELSE 0 END), 0) AS hpc_ppto,
-                    COALESCE(SUM(fp.venta_neta_presupuestada), 0)                                                              AS total_ppto
+                    COALESCE(SUM(fp.venta_neta_presupuestada), 0)                                                              AS total_ppto,
+                    COALESCE(SUM(CASE WHEN dp.linea = 'ALIMENTOS'            THEN fp.cantidad_presupuestada ELSE 0 END), 0)   AS alimentos_ppto_uds,
+                    COALESCE(SUM(CASE WHEN dp.linea = 'APEGO'                THEN fp.cantidad_presupuestada ELSE 0 END), 0)   AS apego_ppto_uds,
+                    COALESCE(SUM(CASE WHEN dp.linea = 'BEBIDAS ALC'          THEN fp.cantidad_presupuestada ELSE 0 END), 0)   AS licores_ppto_uds,
+                    COALESCE(SUM(CASE WHEN dp.linea = 'HOME Y PERSONAL CARE' THEN fp.cantidad_presupuestada ELSE 0 END), 0)   AS hpc_ppto_uds,
+                    COALESCE(SUM(fp.cantidad_presupuestada), 0)                                                                AS total_ppto_uds
                 FROM dw.fact_presupuesto fp
                 JOIN dw.dim_presupuesto_version dpv ON fp.version_sk  = dpv.version_sk
                 JOIN dw.dim_vendedor             dv  ON fp.vendedor_sk = dv.vendedor_sk
@@ -1727,28 +1728,32 @@ def dashboard_supervisores_vendedores(request):
             a, p = float(avance or 0), float(ppto or 0)
             return round(a / p * 100, 1) if p > 0 else None
 
+        def _pct_uds(cant, ppto_uds):
+            c, pu = int(cant or 0), float(ppto_uds or 0)
+            return round(c / pu * 100, 1) if pu > 0 else None
+
         result = []
         for row in ventas_rows:
-            sk  = row['vendedor_sk']
-            p   = ppto_map.get(sk, {})
-            a_a = float(row['alimentos'] or 0)
-            a_e = float(row['apego']     or 0)
-            a_l = float(row['licores']   or 0)
-            a_h = float(row['hpc']       or 0)
-            a_t = float(row['total']     or 0)
-            p_a = float(p.get('alimentos_ppto') or 0)
-            p_e = float(p.get('apego_ppto')     or 0)
-            p_l = float(p.get('licores_ppto')   or 0)
-            p_h = float(p.get('hpc_ppto')       or 0)
-            p_t = float(p.get('total_ppto')     or 0)
+            sk   = row['vendedor_sk']
+            p    = ppto_map.get(sk, {})
+            a_a  = float(row['alimentos'] or 0);  ca_a = int(row['alimentos_cant'] or 0)
+            a_e  = float(row['apego']     or 0);  ca_e = int(row['apego_cant']     or 0)
+            a_l  = float(row['licores']   or 0);  ca_l = int(row['licores_cant']   or 0)
+            a_h  = float(row['hpc']       or 0);  ca_h = int(row['hpc_cant']       or 0)
+            a_t  = float(row['total']     or 0);  ca_t = int(row['total_cant']     or 0)
+            p_a  = float(p.get('alimentos_ppto')     or 0);  pu_a = float(p.get('alimentos_ppto_uds') or 0)
+            p_e  = float(p.get('apego_ppto')         or 0);  pu_e = float(p.get('apego_ppto_uds')     or 0)
+            p_l  = float(p.get('licores_ppto')       or 0);  pu_l = float(p.get('licores_ppto_uds')   or 0)
+            p_h  = float(p.get('hpc_ppto')           or 0);  pu_h = float(p.get('hpc_ppto_uds')       or 0)
+            p_t  = float(p.get('total_ppto')         or 0);  pu_t = float(p.get('total_ppto_uds')     or 0)
             result.append({
-                'vendedor_sk':     sk,
-                'vendedor':        row['vendedor'],
-                'alimentos':       a_a, 'alimentos_ppto': p_a, 'alimentos_pct': _pct(a_a, p_a), 'alimentos_cant': int(row['alimentos_cant'] or 0),
-                'apego':           a_e, 'apego_ppto':     p_e, 'apego_pct':     _pct(a_e, p_e), 'apego_cant':     int(row['apego_cant']     or 0),
-                'licores':         a_l, 'licores_ppto':   p_l, 'licores_pct':   _pct(a_l, p_l), 'licores_cant':   int(row['licores_cant']   or 0),
-                'hpc':             a_h, 'hpc_ppto':       p_h, 'hpc_pct':       _pct(a_h, p_h), 'hpc_cant':       int(row['hpc_cant']       or 0),
-                'total':           a_t, 'total_ppto':     p_t, 'total_pct':     _pct(a_t, p_t), 'total_cant':     int(row['total_cant']     or 0),
+                'vendedor_sk': sk,
+                'vendedor':    row['vendedor'],
+                'alimentos':   a_a, 'alimentos_ppto': p_a, 'alimentos_pct': _pct(a_a, p_a), 'alimentos_cant': ca_a, 'alimentos_ppto_uds': int(pu_a), 'alimentos_pct_uds': _pct_uds(ca_a, pu_a),
+                'apego':       a_e, 'apego_ppto':     p_e, 'apego_pct':     _pct(a_e, p_e), 'apego_cant':     ca_e, 'apego_ppto_uds':     int(pu_e), 'apego_pct_uds':     _pct_uds(ca_e, pu_e),
+                'licores':     a_l, 'licores_ppto':   p_l, 'licores_pct':   _pct(a_l, p_l), 'licores_cant':   ca_l, 'licores_ppto_uds':   int(pu_l), 'licores_pct_uds':   _pct_uds(ca_l, pu_l),
+                'hpc':         a_h, 'hpc_ppto':       p_h, 'hpc_pct':       _pct(a_h, p_h), 'hpc_cant':       ca_h, 'hpc_ppto_uds':       int(pu_h), 'hpc_pct_uds':       _pct_uds(ca_h, pu_h),
+                'total':       a_t, 'total_ppto':     p_t, 'total_pct':     _pct(a_t, p_t), 'total_cant':     ca_t, 'total_ppto_uds':     int(pu_t), 'total_pct_uds':     _pct_uds(ca_t, pu_t),
             })
 
         total_avance = sum(r['total'] for r in result)
@@ -1922,7 +1927,8 @@ def dashboard_unidades_por_subgrupo(request):
             sql_p = f"""
                 SELECT
                     COALESCE(dp.subgrupo_descripcion, 'Sin Subgrupo') AS subgrupo,
-                    COALESCE(SUM(fp.venta_neta_presupuestada), 0)       AS presupuesto
+                    COALESCE(SUM(fp.venta_neta_presupuestada), 0)     AS presupuesto,
+                    COALESCE(SUM(fp.cantidad_presupuestada), 0)        AS presupuesto_uds
                 FROM dw.fact_presupuesto fp
                 JOIN dw.dim_presupuesto_version dpv ON fp.version_sk  = dpv.version_sk
                 JOIN dw.dim_vendedor             dv  ON fp.vendedor_sk = dv.vendedor_sk
@@ -1932,22 +1938,27 @@ def dashboard_unidades_por_subgrupo(request):
                 GROUP BY dp.subgrupo_descripcion
             """
             _, p_rows = _run_dw_query(sql_p, params)
-            ppto_map = {r['subgrupo']: float(r['presupuesto'] or 0) for r in p_rows}
+            ppto_map = {
+                r['subgrupo']: (float(r['presupuesto'] or 0), float(r['presupuesto_uds'] or 0))
+                for r in p_rows
+            }
         except Exception:
             pass
 
         result = []
         for row in v_rows:
-            sg   = row['subgrupo']
-            vn   = float(row['venta_neta'] or 0)
-            cant = int(row['cantidad'] or 0)
-            ppto = ppto_map.get(sg, 0)
+            sg        = row['subgrupo']
+            vn        = float(row['venta_neta'] or 0)
+            cant      = int(row['cantidad'] or 0)
+            ppto, ppto_uds = ppto_map.get(sg, (0, 0))
             result.append({
-                'subgrupo':    sg,
-                'cantidad':    cant,
-                'venta_neta':  vn,
-                'presupuesto': ppto,
-                'porcentaje':  round(vn / ppto * 100, 1) if ppto > 0 else None,
+                'subgrupo':       sg,
+                'cantidad':       cant,
+                'venta_neta':     vn,
+                'presupuesto':    ppto,
+                'presupuesto_uds': int(ppto_uds),
+                'porcentaje':     round(vn   / ppto     * 100, 1) if ppto     > 0 else None,
+                'porcentaje_uds': round(cant / ppto_uds * 100, 1) if ppto_uds > 0 else None,
             })
         return JsonResponse({'success': True, 'data': result})
     except Exception as e:
@@ -2014,7 +2025,8 @@ def dashboard_unidades_por_sku(request):
             sql_p = f"""
                 SELECT
                     dp.producto_codigo_erp                        AS codigo,
-                    COALESCE(SUM(fp.venta_neta_presupuestada), 0) AS presupuesto
+                    COALESCE(SUM(fp.venta_neta_presupuestada), 0) AS presupuesto,
+                    COALESCE(SUM(fp.cantidad_presupuestada), 0)   AS presupuesto_uds
                 FROM dw.fact_presupuesto fp
                 JOIN dw.dim_presupuesto_version dpv ON fp.version_sk  = dpv.version_sk
                 JOIN dw.dim_vendedor             dv  ON fp.vendedor_sk = dv.vendedor_sk
@@ -2024,21 +2036,26 @@ def dashboard_unidades_por_sku(request):
                 GROUP BY dp.producto_codigo_erp
             """
             _, p_rows = _run_dw_query(sql_p, params_ppto)
-            ppto_map = {r['codigo']: float(r['presupuesto'] or 0) for r in p_rows}
+            ppto_map = {r['codigo']: r for r in p_rows}
         except Exception:
             pass
 
         result = []
         for row in v_rows:
-            vn   = float(row['venta_neta'] or 0)
-            ppto = ppto_map.get(row['codigo'], 0)
+            vn       = float(row['venta_neta'] or 0)
+            cant     = int(row['cantidad'] or 0)
+            p        = ppto_map.get(row['codigo'], {})
+            ppto_bs  = float(p.get('presupuesto',     0) or 0)
+            ppto_uds = float(p.get('presupuesto_uds', 0) or 0)
             result.append({
-                'codigo':      row['codigo'],
-                'producto':    row['producto'],
-                'cantidad':    int(row['cantidad'] or 0),
-                'venta_neta':  vn,
-                'presupuesto': ppto,
-                'porcentaje':  round(vn / ppto * 100, 1) if ppto > 0 else None,
+                'codigo':          row['codigo'],
+                'producto':        row['producto'],
+                'cantidad':        cant,
+                'venta_neta':      vn,
+                'presupuesto':     ppto_bs,
+                'presupuesto_uds': int(ppto_uds),
+                'porcentaje':      round(vn   / ppto_bs  * 100, 1) if ppto_bs  > 0 else None,
+                'porcentaje_uds':  round(cant / ppto_uds * 100, 1) if ppto_uds > 0 else None,
             })
         return JsonResponse({'success': True, 'data': result})
     except Exception as e:
@@ -2098,13 +2115,44 @@ def dashboard_unidades_vendedor_sku(request):
         """
         _, v_rows = _run_dw_query(sql_v, params_v)
 
+        # Presupuesto por SKU para este vendedor
+        ppto_map = {}
+        try:
+            sql_p = f"""
+                SELECT
+                    dp.producto_codigo_erp                            AS codigo,
+                    COALESCE(SUM(fp.venta_neta_presupuestada), 0)     AS presupuesto,
+                    COALESCE(SUM(fp.cantidad_presupuestada), 0)        AS presupuesto_uds
+                FROM dw.fact_presupuesto fp
+                JOIN dw.dim_presupuesto_version dpv ON fp.version_sk  = dpv.version_sk
+                JOIN dw.dim_producto             dp  ON fp.producto_sk = dp.producto_sk
+                WHERE fp.anho = %s AND fp.mes = %s AND dpv.activa = TRUE
+                  AND fp.vendedor_sk = %s
+                GROUP BY dp.producto_codigo_erp
+            """
+            _, p_rows = _run_dw_query(sql_p, [anho, mes, int(vendedor_sk)])
+            ppto_map = {
+                r['codigo']: (float(r['presupuesto'] or 0), float(r['presupuesto_uds'] or 0))
+                for r in p_rows
+            }
+        except Exception:
+            pass
+
         result = []
         for row in v_rows:
+            cod  = row['codigo']
+            cant = int(row['cantidad'] or 0)
+            vn   = float(row['venta_neta'] or 0)
+            ppto, ppto_uds = ppto_map.get(cod, (0, 0))
             result.append({
-                'codigo':     row['codigo'],
-                'producto':   row['producto'],
-                'cantidad':   int(row['cantidad'] or 0),
-                'venta_neta': float(row['venta_neta'] or 0),
+                'codigo':          cod,
+                'producto':        row['producto'],
+                'cantidad':        cant,
+                'venta_neta':      vn,
+                'presupuesto':     ppto,
+                'presupuesto_uds': int(ppto_uds),
+                'porcentaje':      round(vn   / ppto     * 100, 1) if ppto     > 0 else None,
+                'porcentaje_uds':  round(cant / ppto_uds * 100, 1) if ppto_uds > 0 else None,
             })
         return JsonResponse({'success': True, 'data': result})
     except Exception as e:

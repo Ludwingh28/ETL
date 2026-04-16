@@ -1,4 +1,4 @@
-export const CURRENT_VERSION = "1.1.0";
+export const CURRENT_VERSION = "1.1.2";
 
 export interface ChangelogVersion {
   version: string;
@@ -12,6 +12,23 @@ export interface ChangelogVersion {
 }
 
 export const CHANGELOG: ChangelogVersion[] = [
+  {
+    version: "1.1.2",
+    date: "Abril 2026",
+    fixes: [
+      "Clasificación de productos por categoría ahora usa la columna «línea» del DW (más precisa)",
+      "Redirect al cerrar sesión apunta a la ruta correcta en producción",
+    ],
+    features: [
+      "Unidades por Vendedor-SKU: toggle global Bs / Uds afecta toda la página (tabla de vendedores, gráfico y tabla de SKUs)",
+      "Unidades por Vendedor-SKU: gráfico de SKUs muestra barra de Avance y barra de Presupuesto",
+      "Unidades por Vendedor-SKU: tabla de SKUs ahora muestra Avance, Presupuesto y Cumplimiento",
+      "Dashboard Canales / Regional: toggle Bs / Uds en la sección de SKUs",
+      "Dashboard Canales / Regional: columna Presupuesto y Cumplimiento en la tabla de SKUs",
+    ],
+    newDashboardPerms: [],
+    newDashboardNames: {},
+  },
   {
     version: "1.1.0",
     date: "Abril 2026",
