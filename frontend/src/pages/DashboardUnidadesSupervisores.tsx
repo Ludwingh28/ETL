@@ -287,8 +287,6 @@ export default function DashboardUnidadesSupervisores() {
 
   // Nota: si el cargo no es admin ni supervisor, se trata como supervisor
   // (sin filtros manuales, datos auto-scoped por perfil desde el backend)
-  const isKnownRole = isAdmin || isSuperv;
-
   // ── Render ────────────────────────────────────────────────────────────────
   return (
     <DashboardLayout>
