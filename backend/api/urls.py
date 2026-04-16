@@ -57,4 +57,9 @@ urlpatterns = [
     path('dashboard/unidades/por-sku/',       views.dashboard_unidades_por_sku,       name='unidades-por-sku'),
     path('dashboard/unidades/vendedor-sku/',  views.dashboard_unidades_vendedor_sku,  name='unidades-vendedor-sku'),
     path('dashboard/unidades/por-vendedor/',  views.dashboard_unidades_por_vendedor,  name='unidades-por-vendedor'),
+
+    # Dashboard Proveedores  (param: proveedor=PEPSICO|SOFTYS|DMUJER|APEGO|COLHER)
+    path('dashboard/proveedor/kpis/',      views.dashboard_proveedor_kpis,      name='proveedor-kpis'),
+    path('dashboard/proveedor/por-marca/', views.dashboard_proveedor_por_marca,  name='proveedor-por-marca'),
+    path('dashboard/proveedor/tabla/',     views.dashboard_proveedor_tabla,      name='proveedor-tabla'),
 ]

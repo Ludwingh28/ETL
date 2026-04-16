@@ -973,37 +973,22 @@ def dashboard_nacional_por_categoria(request):
 
         sql = """
             SELECT
-                CASE
-                    WHEN dp.grupo_descripcion = 'ALIMENTOS' THEN 'Alimentos'
-                    WHEN dp.grupo_descripcion = 'NO PERECIBLES' THEN 'Alimentos'
-                    WHEN dp.grupo_descripcion = 'BEBIDAS REFRESCANTES' THEN 'Alimentos'
-                    WHEN dp.grupo_descripcion = 'BEBIDAS ALCOHOLICAS' THEN 'Licores'
-                    WHEN dp.grupo_descripcion = 'CUIDADO PERSONAL' THEN 'Home & Personal Care'
-                    WHEN dp.grupo_descripcion = 'LIMPIEZA' THEN 'Home & Personal Care'
-                    WHEN dp.grupo_descripcion = 'MEZCLADOR' THEN 'Apego'
-                    WHEN dp.grupo_descripcion = 'CATEGORÍA PENDIENTE' THEN 'Apego'
+                CASE dp.linea
+                    WHEN 'ALIMENTOS'            THEN 'Alimentos'
+                    WHEN 'APEGO'                THEN 'Apego'
+                    WHEN 'BEBIDAS ALC'          THEN 'Licores'
+                    WHEN 'HOME Y PERSONAL CARE' THEN 'Home & Personal Care'
                     ELSE 'Otros'
                 END AS categoria,
-                COALESCE(SUM(fv.venta_neta), 0)                  AS venta_neta,
-                COALESCE(SUM(fv.cantidad), 0)                    AS cantidad,
-                COUNT(DISTINCT fv.producto_sk)                   AS productos
+                COALESCE(SUM(fv.venta_neta), 0) AS venta_neta,
+                COALESCE(SUM(fv.cantidad), 0)   AS cantidad,
+                COUNT(DISTINCT fv.producto_sk)  AS productos
             FROM dw.fact_ventas fv
-            JOIN dw.dim_fecha df                         ON fv.fecha_sk    = df.fecha_sk
-            JOIN dw.dim_producto dp                      ON fv.producto_sk = dp.producto_sk
+            JOIN dw.dim_fecha    df ON fv.fecha_sk    = df.fecha_sk
+            JOIN dw.dim_producto dp ON fv.producto_sk = dp.producto_sk
             WHERE df.anho = %s AND df.mes_numero = %s
-              AND dp.grupo_descripcion != 'EXHIBIDORES'
-              AND dp.grupo_descripcion IS NOT NULL
-            GROUP BY CASE
-                    WHEN dp.grupo_descripcion = 'ALIMENTOS' THEN 'Alimentos'
-                    WHEN dp.grupo_descripcion = 'NO PERECIBLES' THEN 'Alimentos'
-                    WHEN dp.grupo_descripcion = 'BEBIDAS REFRESCANTES' THEN 'Alimentos'
-                    WHEN dp.grupo_descripcion = 'BEBIDAS ALCOHOLICAS' THEN 'Licores'
-                    WHEN dp.grupo_descripcion = 'CUIDADO PERSONAL' THEN 'Home & Personal Care'
-                    WHEN dp.grupo_descripcion = 'LIMPIEZA' THEN 'Home & Personal Care'
-                    WHEN dp.grupo_descripcion = 'MEZCLADOR' THEN 'Apego'
-                    WHEN dp.grupo_descripcion = 'CATEGORÍA PENDIENTE' THEN 'Apego'
-                    ELSE 'Otros'
-                END
+              AND dp.linea IS NOT NULL
+            GROUP BY dp.linea
             ORDER BY venta_neta DESC
         """
         _, rows = _run_dw_query(sql, [anho, mes])
@@ -1013,36 +998,21 @@ def dashboard_nacional_por_categoria(request):
         try:
             sql_ppto = """
                 SELECT
-                    CASE
-                        WHEN dp.grupo_descripcion = 'ALIMENTOS' THEN 'Alimentos'
-                        WHEN dp.grupo_descripcion = 'NO PERECIBLES' THEN 'Alimentos'
-                        WHEN dp.grupo_descripcion = 'BEBIDAS REFRESCANTES' THEN 'Alimentos'
-                        WHEN dp.grupo_descripcion = 'BEBIDAS ALCOHOLICAS' THEN 'Licores'
-                        WHEN dp.grupo_descripcion = 'CUIDADO PERSONAL' THEN 'Home & Personal Care'
-                        WHEN dp.grupo_descripcion = 'LIMPIEZA' THEN 'Home & Personal Care'
-                        WHEN dp.grupo_descripcion = 'MEZCLADOR' THEN 'Apego'
-                        WHEN dp.grupo_descripcion = 'CATEGORÍA PENDIENTE' THEN 'Apego'
+                    CASE dp.linea
+                        WHEN 'ALIMENTOS'            THEN 'Alimentos'
+                        WHEN 'APEGO'                THEN 'Apego'
+                        WHEN 'BEBIDAS ALC'          THEN 'Licores'
+                        WHEN 'HOME Y PERSONAL CARE' THEN 'Home & Personal Care'
                         ELSE 'Otros'
                     END AS categoria,
                     COALESCE(SUM(fp.venta_neta_presupuestada), 0) AS presupuesto
                 FROM dw.fact_presupuesto fp
                 JOIN dw.dim_presupuesto_version dpv ON fp.version_sk  = dpv.version_sk
-                JOIN dw.dim_producto dp              ON fp.producto_sk = dp.producto_sk
+                JOIN dw.dim_producto             dp  ON fp.producto_sk = dp.producto_sk
                 WHERE fp.anho = %s AND fp.mes = %s
                   AND dpv.activa = TRUE
-                  AND dp.grupo_descripcion != 'EXHIBIDORES'
-                  AND dp.grupo_descripcion IS NOT NULL
-                GROUP BY CASE
-                        WHEN dp.grupo_descripcion = 'ALIMENTOS' THEN 'Alimentos'
-                        WHEN dp.grupo_descripcion = 'NO PERECIBLES' THEN 'Alimentos'
-                        WHEN dp.grupo_descripcion = 'BEBIDAS REFRESCANTES' THEN 'Alimentos'
-                        WHEN dp.grupo_descripcion = 'BEBIDAS ALCOHOLICAS' THEN 'Licores'
-                        WHEN dp.grupo_descripcion = 'CUIDADO PERSONAL' THEN 'Home & Personal Care'
-                        WHEN dp.grupo_descripcion = 'LIMPIEZA' THEN 'Home & Personal Care'
-                        WHEN dp.grupo_descripcion = 'MEZCLADOR' THEN 'Apego'
-                        WHEN dp.grupo_descripcion = 'CATEGORÍA PENDIENTE' THEN 'Apego'
-                        ELSE 'Otros'
-                    END
+                  AND dp.linea IS NOT NULL
+                GROUP BY dp.linea
             """
             _, ppto_rows = _run_dw_query(sql_ppto, [anho, mes])
             ppto_map = {r["categoria"]: r["presupuesto"] for r in ppto_rows}
@@ -1275,11 +1245,11 @@ def dashboard_regionales_por_canal(request):
 
 
 _CATEGORIA_CASE = """
-    CASE
-        WHEN dp.grupo_descripcion IN ('ALIMENTOS', 'NO PERECIBLES', 'BEBIDAS REFRESCANTES') THEN 'Alimentos'
-        WHEN dp.grupo_descripcion = 'BEBIDAS ALCOHOLICAS'                                   THEN 'Licores'
-        WHEN dp.grupo_descripcion IN ('CUIDADO PERSONAL', 'LIMPIEZA')                       THEN 'Home & Personal Care'
-        WHEN dp.grupo_descripcion IN ('MEZCLADOR', 'CATEGORÍA PENDIENTE')                   THEN 'Apego'
+    CASE dp.linea
+        WHEN 'ALIMENTOS'            THEN 'Alimentos'
+        WHEN 'APEGO'                THEN 'Apego'
+        WHEN 'BEBIDAS ALC'          THEN 'Licores'
+        WHEN 'HOME Y PERSONAL CARE' THEN 'Home & Personal Care'
         ELSE 'Otros'
     END
 """
@@ -1309,8 +1279,7 @@ def dashboard_regionales_por_categoria(request):
             JOIN dw.dim_vendedor dv   ON fv.vendedor_sk = dv.vendedor_sk
             JOIN dw.dim_producto dp   ON fv.producto_sk = dp.producto_sk
             WHERE df.anho = %s AND df.mes_numero = %s AND ({ciudad_cond})
-              AND dp.grupo_descripcion != 'EXHIBIDORES'
-              AND dp.grupo_descripcion IS NOT NULL
+              AND dp.linea IS NOT NULL AND dp.linea != 'SIN LINEA'
             GROUP BY {_CATEGORIA_CASE}
             ORDER BY avance DESC
         """
@@ -1508,8 +1477,7 @@ def dashboard_canales_por_categoria(request):
             JOIN dw.dim_producto dp   ON fv.producto_sk = dp.producto_sk
             WHERE df.anho = %s AND df.mes_numero = %s
               AND ({ciudad_cond}) {canal_cond}
-              AND dp.grupo_descripcion != 'EXHIBIDORES'
-              AND dp.grupo_descripcion IS NOT NULL
+              AND dp.linea IS NOT NULL AND dp.linea != 'SIN LINEA'
             GROUP BY {_CATEGORIA_CASE}
             ORDER BY avance DESC
         """
@@ -1664,10 +1632,11 @@ _REGIONAL_NAME_TO_KEY = {
     'Nacional':   'nacional',
 }
 
-_ALIMENTOS_IN = "('ALIMENTOS', 'NO PERECIBLES', 'BEBIDAS REFRESCANTES')"
-_APEGO_IN     = "('MEZCLADOR', 'CATEGORÍA PENDIENTE')"
-_LICORES_IN   = "('BEBIDAS ALCOHOLICAS')"
-_HPC_IN       = "('CUIDADO PERSONAL', 'LIMPIEZA')"
+# Mapeo categoría → valor de dp.linea en el DW
+_LINEA_ALIMENTOS = 'ALIMENTOS'
+_LINEA_APEGO     = 'APEGO'
+_LINEA_LICORES   = 'BEBIDAS ALC'
+_LINEA_HPC       = 'HOME Y PERSONAL CARE'
 
 
 @api_view(['GET'])
@@ -1708,24 +1677,16 @@ def dashboard_supervisores_vendedores(request):
             SELECT
                 dv.vendedor_sk,
                 dv.vendedor_nombre                                                          AS vendedor,
-                COALESCE(SUM(CASE WHEN dp.grupo_descripcion IN {_ALIMENTOS_IN}
-                    THEN fv.venta_neta ELSE 0 END), 0)                                      AS alimentos,
-                COALESCE(SUM(CASE WHEN dp.grupo_descripcion IN {_APEGO_IN}
-                    THEN fv.venta_neta ELSE 0 END), 0)                                      AS apego,
-                COALESCE(SUM(CASE WHEN dp.grupo_descripcion IN {_LICORES_IN}
-                    THEN fv.venta_neta ELSE 0 END), 0)                                      AS licores,
-                COALESCE(SUM(CASE WHEN dp.grupo_descripcion IN {_HPC_IN}
-                    THEN fv.venta_neta ELSE 0 END), 0)                                      AS hpc,
-                COALESCE(SUM(fv.venta_neta), 0)                                             AS total,
-                COALESCE(SUM(CASE WHEN dp.grupo_descripcion IN {_ALIMENTOS_IN}
-                    THEN fv.cantidad ELSE 0 END), 0)                                        AS alimentos_cant,
-                COALESCE(SUM(CASE WHEN dp.grupo_descripcion IN {_APEGO_IN}
-                    THEN fv.cantidad ELSE 0 END), 0)                                        AS apego_cant,
-                COALESCE(SUM(CASE WHEN dp.grupo_descripcion IN {_LICORES_IN}
-                    THEN fv.cantidad ELSE 0 END), 0)                                        AS licores_cant,
-                COALESCE(SUM(CASE WHEN dp.grupo_descripcion IN {_HPC_IN}
-                    THEN fv.cantidad ELSE 0 END), 0)                                        AS hpc_cant,
-                COALESCE(SUM(fv.cantidad), 0)                                               AS total_cant
+                COALESCE(SUM(CASE WHEN dp.linea = 'ALIMENTOS'           THEN fv.venta_neta ELSE 0 END), 0) AS alimentos,
+                COALESCE(SUM(CASE WHEN dp.linea = 'APEGO'               THEN fv.venta_neta ELSE 0 END), 0) AS apego,
+                COALESCE(SUM(CASE WHEN dp.linea = 'BEBIDAS ALC'         THEN fv.venta_neta ELSE 0 END), 0) AS licores,
+                COALESCE(SUM(CASE WHEN dp.linea = 'HOME Y PERSONAL CARE' THEN fv.venta_neta ELSE 0 END), 0) AS hpc,
+                COALESCE(SUM(fv.venta_neta), 0)                                                             AS total,
+                COALESCE(SUM(CASE WHEN dp.linea = 'ALIMENTOS'           THEN fv.cantidad ELSE 0 END), 0)   AS alimentos_cant,
+                COALESCE(SUM(CASE WHEN dp.linea = 'APEGO'               THEN fv.cantidad ELSE 0 END), 0)   AS apego_cant,
+                COALESCE(SUM(CASE WHEN dp.linea = 'BEBIDAS ALC'         THEN fv.cantidad ELSE 0 END), 0)   AS licores_cant,
+                COALESCE(SUM(CASE WHEN dp.linea = 'HOME Y PERSONAL CARE' THEN fv.cantidad ELSE 0 END), 0)  AS hpc_cant,
+                COALESCE(SUM(fv.cantidad), 0)                                                               AS total_cant
             FROM dw.fact_ventas fv
             JOIN dw.dim_fecha    df ON fv.fecha_sk    = df.fecha_sk
             JOIN dw.dim_vendedor dv ON fv.vendedor_sk = dv.vendedor_sk
@@ -1744,15 +1705,11 @@ def dashboard_supervisores_vendedores(request):
             sql_ppto = f"""
                 SELECT
                     dv.vendedor_sk,
-                    COALESCE(SUM(CASE WHEN dp.grupo_descripcion IN {_ALIMENTOS_IN}
-                        THEN fp.venta_neta_presupuestada ELSE 0 END), 0)                        AS alimentos_ppto,
-                    COALESCE(SUM(CASE WHEN dp.grupo_descripcion IN {_APEGO_IN}
-                        THEN fp.venta_neta_presupuestada ELSE 0 END), 0)                        AS apego_ppto,
-                    COALESCE(SUM(CASE WHEN dp.grupo_descripcion IN {_LICORES_IN}
-                        THEN fp.venta_neta_presupuestada ELSE 0 END), 0)                        AS licores_ppto,
-                    COALESCE(SUM(CASE WHEN dp.grupo_descripcion IN {_HPC_IN}
-                        THEN fp.venta_neta_presupuestada ELSE 0 END), 0)                        AS hpc_ppto,
-                    COALESCE(SUM(fp.venta_neta_presupuestada), 0)                               AS total_ppto
+                    COALESCE(SUM(CASE WHEN dp.linea = 'ALIMENTOS'            THEN fp.venta_neta_presupuestada ELSE 0 END), 0) AS alimentos_ppto,
+                    COALESCE(SUM(CASE WHEN dp.linea = 'APEGO'                THEN fp.venta_neta_presupuestada ELSE 0 END), 0) AS apego_ppto,
+                    COALESCE(SUM(CASE WHEN dp.linea = 'BEBIDAS ALC'          THEN fp.venta_neta_presupuestada ELSE 0 END), 0) AS licores_ppto,
+                    COALESCE(SUM(CASE WHEN dp.linea = 'HOME Y PERSONAL CARE' THEN fp.venta_neta_presupuestada ELSE 0 END), 0) AS hpc_ppto,
+                    COALESCE(SUM(fp.venta_neta_presupuestada), 0)                                                              AS total_ppto
                 FROM dw.fact_presupuesto fp
                 JOIN dw.dim_presupuesto_version dpv ON fp.version_sk  = dpv.version_sk
                 JOIN dw.dim_vendedor             dv  ON fp.vendedor_sk = dv.vendedor_sk
@@ -1827,21 +1784,18 @@ def dashboard_supervisores_vendedores(request):
 #  DASHBOARD UNIDADES VENDIDAS
 # ─────────────────────────────────────────
 
-_UNIDADES_CAT_GRUPOS = {
-    'Alimentos':            ('ALIMENTOS', 'NO PERECIBLES', 'BEBIDAS REFRESCANTES'),
-    'Licores':              ('BEBIDAS ALCOHOLICAS',),
-    'Home & Personal Care': ('CUIDADO PERSONAL', 'LIMPIEZA'),
-    'Apego':                ('MEZCLADOR', 'CATEGORÍA PENDIENTE'),
+_UNIDADES_CAT_LINEA = {
+    'Alimentos':            'ALIMENTOS',
+    'Apego':                'APEGO',
+    'Licores':              'BEBIDAS ALC',
+    'Home & Personal Care': 'HOME Y PERSONAL CARE',
 }
 
 
 def _unidades_cat_params(categoria, base_params):
     """Returns (cat_cond_sql, params_extended)."""
-    if categoria and categoria in _UNIDADES_CAT_GRUPOS:
-        grupos       = _UNIDADES_CAT_GRUPOS[categoria]
-        placeholders = ', '.join(['%s'] * len(grupos))
-        cat_cond     = f"AND dp.grupo_descripcion IN ({placeholders})"
-        return cat_cond, list(base_params) + list(grupos)
+    if categoria and categoria in _UNIDADES_CAT_LINEA:
+        return "AND dp.linea = %s", list(base_params) + [_UNIDADES_CAT_LINEA[categoria]]
     return "", list(base_params)
 
 
@@ -1938,16 +1892,14 @@ def dashboard_unidades_por_subgrupo(request):
         mes       = _safe_int(request.GET.get('mes'),  datetime.now().month)
         if regional not in REGIONALES_VALID:
             return JsonResponse({'success': False, 'error': 'Regional inválida'}, status=400)
-        if not categoria or categoria not in _UNIDADES_CAT_GRUPOS:
+        if not categoria or categoria not in _UNIDADES_CAT_LINEA:
             return JsonResponse({'success': False, 'error': 'Categoría inválida'}, status=400)
 
         ciudad_cond  = _regional_filter(regional)
         canal_cond   = "AND dv.canal_rrhh = %s" if canal else ""
         base_params  = [anho, mes] + ([canal] if canal else [])
-        grupos       = _UNIDADES_CAT_GRUPOS[categoria]
-        placeholders = ', '.join(['%s'] * len(grupos))
-        cat_cond     = f"AND dp.grupo_descripcion IN ({placeholders})"
-        params       = list(base_params) + list(grupos)
+        cat_cond     = "AND dp.linea = %s"
+        params       = list(base_params) + [_UNIDADES_CAT_LINEA[categoria]]
 
         sql_v = f"""
             SELECT
@@ -2029,11 +1981,9 @@ def dashboard_unidades_por_sku(request):
         cat_cond     = ""
         sub_cond     = ""
 
-        if categoria and categoria in _UNIDADES_CAT_GRUPOS:
-            grupos       = _UNIDADES_CAT_GRUPOS[categoria]
-            placeholders = ', '.join(['%s'] * len(grupos))
-            cat_cond     = f"AND dp.grupo_descripcion IN ({placeholders})"
-            extra_params.extend(grupos)
+        if categoria and categoria in _UNIDADES_CAT_LINEA:
+            cat_cond = "AND dp.linea = %s"
+            extra_params.append(_UNIDADES_CAT_LINEA[categoria])
         if subgrupo:
             sub_cond = "AND dp.subgrupo_descripcion = %s"
             extra_params.append(subgrupo)
@@ -2215,5 +2165,164 @@ def dashboard_unidades_por_vendedor(request):
             for r in rows
         ]
         return JsonResponse({'success': True, 'data': result})
+    except Exception as e:
+        return JsonResponse({'success': False, 'error': str(e)}, status=500)
+
+
+# ─────────────────────────────────────────
+#  DASHBOARD – PROVEEDORES
+# ─────────────────────────────────────────
+
+_PROV_PERM_MAP = {
+    'PEPSICO': 'pepsico',
+    'SOFTYS':  'softys',
+    'DMUJER':  'dmujer',
+    'APEGO':   'apego',
+    'COLHER':  'colher',
+}
+
+
+def _check_proveedor_perm(request, proveedor):
+    """Verifica que el usuario tenga permiso para el dashboard del proveedor."""
+    perm_id = _PROV_PERM_MAP.get(proveedor.upper())
+    if not perm_id:
+        return False
+    return _has_dashboard_perm(request.user, perm_id)
+
+
+@api_view(['GET'])
+@authentication_classes([ExpiringTokenAuthentication])
+@permission_classes([IsAuthenticated])
+def dashboard_proveedor_kpis(request):
+    """Total ventas + desglose por regional para un proveedor. Params: proveedor, anho, mes."""
+    try:
+        proveedor = _safe_str(request.GET.get('proveedor', ''), 50).upper()
+        anho      = _safe_int(request.GET.get('anho'), datetime.now().year)
+        mes       = _safe_int(request.GET.get('mes'),  datetime.now().month)
+
+        if not proveedor:
+            return JsonResponse({'success': False, 'error': 'Parámetro proveedor requerido'}, status=400)
+        if not _check_proveedor_perm(request, proveedor):
+            return JsonResponse({'success': False, 'error': 'Sin acceso a este dashboard'}, status=403)
+
+        sql_total = """
+            SELECT COALESCE(SUM(fv.total), 0)              AS total,
+                   COUNT(DISTINCT fv.numero_venta)         AS pedidos,
+                   COUNT(DISTINCT fv.cliente_sk)           AS clientes
+            FROM dw.fact_ventas fv
+            JOIN dw.dim_producto dp ON dp.producto_sk = fv.producto_sk
+            JOIN dw.dim_fecha    df ON df.fecha_sk    = fv.fecha_sk
+            WHERE df.anho = %s AND df.mes_numero = %s AND dp.proveedor = %s
+        """
+        _, rows_total = _run_dw_query(sql_total, [anho, mes, proveedor])
+
+        scz  = _ciudad_case('dv.ciudad', 'santa_cruz')
+        cbba = _ciudad_case('dv.ciudad', 'cochabamba')
+        lpz  = _ciudad_case('dv.ciudad', 'la_paz')
+        sql_reg = f"""
+            SELECT
+                CASE
+                    WHEN {scz}  THEN 'Santa Cruz'
+                    WHEN {cbba} THEN 'Cochabamba'
+                    WHEN {lpz}  THEN 'La Paz'
+                    ELSE 'Otras'
+                END                              AS regional,
+                COALESCE(SUM(fv.total), 0)       AS total
+            FROM dw.fact_ventas fv
+            JOIN dw.dim_producto dp ON dp.producto_sk = fv.producto_sk
+            JOIN dw.dim_fecha    df ON df.fecha_sk    = fv.fecha_sk
+            JOIN dw.dim_vendedor dv ON dv.vendedor_sk = fv.vendedor_sk
+            WHERE df.anho = %s AND df.mes_numero = %s AND dp.proveedor = %s
+            GROUP BY regional ORDER BY total DESC
+        """
+        _, rows_reg = _run_dw_query(sql_reg, [anho, mes, proveedor])
+
+        kpis = rows_total[0] if rows_total else {'total': 0, 'pedidos': 0, 'clientes': 0}
+        return JsonResponse({'success': True, 'data': {
+            'total':      float(kpis.get('total', 0) or 0),
+            'pedidos':    int(kpis.get('pedidos', 0) or 0),
+            'clientes':   int(kpis.get('clientes', 0) or 0),
+            'regionales': rows_reg,
+        }})
+    except Exception as e:
+        return JsonResponse({'success': False, 'error': str(e)}, status=500)
+
+
+@api_view(['GET'])
+@authentication_classes([ExpiringTokenAuthentication])
+@permission_classes([IsAuthenticated])
+def dashboard_proveedor_por_marca(request):
+    """Ventas por articulo (producto_nombre). Params: proveedor, anho, mes."""
+    try:
+        proveedor = _safe_str(request.GET.get('proveedor', ''), 50).upper()
+        anho      = _safe_int(request.GET.get('anho'), datetime.now().year)
+        mes       = _safe_int(request.GET.get('mes'),  datetime.now().month)
+
+        if not proveedor:
+            return JsonResponse({'success': False, 'error': 'Parámetro proveedor requerido'}, status=400)
+        if not _check_proveedor_perm(request, proveedor):
+            return JsonResponse({'success': False, 'error': 'Sin acceso a este dashboard'}, status=403)
+
+        sql = """
+            SELECT dv.canal                            AS marca,
+                   COALESCE(SUM(fv.total), 0)          AS total,
+                   COALESCE(SUM(fv.cantidad), 0)       AS cantidad
+            FROM dw.fact_ventas fv
+            JOIN dw.dim_producto dp ON dp.producto_sk = fv.producto_sk
+            JOIN dw.dim_vendedor dv ON dv.vendedor_sk = fv.vendedor_sk
+            JOIN dw.dim_fecha    df ON df.fecha_sk    = fv.fecha_sk
+            WHERE df.anho = %s AND df.mes_numero = %s AND dp.proveedor = %s
+            GROUP BY dv.canal
+            ORDER BY total DESC
+        """
+        _, rows = _run_dw_query(sql, [anho, mes, proveedor])
+        return JsonResponse({'success': True, 'data': rows})
+    except Exception as e:
+        return JsonResponse({'success': False, 'error': str(e)}, status=500)
+
+
+@api_view(['GET'])
+@authentication_classes([ExpiringTokenAuthentication])
+@permission_classes([IsAuthenticated])
+def dashboard_proveedor_tabla(request):
+    """Detalle completo de ventas por proveedor. Params: proveedor, anho, mes."""
+    try:
+        proveedor = _safe_str(request.GET.get('proveedor', ''), 50).upper()
+        anho      = _safe_int(request.GET.get('anho'), datetime.now().year)
+        mes       = _safe_int(request.GET.get('mes'),  datetime.now().month)
+
+        if not proveedor:
+            return JsonResponse({'success': False, 'error': 'Parámetro proveedor requerido'}, status=400)
+        if not _check_proveedor_perm(request, proveedor):
+            return JsonResponse({'success': False, 'error': 'Sin acceso a este dashboard'}, status=403)
+
+        sql = """
+            SELECT
+                dv.canal,
+                da.ciudad,
+                df.mes_nombre,
+                dp.proveedor,
+                dp.cat_comercial    AS marca,
+                fv.numero_venta,
+                df.fecha_completa,
+                dc.cliente_codigo_erp,
+                dp.grupo_descripcion,
+                dp.clase_descripcion,
+                dp.producto_nombre,
+                dp.unidad_medida,
+                fv.cantidad,
+                fv.total,
+                dv.vendedor_nombre
+            FROM dw.fact_ventas fv
+            JOIN dw.dim_vendedor dv ON dv.vendedor_sk = fv.vendedor_sk
+            JOIN dw.dim_producto dp ON dp.producto_sk = fv.producto_sk
+            JOIN dw.dim_almacen  da ON da.almacen_sk  = fv.almacen_sk
+            JOIN dw.dim_cliente  dc ON dc.cliente_sk  = fv.cliente_sk
+            JOIN dw.dim_fecha    df ON df.fecha_sk    = fv.fecha_sk
+            WHERE df.anho = %s AND df.mes_numero = %s AND dp.proveedor = %s
+            ORDER BY fv.numero_venta, dp.producto_nombre
+        """
+        _, rows = _run_dw_query(sql, [anho, mes, proveedor])
+        return JsonResponse({'success': True, 'data': rows})
     except Exception as e:
         return JsonResponse({'success': False, 'error': str(e)}, status=500)

@@ -347,63 +347,59 @@ nginx -s reload
 
 ---
 
-## 8. Crear servicio Windows con NSSM
+## 8. Registrar el proceso con PM2
 
-NSSM hace que Django arranque automáticamente con Windows y se reinicie si falla.
+Ya tenés PM2 corriendo para el Sistema de Bajas, así que solo hay que agregar el proceso de Django.
 
-### 8.1 Descargar NSSM
+### 8.1 Crear el archivo de configuración PM2
 
-1. Ir a https://nssm.cc/download
-2. Descargar la versión para Windows 64-bit
-3. Extraer y copiar `nssm.exe` a `C:\Windows\System32\` (para usarlo desde cualquier carpeta)
+Crear el archivo `C:\inetpub\cruzimex\SistemaBI\ecosystem.config.js`:
 
-### 8.2 Crear el servicio
+```js
+module.exports = {
+  apps: [
+    {
+      name: 'cruzimex-bi',
+      script: 'C:/inetpub/cruzimex/SistemaBI/backend/venv/Scripts/waitress-serve.exe',
+      args: '--port=8000 --threads=4 cruzimex.wsgi:application',
+      cwd: 'C:/inetpub/cruzimex/SistemaBI/backend',
+      interpreter: 'none',           // no es Node, ejecutar directo
+      autorestart: true,
+      watch: false,
+      max_restarts: 10,
+      env: {
+        PYTHONPATH: 'C:/inetpub/cruzimex/SistemaBI/backend',
+      },
+    },
+  ],
+}
+```
 
-Abrir **CMD como Administrador**:
+### 8.2 Iniciar con PM2
 
 ```cmd
-nssm install CruzimexBI
-```
-
-Se abre una interfaz gráfica. Completar así:
-
-**Pestaña Application:**
-| Campo | Valor |
-|-------|-------|
-| Path | `C:\inetpub\cruzimex\SistemaBI\backend\venv\Scripts\waitress-serve.exe` |
-| Startup directory | `C:\inetpub\cruzimex\SistemaBI\backend` |
-| Arguments | `--port=8000 --threads=4 cruzimex.wsgi:application` |
-
-**Pestaña Details:**
-| Campo | Valor |
-|-------|-------|
-| Display name | `Cruzimex BI - Django Backend` |
-| Description | `Sistema BI Cruzimex - Backend Django (Waitress)` |
-| Startup type | `Automatic` |
-
-**Pestaña Environment** (agregar variables de entorno por si acaso):
-```
-PYTHONPATH=C:\inetpub\cruzimex\SistemaBI\backend
-```
-
-Click en **Install service**.
-
-### 8.3 Iniciar el servicio
-
-```cmd
-nssm start CruzimexBI
+cd C:\inetpub\cruzimex\SistemaBI
+pm2 start ecosystem.config.js
 
 :: Verificar que está corriendo
-nssm status CruzimexBI
-:: Debe mostrar: SERVICE_RUNNING
+pm2 list
+:: Debe aparecer "cruzimex-bi" con status "online"
 ```
+
+### 8.3 Guardar para que arranque con Windows
+
+```cmd
+:: Guardar la lista actual de procesos (incluye los del Sistema de Bajas)
+pm2 save
+```
+
+> Si ya tenías `pm2 save` configurado con el startup de Windows, este comando actualiza la lista y el proceso nuevo queda incluido automáticamente.
 
 ### 8.4 Verificar respuesta
 
 ```cmd
 curl http://127.0.0.1:8000/api/auth/me/
-:: Debe responder: {"detail":"Authentication credentials were not provided."}
-:: (401 es correcto — confirma que Django está activo)
+:: Debe responder JSON con error 401 — confirma que Django está activo
 ```
 
 ---

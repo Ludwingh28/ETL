@@ -76,6 +76,16 @@ export const DASHBOARD_GROUPS: DashboardGroup[] = [
       { id: 'matriz', label: 'Dashboard Matriz' },
     ],
   },
+  {
+    grupo: 'Proveedores',
+    items: [
+      { id: 'pepsico', label: 'Dashboard Pepsico' },
+      { id: 'softys',  label: 'Dashboard Softys'  },
+      { id: 'dmujer',  label: 'Dashboard DMujer'  },
+      { id: 'apego',   label: 'Dashboard Apego'   },
+      { id: 'colher',  label: 'Dashboard COLHER'  },
+    ],
+  },
 ]
 
 export const ALL_DASHBOARD_IDS = DASHBOARD_GROUPS.flatMap(g => g.items.map(i => i.id))
@@ -88,7 +98,7 @@ export const PERMISOS_POR_CARGO: Record<Cargo, string[]> = {
   'Gerente Regional':           ['regionales', 'canales', 'supervisores', 'preventas-realizadas', 'avances-ventas', 'unidades-vendidas', 'unidades-supervisores', 'informacion-rutas'],
   'Supervisor':                  ['canales', 'supervisores', 'preventas-realizadas', 'avances-ventas', 'unidades-supervisores', 'informacion-rutas'],
   'Vendedor':                    ['preventas-realizadas', 'avances-ventas'],
-  'Proveedor':                   ['lista-precios'],
+  'Proveedor':                   ['lista-precios', 'pepsico', 'softys', 'dmujer', 'apego', 'colher'],
   'Analista de Datos':          ['nacional', 'regionales', 'canales', 'supervisores', 'preventas-realizadas', 'avances-ventas', 'unidades-vendidas', 'unidades-supervisores', 'informacion-rutas', 'ticket-promedio', 'margen-bruto', 'matriz'],
   'Administrador de Sistema':   ALL_DASHBOARD_IDS,
   'Subadministrador de Sistemas': ALL_DASHBOARD_IDS,

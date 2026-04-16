@@ -18,6 +18,7 @@ import AdminCrearUsuario from "./pages/AdminCrearUsuario";
 import AdminGestionUsuarios from "./pages/AdminGestionUsuarios";
 import AdminCambiarContrasena from "./pages/AdminCambiarContrasena";
 import AdminRoute from "./components/AdminRoute";
+import DashboardProveedor from "./pages/DashboardProveedor";
 
 function Protected({ children }: { children: React.ReactNode }) {
   return <ProtectedRoute>{children}</ProtectedRoute>;
@@ -88,6 +89,23 @@ export default function App() {
           {/* ── Tabla Dinámica ──────────────────────────────────────────────── */}
           <Route path="/dashboard/matriz"
             element={<Dash perm="matriz"><DashboardMatriz /></Dash>}
+          />
+
+          {/* ── Proveedores ─────────────────────────────────────────────────── */}
+          <Route path="/dashboard/pepsico"
+            element={<Dash perm="pepsico"><DashboardProveedor perm="pepsico" nombre="Pepsico" /></Dash>}
+          />
+          <Route path="/dashboard/softys"
+            element={<Dash perm="softys"><DashboardProveedor perm="softys" nombre="Softys" /></Dash>}
+          />
+          <Route path="/dashboard/dmujer"
+            element={<Dash perm="dmujer"><DashboardProveedor perm="dmujer" nombre="DMujer" /></Dash>}
+          />
+          <Route path="/dashboard/apego"
+            element={<Dash perm="apego"><DashboardProveedor perm="apego" nombre="Apego" /></Dash>}
+          />
+          <Route path="/dashboard/colher"
+            element={<Dash perm="colher"><DashboardProveedor perm="colher" nombre="COLHER" /></Dash>}
           />
 
           {/* ── Administración (solo Administradores) ───────────────────────── */}

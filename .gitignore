@@ -10,3 +10,4 @@ Thumbs.db
 
 # ── Scripts de parche temporales ─────────────────────────────────────────────
 _patch_*.py
+*.conf

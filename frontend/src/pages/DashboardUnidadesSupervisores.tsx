@@ -1,6 +1,6 @@
 import { useEffect, useState, useCallback, useMemo, type ChangeEvent } from "react";
 import {
-  Search, RefreshCw, AlertCircle, ShieldAlert, Package,
+  Search, RefreshCw, AlertCircle, Package,
 } from "lucide-react";
 import {
   ResponsiveContainer, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Cell,
@@ -13,11 +13,11 @@ import DashboardLayout from "../components/DashboardLayout";
 interface VendedorRow {
   vendedor_sk:    number;
   vendedor:       string;
-  alimentos_cant: number; alimentos_pct: number | null;
-  apego_cant:     number; apego_pct:     number | null;
-  licores_cant:   number; licores_pct:   number | null;
-  hpc_cant:       number; hpc_pct:       number | null;
-  total_cant:     number; total_pct:     number | null;
+  alimentos:      number; alimentos_cant: number; alimentos_pct: number | null;
+  apego:          number; apego_cant:     number; apego_pct:     number | null;
+  licores:        number; licores_cant:   number; licores_pct:   number | null;
+  hpc:            number; hpc_cant:       number; hpc_pct:       number | null;
+  total:          number; total_cant:     number; total_pct:     number | null;
 }
 
 interface ApiData {
@@ -69,6 +69,7 @@ interface Periodo { anho: number; mes_numero: number; }
 interface CatCfg {
   label:       string;
   cantKey:     keyof VendedorRow;
+  bsKey:       keyof VendedorRow;
   pctKey:      keyof VendedorRow;
   color:       string;
   activeClass: string;
@@ -77,14 +78,21 @@ interface CatCfg {
 }
 
 const CAT_CFG: Record<CatKey, CatCfg> = {
-  total:     { label: "Total",                cantKey: "total_cant",     pctKey: "total_pct",     color: "text-slate-700", activeClass: "bg-slate-700 text-white",  barColor: "#3b82f6", barColorSel: "#1d4ed8" },
-  alimentos: { label: "Alimentos",            cantKey: "alimentos_cant", pctKey: "alimentos_pct", color: "text-green-700", activeClass: "bg-green-600 text-white",  barColor: "#22c55e", barColorSel: "#15803d" },
-  apego:     { label: "Apego",                cantKey: "apego_cant",     pctKey: "apego_pct",     color: "text-pink-700",  activeClass: "bg-pink-600 text-white",   barColor: "#ec4899", barColorSel: "#be185d" },
-  licores:   { label: "Licores",              cantKey: "licores_cant",   pctKey: "licores_pct",   color: "text-rose-700",  activeClass: "bg-rose-600 text-white",   barColor: "#f43f5e", barColorSel: "#be123c" },
-  hpc:       { label: "Home & Personal Care", cantKey: "hpc_cant",       pctKey: "hpc_pct",       color: "text-sky-700",   activeClass: "bg-sky-600 text-white",    barColor: "#0ea5e9", barColorSel: "#0369a1" },
+  total:     { label: "Total",                cantKey: "total_cant",     bsKey: "total",     pctKey: "total_pct",     color: "text-slate-700", activeClass: "bg-slate-700 text-white",  barColor: "#3b82f6", barColorSel: "#1d4ed8" },
+  alimentos: { label: "Alimentos",            cantKey: "alimentos_cant", bsKey: "alimentos", pctKey: "alimentos_pct", color: "text-green-700", activeClass: "bg-green-600 text-white",  barColor: "#22c55e", barColorSel: "#15803d" },
+  apego:     { label: "Apego",                cantKey: "apego_cant",     bsKey: "apego",     pctKey: "apego_pct",     color: "text-pink-700",  activeClass: "bg-pink-600 text-white",   barColor: "#ec4899", barColorSel: "#be185d" },
+  licores:   { label: "Licores",              cantKey: "licores_cant",   bsKey: "licores",   pctKey: "licores_pct",   color: "text-rose-700",  activeClass: "bg-rose-600 text-white",   barColor: "#f43f5e", barColorSel: "#be123c" },
+  hpc:       { label: "Home & Personal Care", cantKey: "hpc_cant",       bsKey: "hpc",       pctKey: "hpc_pct",       color: "text-sky-700",   activeClass: "bg-sky-600 text-white",    barColor: "#0ea5e9", barColorSel: "#0369a1" },
 };
 
-const ADMIN_CARGOS = new Set(["Administrador de Sistema", "Subadministrador de Sistemas"]);
+// Cargos que pueden ver y cambiar los filtros de regional/canal
+const ADMIN_CARGOS = new Set([
+  "Administrador de Sistema",
+  "Subadministrador de Sistemas",
+  "Gerente General",
+  "Gerente de Ventas",
+  "Analista de Datos",
+]);
 const isAdminUser = (cargo?: string, is_staff?: boolean) =>
   is_staff === true || ADMIN_CARGOS.has(cargo ?? "");
 
@@ -126,7 +134,7 @@ export default function DashboardUnidadesSupervisores() {
   const [mes,       setMes]       = useState(now.getMonth() + 1);
 
   // Segmentador categoría
-  const [catKey, setCatKey] = useState<CatKey>("total");
+  const [catKey, setCatKey] = useState<CatKey>("alimentos");
 
   // Selección de vendedor
   const [selVendedor, setSelVendedor] = useState<VendedorRow | null>(null);
@@ -250,23 +258,16 @@ export default function DashboardUnidadesSupervisores() {
   }, [skus, skuSearch]);
 
   const skuChartData = useMemo(
-    () => filteredSkus.map((s) => ({ name: s.producto, codigo: s.codigo, value: s.cantidad })),
+    () => filteredSkus.map((s) => ({ name: s.producto, codigo: s.codigo, value: s.venta_neta })),
     [filteredSkus]
   );
 
   const anhos = [...new Set(periodos.map(p => p.anho))].sort((a, b) => b - a);
   const mesesDisponibles = periodos.filter(p => p.anho === anho);
 
-  if (!isAdmin && !isSuperv) {
-    return (
-      <DashboardLayout>
-        <div className="flex flex-col items-center justify-center h-64 gap-3 text-slate-500">
-          <ShieldAlert size={40} className="text-slate-300" />
-          <p className="font-semibold">Acceso restringido</p>
-        </div>
-      </DashboardLayout>
-    );
-  }
+  // Nota: si el cargo no es admin ni supervisor, se trata como supervisor
+  // (sin filtros manuales, datos auto-scoped por perfil desde el backend)
+  const isKnownRole = isAdmin || isSuperv;
 
   // ── Render ────────────────────────────────────────────────────────────────
   return (
@@ -420,7 +421,7 @@ export default function DashboardUnidadesSupervisores() {
                         </div>
                       );
                     }} />
-                    <Bar dataKey="cantidad" name="Unidades" radius={[0, 3, 3, 0]} barSize={9}
+                    <Bar dataKey="venta_neta" name="Venta Neta" radius={[0, 3, 3, 0]} barSize={9}
                       label={{ position: "right", fontSize: 9, fill: "#94a3b8", formatter: ((_v: unknown, _e: unknown, idx: number) => fmtPct(subgrupos[idx]?.porcentaje)) as any }}>
                       {subgrupos.map((entry) => (
                         <Cell key={entry.subgrupo} fill={selectedSubgrupo === entry.subgrupo ? cfg.barColorSel : cfg.barColor} />
@@ -468,15 +469,16 @@ export default function DashboardUnidadesSupervisores() {
                 <tr className="text-slate-500">
                   <th className="text-left py-2 pr-4 font-semibold w-48">Vendedor</th>
                   <th className="text-right py-2 px-3 font-semibold text-green-700">Alimentos</th>
-                  <th className="text-right py-2 px-3 font-semibold text-green-600 text-[10px]">%</th>
+                  <th className="text-right py-2 px-3 font-semibold text-green-600 text-[10px]">Cumpl.</th>
                   <th className="text-right py-2 px-3 font-semibold text-pink-700">Apego</th>
-                  <th className="text-right py-2 px-3 font-semibold text-pink-600 text-[10px]">%</th>
+                  <th className="text-right py-2 px-3 font-semibold text-pink-600 text-[10px]">Cumpl.</th>
                   <th className="text-right py-2 px-3 font-semibold text-rose-700">Licores</th>
-                  <th className="text-right py-2 px-3 font-semibold text-rose-600 text-[10px]">%</th>
+                  <th className="text-right py-2 px-3 font-semibold text-rose-600 text-[10px]">Cumpl.</th>
                   <th className="text-right py-2 px-3 font-semibold text-sky-700">HPC</th>
-                  <th className="text-right py-2 px-3 font-semibold text-sky-600 text-[10px]">%</th>
-                  <th className="text-right py-2 pl-3 font-semibold text-slate-700">Total</th>
-                  <th className="text-right py-2 pl-1 font-semibold text-slate-500 text-[10px]">%</th>
+                  <th className="text-right py-2 px-3 font-semibold text-sky-600 text-[10px]">Cumpl.</th>
+                  <th className="text-right py-2 pl-3 font-semibold text-slate-700">Total uds.</th>
+                  <th className="text-right py-2 px-3 font-semibold text-slate-600">Venta Bs</th>
+                  <th className="text-right py-2 pl-1 font-semibold text-slate-500 text-[10px]">Cumpl.</th>
                 </tr>
               </thead>
               <tbody>
@@ -499,6 +501,7 @@ export default function DashboardUnidadesSupervisores() {
                       <td className="py-2 px-3 text-right tabular-nums text-slate-700">{fmtN(vend.hpc_cant)}</td>
                       <td className={`py-2 px-3 text-right tabular-nums text-[10px] font-semibold ${pctColor(vend.hpc_pct)}`}>{fmtPct(vend.hpc_pct)}</td>
                       <td className={`py-2 pl-3 text-right tabular-nums font-bold ${isSel ? "text-brand-700" : "text-slate-800"}`}>{fmtN(vend.total_cant)}</td>
+                      <td className={`py-2 px-3 text-right tabular-nums font-semibold ${isSel ? "text-brand-700" : "text-slate-700"}`}>{fmt(vend.total)}</td>
                       <td className={`py-2 pl-1 text-right tabular-nums text-[10px] font-bold ${pctColor(vend.total_pct)}`}>{fmtPct(vend.total_pct)}</td>
                     </tr>
                   );
@@ -525,7 +528,9 @@ export default function DashboardUnidadesSupervisores() {
                 </h2>
                 <p className="text-[11px] text-slate-400 mt-0.5">
                   {cfg.label}{selectedSubgrupo && ` · ${selectedSubgrupo}`} · {MESES[mes]} {anho} ·&nbsp;
-                  <span className="font-semibold text-slate-600">{fmtN(selVendedor[cfg.cantKey] as number)} uds. totales</span>
+                  <span className="font-semibold text-slate-600">{fmtN(selVendedor[cfg.cantKey] as number)} uds.</span>
+                  <span className="mx-1 text-slate-300">·</span>
+                  <span className="font-semibold text-slate-600">{fmt(selVendedor[cfg.bsKey] as number)} Bs</span>
                 </p>
               </div>
               <div className="relative">
@@ -567,7 +572,7 @@ export default function DashboardUnidadesSupervisores() {
                               </div>
                             );
                           }} />
-                          <Bar dataKey="value" name="Unidades" radius={[0, 3, 3, 0]} barSize={10}
+                          <Bar dataKey="value" name="Venta Neta" radius={[0, 3, 3, 0]} barSize={10}
                             label={{ position: "right", fontSize: 9, fill: "#94a3b8", formatter: ((v: number) => fmtAbbr(v)) as any }}>
                             {skuChartData.map((entry) => (
                               <Cell key={entry.codigo} fill={selSkuCode === entry.codigo ? cfg.barColorSel : cfg.barColor} />

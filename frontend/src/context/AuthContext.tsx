@@ -4,7 +4,8 @@ import type { User, AuthContextValue } from "../types";
 const AuthContext = createContext<AuthContextValue | null>(null);
 
 const TOKEN_KEY = "cruzimex_token";
-const API_BASE = import.meta.env.MODE === 'production'
+const BASE_PATH = import.meta.env.MODE === 'production' ? '/sistemabi' : '';
+const API_BASE  = import.meta.env.MODE === 'production'
   ? '/sistemabi/api'
   : 'http://localhost:8000/api';
 const INACTIVITY_MS = 30 * 60 * 1000;   // 30 minutos
@@ -45,7 +46,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     sessionStorage.setItem("session_expired", "1");
     setToken(null);
     setUser(null);
-    window.location.replace("/login");
+    window.location.replace(`${BASE_PATH}/login`);
   }, []);
 
   // Renovar token si han pasado más de REFRESH_INTERVAL_MS desde el último refresh
@@ -122,6 +123,22 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setUser(null);
   };
 
+  const refreshUser = useCallback(async (): Promise<void> => {
+    const currentToken = tokenRef.current;
+    if (!currentToken) return;
+    try {
+      const res = await fetch(`${API_BASE}/auth/me/`, {
+        headers: { Authorization: `Token ${currentToken}` },
+      });
+      if (res.ok) {
+        const data = (await res.json()) as { user: User };
+        setUser(data.user);
+      }
+    } catch {
+      // ignorar errores de red
+    }
+  }, []);
+
   const apiFetch = async <T = unknown,>(path: string, options: RequestInit = {}): Promise<T> => {
     const res = await fetch(`${API_BASE}${path}`, {
       ...options,
@@ -138,7 +155,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     return res.json() as Promise<T>;
   };
 
-  return <AuthContext.Provider value={{ user, token, loading, login, logout, apiFetch }}>{children}</AuthContext.Provider>;
+  return <AuthContext.Provider value={{ user, token, loading, login, logout, apiFetch, refreshUser }}>{children}</AuthContext.Provider>;
 }
 
 export function useAuth(): AuthContextValue {

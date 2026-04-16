@@ -23,6 +23,7 @@ export interface AuthContextValue {
   login: (username: string, password: string) => Promise<User>
   logout: () => Promise<void>
   apiFetch: <T = unknown>(path: string, options?: RequestInit) => Promise<T>
+  refreshUser: () => Promise<void>
 }
 
 // ─── Admin – Usuario gestionado ─────────────────────────────────────────────
