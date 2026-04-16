@@ -133,7 +133,7 @@ export default function DashboardUnidadesSupervisores() {
   const now = new Date();
 
   const isAdmin  = isAdminUser(user?.cargo, user?.is_staff);
-  const isSuperv = !isAdmin && (user?.cargo?.toLowerCase().includes("supervisor") ?? false);
+
 
   // Filtros (solo admin los ve)
   const [regional,  setRegional]  = useState<Regional>("Santa Cruz");
