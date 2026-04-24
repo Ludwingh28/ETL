@@ -225,7 +225,6 @@ export default function DashboardUnidadesVendidas() {
   const skuPctKey       = metrica === "uds" ? "porcentaje_uds"  : "porcentaje";
   const sgAvanceKey     = metrica === "uds" ? "cantidad"        : "venta_neta";
   const sgPptoKey       = metrica === "uds" ? "presupuesto_uds" : "presupuesto";
-  const sgPctKey        = metrica === "uds" ? "porcentaje_uds"  : "porcentaje";
 
   const fmtAvance = (n: number | null | undefined) =>
     metrica === "uds" ? `${fmtN(n)} uds.` : fmt(n);
