@@ -1,12 +1,12 @@
 import { useState, useRef, useEffect } from "react";
 import { NavLink, useNavigate } from "react-router-dom";
+import logoNav from "../assets/CRUZIMEX_LOGO_TEXTOpng.png";
 import {
   TrendingUp,
   Users,
   LogOut,
   Menu,
   X,
-  BarChart2,
   User as UserIcon,
   ChevronDown,
   Layers,
@@ -28,6 +28,7 @@ import {
   BookHeart,
   Milk,
   SoapDispenserDroplet,
+  Download,
   type LucideIcon,
 } from "lucide-react";
 import { useAuth } from "../context/AuthContext";
@@ -90,8 +91,11 @@ const NAV_GROUPS: NavGroup[] = [
     items: [{ to: "/dashboard/margen-bruto", icon: DollarSign, label: "Margen Bruto", perm: "margen-bruto" }],
   },
   {
-    label: "Tabla Dinámica",
-    items: [{ to: "/dashboard/matriz", icon: Table2, label: "Dashboard Matriz", perm: "matriz" }],
+    label: "Documentos",
+    items: [
+      { to: "/dashboard/matriz",    icon: Table2,     label: "Dashboard Matriz",    perm: "matriz" },
+      { to: "/documentos/descargas", icon: Download,   label: "Descargar Archivos",  perm: "descargas" },
+    ],
   },
   {
     label: "Proveedores",
@@ -242,9 +246,8 @@ export default function Navbar() {
       <header className="fixed top-0 inset-x-0 z-40 h-16 bg-slate-900 border-b border-white/10 shadow-lg">
         <div className="max-w-7xl mx-auto h-full flex items-center justify-between px-4 sm:px-6">
           {/* Logo */}
-          <div className="flex items-center gap-2.5 shrink-0">
-            <BarChart2 size={22} className="text-brand-400" />
-            <span className="font-bold text-lg text-white tracking-tight">Cruzimex</span>
+          <div className="flex items-center shrink-0">
+            <img src={logoNav} alt="Cruzimex" className="h-36" />
           </div>
 
           {/* Nav grupos – desktop (filtrados por permisos) */}

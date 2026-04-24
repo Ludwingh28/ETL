@@ -152,6 +152,7 @@ CORS_ALLOW_HEADERS = [
     'content-type', 'dnt', 'origin', 'user-agent',
     'x-csrftoken', 'x-requested-with',
 ]
+CORS_EXPOSE_HEADERS = ['Content-Length', 'Content-Disposition', 'X-File-Size']
 
 # ─── Seguridad HTTP ───────────────────────────────────────────────────────────
 SECURE_CONTENT_TYPE_NOSNIFF = True

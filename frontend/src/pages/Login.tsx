@@ -1,7 +1,8 @@
 import { useState, type FormEvent, type ChangeEvent } from "react";
 import { useNavigate, Navigate } from "react-router-dom";
-import { BarChart2, Eye, EyeOff, LogIn, AlertCircle, Clock } from "lucide-react";
+import { Eye, EyeOff, LogIn, AlertCircle, Clock } from "lucide-react";
 import { useAuth } from "../context/AuthContext";
+import logoLogin from "../assets/CRUIZMEX_LOGO_LOGIN.png";
 
 interface FormState {
   username: string;
@@ -50,9 +51,7 @@ export default function Login() {
       <div className="w-full max-w-md">
         {/* Logo */}
         <div className="text-center mb-8">
-          <div className="inline-flex items-center justify-center w-16 h-16 rounded-2xl bg-brand-600 shadow-2xl mb-4">
-            <BarChart2 size={32} className="text-white" />
-          </div>
+          <img src={logoLogin} alt="Cruzimex" className="h-24 mx-auto mb-3 drop-shadow-2xl" />
           <h1 className="text-3xl font-bold text-white tracking-tight">CRUZIMEX</h1>
           <p className="text-slate-400 mt-1 text-sm">Sistema de Inteligencia de Datos</p>
         </div>

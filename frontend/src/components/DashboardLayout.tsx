@@ -1,4 +1,4 @@
-import type { ReactNode } from 'react'
+import { type ReactNode } from 'react'
 import Navbar from './Navbar'
 import WhatsNewModal from './WhatsNewModal'
 import { CURRENT_VERSION } from '../constants/changelog'

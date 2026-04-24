@@ -18,29 +18,34 @@ interface KpisData {
 }
 
 interface SubgrupoRow {
-  subgrupo:    string;
-  cantidad:    number;
-  venta_neta:  number;
-  presupuesto: number;
-  porcentaje:  number | null;
+  subgrupo:        string;
+  cantidad:        number;
+  venta_neta:      number;
+  presupuesto:     number;
+  porcentaje:      number | null;
+  presupuesto_uds: number;
+  porcentaje_uds:  number | null;
 }
 
 interface SkuRow {
-  codigo:      string;
-  producto:    string;
-  cantidad:    number;
-  venta_neta:  number;
-  presupuesto: number;
-  porcentaje:  number | null;
+  codigo:          string;
+  producto:        string;
+  cantidad:        number;
+  venta_neta:      number;
+  presupuesto:     number;
+  porcentaje:      number | null;
+  presupuesto_uds: number;
+  porcentaje_uds:  number | null;
 }
 
 interface Periodo { anho: number; mes_numero: number; }
 
 type Regional  = "Nacional" | "Santa Cruz" | "Cochabamba" | "La Paz";
-type Categoria = "Alimentos" | "Apego" | "Licores" | "Home & Personal Care";
+type Categoria = "Alimentos" | "Apego" | "Licores" | "Home & Personal Care" | "Sin Clasificar";
+type Metrica   = "bs" | "uds";
 
 const REGIONALES: Regional[]  = ["Nacional", "Santa Cruz", "Cochabamba", "La Paz"];
-const CATEGORIAS: Categoria[] = ["Alimentos", "Apego", "Licores", "Home & Personal Care"];
+const CATEGORIAS: Categoria[] = ["Alimentos", "Apego", "Licores", "Home & Personal Care", "Sin Clasificar"];
 
 const REGIONAL_KEY: Record<Regional, string> = {
   Nacional:     "nacional",
@@ -61,6 +66,7 @@ const CAT_CONFIG: Record<Categoria, { color: string; bg: string; active: string 
   Apego:                  { color: "text-pink-700",  bg: "bg-pink-50",   active: "bg-pink-500 text-white"  },
   Licores:                { color: "text-rose-700",  bg: "bg-rose-50",   active: "bg-rose-500 text-white"  },
   "Home & Personal Care": { color: "text-sky-700",   bg: "bg-sky-50",    active: "bg-sky-500 text-white"   },
+  "Sin Clasificar":       { color: "text-orange-700", bg: "bg-orange-50", active: "bg-orange-500 text-white" },
 };
 
 const MESES = ["","Enero","Febrero","Marzo","Abril","Mayo","Junio",
@@ -92,6 +98,9 @@ export default function DashboardUnidadesVendidas() {
   const [canalList, setCanalList] = useState<string[]>([]);
   const [anho,      setAnho]      = useState(now.getFullYear());
   const [mes,       setMes]       = useState(now.getMonth() + 1);
+
+  // Toggle global Bs / Uds
+  const [metrica, setMetrica] = useState<Metrica>("bs");
 
   // Segmentador
   const [categoria,        setCategoria]        = useState<Categoria>("Alimentos");
@@ -188,9 +197,11 @@ export default function DashboardUnidadesVendidas() {
   // ── Derived ────────────────────────────────────────────────────────────────
   const sortedSkus = useMemo(() => {
     return [...skus].sort((a, b) =>
-      pptoDir === "desc" ? b.presupuesto - a.presupuesto : a.presupuesto - b.presupuesto
+      pptoDir === "desc"
+        ? (metrica === "uds" ? b.presupuesto_uds - a.presupuesto_uds : b.presupuesto - a.presupuesto)
+        : (metrica === "uds" ? a.presupuesto_uds - b.presupuesto_uds : a.presupuesto - b.presupuesto)
     );
-  }, [skus, pptoDir]);
+  }, [skus, pptoDir, metrica]);
 
   const filteredSkus = useMemo(() => {
     const q = skuSearch.trim().toLowerCase();
@@ -208,6 +219,19 @@ export default function DashboardUnidadesVendidas() {
   const anhos = [...new Set(periodos.map(p => p.anho))].sort((a, b) => b - a);
   const mesesDisponibles = periodos.filter(p => p.anho === anho);
 
+  // Helpers para chart/tabla según métrica
+  const skuAvanceKey    = metrica === "uds" ? "cantidad"        : "venta_neta";
+  const skuPptoKey      = metrica === "uds" ? "presupuesto_uds" : "presupuesto";
+  const skuPctKey       = metrica === "uds" ? "porcentaje_uds"  : "porcentaje";
+  const sgAvanceKey     = metrica === "uds" ? "cantidad"        : "venta_neta";
+  const sgPptoKey       = metrica === "uds" ? "presupuesto_uds" : "presupuesto";
+  const sgPctKey        = metrica === "uds" ? "porcentaje_uds"  : "porcentaje";
+
+  const fmtAvance = (n: number | null | undefined) =>
+    metrica === "uds" ? `${fmtN(n)} uds.` : fmt(n);
+  const fmtPpto = (n: number | null | undefined) =>
+    metrica === "uds" ? `${fmtN(n)} uds.` : fmt(n);
+
   // ─── Render ───────────────────────────────────────────────────────────────
   return (
     <DashboardLayout>
@@ -222,6 +246,21 @@ export default function DashboardUnidadesVendidas() {
         </div>
 
         <div className="flex items-end gap-3 flex-wrap">
+          {/* Toggle Bs / Uds */}
+          <div className="flex flex-col gap-1">
+            <label className="text-[10px] uppercase tracking-widest text-slate-400 font-semibold">Métrica</label>
+            <div className="flex rounded-lg overflow-hidden border border-slate-200 text-xs font-semibold">
+              <button onClick={() => setMetrica("bs")}
+                className={`px-3 py-1.5 transition-colors ${metrica === "bs" ? "bg-brand-600 text-white" : "bg-white text-slate-500 hover:bg-slate-50"}`}>
+                Bs
+              </button>
+              <button onClick={() => setMetrica("uds")}
+                className={`px-3 py-1.5 transition-colors ${metrica === "uds" ? "bg-brand-600 text-white" : "bg-white text-slate-500 hover:bg-slate-50"}`}>
+                Uds
+              </button>
+            </div>
+          </div>
+
           {/* Regional */}
           <div className="flex flex-col gap-1">
             <label className="text-[10px] uppercase tracking-widest text-slate-400 font-semibold">Regional</label>
@@ -345,7 +384,7 @@ export default function DashboardUnidadesVendidas() {
             <div className="overflow-y-auto scrollbar-thin scrollbar-thumb-slate-200 scrollbar-track-transparent space-y-1.5 pr-1" style={{ maxHeight: 400 }}>
               {subgrupos.map((sg) => {
                 const isSelected = selectedSubgrupo === sg.subgrupo;
-                const pct = sg.porcentaje;
+                const pct = metrica === "uds" ? sg.porcentaje_uds : sg.porcentaje;
                 return (
                   <button key={sg.subgrupo}
                     onClick={() => setSelectedSubgrupo(isSelected ? null : sg.subgrupo)}
@@ -356,7 +395,9 @@ export default function DashboardUnidadesVendidas() {
                     }`}>
                     <span className={`font-semibold flex-1 text-left truncate ${isSelected ? "text-brand-700" : "text-slate-700"}`}
                       title={sg.subgrupo}>{sg.subgrupo}</span>
-                    <span className="text-slate-400 shrink-0 ml-3">{fmtN(sg.cantidad)} uds.</span>
+                    <span className="text-slate-400 shrink-0 ml-3">
+                      {metrica === "uds" ? `${fmtN(sg.cantidad)} uds.` : fmt(sg.venta_neta)}
+                    </span>
                     <span className={`font-bold shrink-0 ml-3 w-14 text-right ${
                       pct == null ? "text-slate-300" : pct >= 100 ? "text-emerald-600" : pct >= 80 ? "text-amber-500" : "text-red-500"
                     }`}>{fmtPct(pct)}</span>
@@ -370,7 +411,7 @@ export default function DashboardUnidadesVendidas() {
         {/* ── Derecha 40%: Chart 1 avance/ppto por sub-categoría ──────────── */}
         <div className="col-span-5 xl:col-span-2 card">
           <h2 className="font-semibold text-slate-700 text-sm mb-1">Avance vs Presupuesto</h2>
-          <p className="text-[11px] text-slate-400 mb-4">{categoria} · {MESES[mes]} {anho}</p>
+          <p className="text-[11px] text-slate-400 mb-4">{categoria} · {MESES[mes]} {anho} · {metrica === "uds" ? "Unidades" : "Bs."}</p>
 
           {loadingSubgrupo ? (
             <div className="h-48 bg-slate-50 animate-pulse rounded-xl" />
@@ -387,25 +428,25 @@ export default function DashboardUnidadesVendidas() {
                 <Tooltip content={(props: any) => {
                   if (!props.active || !props.payload?.length) return null;
                   const row: SubgrupoRow = props.payload[0]?.payload;
+                  const pct = metrica === "uds" ? row.porcentaje_uds : row.porcentaje;
                   return (
                     <div className="bg-white border border-slate-200 rounded-xl shadow-xl px-4 py-3 text-sm max-w-64">
                       <p className="font-bold text-slate-800 mb-1">{row.subgrupo}</p>
                       <div className="flex gap-4 flex-wrap text-xs">
-                        <div><p className="text-slate-400">Venta Neta</p><p className="font-semibold text-blue-600">{fmt(row.venta_neta)}</p></div>
-                        {row.presupuesto > 0 && <div><p className="text-slate-400">Presupuesto</p><p className="font-semibold text-emerald-600">{fmt(row.presupuesto)}</p></div>}
-                        <div><p className="text-slate-400">Unidades</p><p className="font-semibold text-slate-700">{fmtN(row.cantidad)}</p></div>
-                        {row.porcentaje != null && <div><p className="text-slate-400">Cumpl.</p><p className={`font-bold ${row.porcentaje >= 100 ? "text-emerald-600" : row.porcentaje >= 80 ? "text-amber-500" : "text-red-500"}`}>{fmtPct(row.porcentaje)}</p></div>}
+                        <div><p className="text-slate-400">Avance</p><p className="font-semibold text-blue-600">{fmtAvance(row[sgAvanceKey as keyof SubgrupoRow] as number)}</p></div>
+                        {(row[sgPptoKey as keyof SubgrupoRow] as number) > 0 && <div><p className="text-slate-400">Presupuesto</p><p className="font-semibold text-emerald-600">{fmtPpto(row[sgPptoKey as keyof SubgrupoRow] as number)}</p></div>}
+                        {pct != null && <div><p className="text-slate-400">Cumpl.</p><p className={`font-bold ${pct >= 100 ? "text-emerald-600" : pct >= 80 ? "text-amber-500" : "text-red-500"}`}>{fmtPct(pct)}</p></div>}
                       </div>
                     </div>
                   );
                 }} />
-                <Bar dataKey="venta_neta" name="Avance" radius={[0, 3, 3, 0]} barSize={9}
-                  label={{ position: "right", fontSize: 9, fill: "#94a3b8", formatter: ((_v: unknown, _e: unknown, idx: number) => fmtPct(subgrupos[idx]?.porcentaje)) as any }}>
+                <Bar dataKey={sgAvanceKey} name="Avance" radius={[0, 3, 3, 0]} barSize={9}
+                  label={{ position: "right", fontSize: 9, fill: "#94a3b8", formatter: ((_v: unknown, _e: unknown, idx: number) => fmtPct(metrica === "uds" ? subgrupos[idx]?.porcentaje_uds : subgrupos[idx]?.porcentaje)) as any }}>
                   {subgrupos.map((entry) => (
                     <Cell key={entry.subgrupo} fill={selectedSubgrupo === entry.subgrupo ? "#1d4ed8" : "#3b82f6"} />
                   ))}
                 </Bar>
-                <Bar dataKey="presupuesto" name="Presupuesto" radius={[0, 3, 3, 0]} barSize={9}>
+                <Bar dataKey={sgPptoKey} name="Presupuesto" radius={[0, 3, 3, 0]} barSize={9}>
                   {subgrupos.map((entry) => (
                     <Cell key={entry.subgrupo} fill={selectedSubgrupo === entry.subgrupo ? "#15803d" : "#22c55e"} />
                   ))}
@@ -427,7 +468,7 @@ export default function DashboardUnidadesVendidas() {
               <h2 className="font-semibold text-slate-700">
                 SKUs — <span className={cfg.color}>{selectedSubgrupo}</span>
               </h2>
-              <p className="text-xs text-slate-400 mt-0.5">{MESES[mes]} {anho}</p>
+              <p className="text-xs text-slate-400 mt-0.5">{MESES[mes]} {anho} · {metrica === "uds" ? "Unidades" : "Bs."}</p>
             </div>
             <div className="flex flex-col gap-1">
               <label className="text-[10px] uppercase tracking-widest text-slate-400 font-semibold">Ordenar</label>
@@ -455,26 +496,26 @@ export default function DashboardUnidadesVendidas() {
                           if (!props.active || !props.payload?.length) return null;
                           const row = filteredSkus.find((s) => s.codigo === props.payload[0]?.payload?.codigo);
                           if (!row) return null;
+                          const pct = metrica === "uds" ? row.porcentaje_uds : row.porcentaje;
                           return (
                             <div className="bg-white border border-slate-200 rounded-xl shadow-xl px-4 py-3 text-sm max-w-72">
                               <p className="font-bold text-slate-800 mb-0.5">{row.codigo}</p>
                               <p className="text-slate-500 text-xs mb-2 leading-tight">{row.producto}</p>
                               <div className="flex gap-3 flex-wrap">
-                                <div><p className="text-[10px] text-slate-400">Venta Neta</p><p className="font-semibold text-blue-600">{fmt(row.venta_neta)}</p></div>
-                                {row.presupuesto > 0 && <div><p className="text-[10px] text-slate-400">Presupuesto</p><p className="font-semibold text-emerald-600">{fmt(row.presupuesto)}</p></div>}
-                                {row.porcentaje != null && <div><p className="text-[10px] text-slate-400">Cumpl.</p><p className={`font-bold ${row.porcentaje >= 100 ? "text-emerald-600" : row.porcentaje >= 80 ? "text-amber-500" : "text-red-500"}`}>{row.porcentaje.toFixed(1)}%</p></div>}
-                                <div><p className="text-[10px] text-slate-400">Unidades</p><p className="font-semibold text-slate-700">{row.cantidad.toLocaleString()}</p></div>
+                                <div><p className="text-[10px] text-slate-400">Avance</p><p className="font-semibold text-blue-600">{fmtAvance(row[skuAvanceKey as keyof SkuRow] as number)}</p></div>
+                                {(row[skuPptoKey as keyof SkuRow] as number) > 0 && <div><p className="text-[10px] text-slate-400">Presupuesto</p><p className="font-semibold text-emerald-600">{fmtPpto(row[skuPptoKey as keyof SkuRow] as number)}</p></div>}
+                                {pct != null && <div><p className="text-[10px] text-slate-400">Cumpl.</p><p className={`font-bold ${pct >= 100 ? "text-emerald-600" : pct >= 80 ? "text-amber-500" : "text-red-500"}`}>{pct.toFixed(1)}%</p></div>}
                               </div>
                             </div>
                           );
                         }} />
-                        <Bar dataKey="venta_neta" name="Venta Neta" radius={[0, 3, 3, 0]} barSize={10}
-                          label={{ position: "right", fontSize: 9, fill: "#94a3b8", formatter: ((v: number) => fmtN(v)) as any }}>
+                        <Bar dataKey={skuAvanceKey} name="Avance" radius={[0, 3, 3, 0]} barSize={10}
+                          label={{ position: "right", fontSize: 9, fill: "#94a3b8", formatter: ((v: number) => fmtAbbr(v)) as any }}>
                           {filteredSkus.map((entry) => (
                             <Cell key={entry.codigo} fill={entry.codigo === selectedSkuCode ? "#1d4ed8" : "#3b82f6"} />
                           ))}
                         </Bar>
-                        <Bar dataKey="presupuesto" name="Presupuesto" radius={[0, 3, 3, 0]} barSize={10}>
+                        <Bar dataKey={skuPptoKey} name="Presupuesto" radius={[0, 3, 3, 0]} barSize={10}>
                           {filteredSkus.map((entry) => (
                             <Cell key={entry.codigo} fill={entry.codigo === selectedSkuCode ? "#15803d" : "#22c55e"} />
                           ))}
@@ -506,25 +547,37 @@ export default function DashboardUnidadesVendidas() {
                   <table className="w-full text-xs">
                     <thead className="sticky top-0 bg-white z-10 shadow-[0_1px_0_0_#f1f5f9]">
                       <tr className="text-slate-400">
-                        <th className="text-left py-2 font-semibold">Código</th>
                         <th className="text-left py-2 font-semibold">SKU</th>
-                        <th className="text-right py-2 font-semibold">%</th>
+                        <th className="text-right py-2 font-semibold">{metrica === "uds" ? "Uds." : "Bs."}</th>
+                        <th className="text-right py-2 font-semibold">Ppto.</th>
+                        <th className="text-right py-2 font-semibold">Cumpl.</th>
                       </tr>
                     </thead>
                     <tbody>
                       {filteredSkus.map((s) => {
                         const isSel = s.codigo === selectedSkuCode;
+                        const avance = s[skuAvanceKey as keyof SkuRow] as number;
+                        const ppto   = s[skuPptoKey  as keyof SkuRow] as number;
+                        const pct    = s[skuPctKey   as keyof SkuRow] as number | null;
                         return (
                           <tr key={s.codigo}
                             onClick={() => setSelectedSkuCode((prev) => prev === s.codigo ? null : s.codigo)}
                             className={`border-b border-slate-50 cursor-pointer transition-colors ${
                               isSel ? "bg-brand-50 ring-1 ring-inset ring-brand-300" : "hover:bg-slate-50"
                             }`}>
-                            <td className={`py-1.5 font-mono font-bold text-[10px] ${isSel ? "text-brand-600" : "text-slate-500"}`}>{s.codigo}</td>
-                            <td className={`py-1.5 max-w-32 truncate ${isSel ? "text-brand-700 font-semibold" : "text-slate-700"}`} title={s.producto}>{s.producto}</td>
+                            <td className={`py-1.5 max-w-28 truncate ${isSel ? "text-brand-700 font-semibold" : "text-slate-700"}`} title={s.producto}>
+                              <span className={`font-mono text-[10px] block ${isSel ? "text-brand-500" : "text-slate-400"}`}>{s.codigo}</span>
+                              {s.producto}
+                            </td>
+                            <td className={`py-1.5 text-right tabular-nums ${isSel ? "text-brand-700 font-semibold" : "text-slate-600"}`}>
+                              {metrica === "uds" ? fmtN(avance) : fmt(avance)}
+                            </td>
+                            <td className="py-1.5 text-right tabular-nums text-slate-400">
+                              {metrica === "uds" ? fmtN(ppto) : fmt(ppto)}
+                            </td>
                             <td className={`py-1.5 text-right font-bold ${
-                              s.porcentaje == null ? "text-slate-300" : s.porcentaje >= 100 ? "text-emerald-600" : s.porcentaje >= 80 ? "text-amber-500" : "text-red-500"
-                            }`}>{fmtPct(s.porcentaje)}</td>
+                              pct == null ? "text-slate-300" : pct >= 100 ? "text-emerald-600" : pct >= 80 ? "text-amber-500" : "text-red-500"
+                            }`}>{fmtPct(pct)}</td>
                           </tr>
                         );
                       })}

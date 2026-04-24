@@ -60,3 +60,20 @@
 .pivot-wrapper {
   overflow-x: auto;
 }
+
+/* ─── Animaciones toast ──────────────────────────────────────────────────────── */
+@keyframes fade-in {
+  from { opacity: 0; transform: translateY(8px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+@keyframes progress {
+  0%   { width: 0%; }
+  80%  { width: 90%; }
+  100% { width: 90%; }
+}
+.animate-fade-in  { animation: fade-in 0.2s ease-out forwards; }
+.animate-progress { animation: progress 300s linear forwards; }
+
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}

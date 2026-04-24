@@ -62,4 +62,7 @@ urlpatterns = [
     path('dashboard/proveedor/kpis/',      views.dashboard_proveedor_kpis,      name='proveedor-kpis'),
     path('dashboard/proveedor/por-marca/', views.dashboard_proveedor_por_marca,  name='proveedor-por-marca'),
     path('dashboard/proveedor/tabla/',     views.dashboard_proveedor_tabla,      name='proveedor-tabla'),
+
+    # Exportaciones XLSX
+    path('exportar/ventas-combo-armado/', views.exportar_ventas_combo_armado, name='exportar-ventas-combo-armado'),
 ]

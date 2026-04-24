@@ -1,4 +1,4 @@
-export const CURRENT_VERSION = "1.1.2";
+export const CURRENT_VERSION = "1.1.3";
 
 export interface ChangelogVersion {
   version: string;
@@ -12,6 +12,26 @@ export interface ChangelogVersion {
 }
 
 export const CHANGELOG: ChangelogVersion[] = [
+  {
+    version: "1.1.3",
+    date: "Abril 2026",
+    fixes: [
+      "Corregida la Pantalla Blanca (WSoD): se agregó ErrorBoundary global para mostrar un mensaje de error en lugar de pantalla en blanco",
+      "Exportación Excel: corregido error 500 causado por column_dimensions incompatible con modo write-only de openpyxl",
+      "Exportación Excel: corregido problema de GZipMiddleware que eliminaba el Content-Length y corrompía la descarga en rangos grandes",
+      "Toast de descarga ya no desaparece al navegar entre dashboards (movido fuera del árbol de rutas)",
+    ],
+    features: [
+      "Nueva sección «Documentos» en el menú: Dashboard Matriz y Descargar Archivos",
+      "Exportación de Ventas Efectivas con Combo Armado a Excel con selector de fechas",
+      "Notificación persistente durante la descarga: el archivo se genera en segundo plano y se descarga automáticamente al finalizar",
+      "Categoría «Sin Clasificar» en Unidades Vendidas y toggle Bs / Uds global",
+      "Logos PNG en login y barra de navegación",
+      "Favicon del sistema actualizado al ícono Cruzimex (CRZX.ico)",
+    ],
+    newDashboardPerms: ["descargas"],
+    newDashboardNames: { descargas: "Descargar Archivos" },
+  },
   {
     version: "1.1.2",
     date: "Abril 2026",

@@ -1,4 +1,4 @@
-from django.http import JsonResponse
+from django.http import JsonResponse, StreamingHttpResponse
 from django.db import connections
 from django.contrib.auth import authenticate
 from django.contrib.auth.models import User
@@ -13,6 +13,9 @@ from rest_framework import status
 from datetime import date, datetime
 import decimal
 import re as _re
+import io
+import openpyxl
+from openpyxl.styles import Font
 from functools import wraps
 
 from .models import UserProfile
@@ -215,13 +218,20 @@ def _serialize_user(user):
     }
 
 
+_ADMIN_CARGOS_FULL = frozenset([
+    'Administrador de Sistema',
+    'Subadministrador de Sistemas',
+    'Gerente General',
+    'Gerente de Ventas',
+    'Analista de Datos',
+])
+
 def _is_admin(user):
-    """True si el usuario tiene permisos de administración."""
+    """True si el usuario tiene permisos de administración (puede ver todos los filtros)."""
     if user.is_staff or user.is_superuser:
         return True
     try:
-        cargo = user.profile.cargo
-        return cargo in ('Administrador de Sistema', 'Subadministrador de Sistemas')
+        return user.profile.cargo in _ADMIN_CARGOS_FULL
     except UserProfile.DoesNotExist:
         return False
 
@@ -511,14 +521,13 @@ def dashboard_nacional_kpis(request):
                 COALESCE(SUM(CASE WHEN {cbba} THEN fp.venta_neta_presupuestada END), 0)  AS cochabamba,
                 COALESCE(SUM(CASE WHEN {lpz}  THEN fp.venta_neta_presupuestada END), 0)  AS la_paz
             FROM dw.fact_presupuesto fp
-            JOIN dw.dim_presupuesto_version dpv ON fp.version_sk  = dpv.version_sk
             JOIN dw.dim_vendedor dv              ON fp.vendedor_sk = dv.vendedor_sk
             WHERE fp.anho = %s AND fp.mes = %s
-              AND dpv.activa = TRUE
+              AND fp.version_sk = (SELECT MAX(version_sk) FROM dw.dim_presupuesto_version WHERE anho = %s AND mes = %s)
         """
         presupuestos = {'total': 0, 'santa_cruz': 0, 'cochabamba': 0, 'la_paz': 0}
         try:
-            _, ppto_rows = _run_dw_query(sql_ppto, [anho, mes])
+            _, ppto_rows = _run_dw_query(sql_ppto, [anho, mes, anho, mes])
             if ppto_rows:
                 presupuestos = {k: v or 0 for k, v in ppto_rows[0].items()}
         except Exception:
@@ -564,9 +573,9 @@ def dashboard_nacional_tendencia(request):
             _, p = _run_dw_query(
                 """SELECT COALESCE(SUM(fp.venta_neta_presupuestada), 0) AS total
                    FROM dw.fact_presupuesto fp
-                   JOIN dw.dim_presupuesto_version dpv ON fp.version_sk = dpv.version_sk
-                   WHERE fp.anho = %s AND fp.mes = %s AND dpv.activa = TRUE""",
-                [anho, mes]
+                   WHERE fp.anho = %s AND fp.mes = %s
+                     AND fp.version_sk = (SELECT MAX(version_sk) FROM dw.dim_presupuesto_version WHERE anho = %s AND mes = %s)""",
+                [anho, mes, anho, mes]
             )
             presupuesto_mes = float(p[0]['total']) if p else 0.0
         except Exception:
@@ -645,12 +654,12 @@ def dashboard_nacional_por_regional(request):
                     END                                                   AS regional,
                     COALESCE(SUM(fp.venta_neta_presupuestada), 0)         AS presupuesto
                 FROM dw.fact_presupuesto fp
-                JOIN dw.dim_presupuesto_version dpv ON fp.version_sk  = dpv.version_sk
                 JOIN dw.dim_vendedor dv              ON fp.vendedor_sk = dv.vendedor_sk
-                WHERE fp.anho = %s AND fp.mes = %s AND dpv.activa = TRUE
+                WHERE fp.anho = %s AND fp.mes = %s
+                  AND fp.version_sk = (SELECT MAX(version_sk) FROM dw.dim_presupuesto_version WHERE anho = %s AND mes = %s)
                 GROUP BY regional
             """
-            _, ppto_rows = _run_dw_query(sql_ppto, [anho, mes])
+            _, ppto_rows = _run_dw_query(sql_ppto, [anho, mes, anho, mes])
             ppto_map = {r['regional']: r['presupuesto'] for r in ppto_rows}
         except Exception:
             pass
@@ -703,17 +712,16 @@ def dashboard_nacional_por_canal(request):
                     END                                               AS canal,
                     COALESCE(SUM(fp.venta_neta_presupuestada), 0)     AS presupuesto
                 FROM dw.fact_presupuesto fp
-                JOIN dw.dim_presupuesto_version dpv ON fp.version_sk  = dpv.version_sk
                 JOIN dw.dim_vendedor dv              ON fp.vendedor_sk = dv.vendedor_sk
                 WHERE fp.anho = %s AND fp.mes = %s
-                  AND dpv.activa = TRUE
+                  AND fp.version_sk = (SELECT MAX(version_sk) FROM dw.dim_presupuesto_version WHERE anho = %s AND mes = %s)
                 GROUP BY CASE
                         WHEN dv.canal_rrhh IN ('DTS', 'DTS-LP', 'DTS-EA') THEN 'DTS'
                         WHEN dv.canal_rrhh IN ('WHS', 'WHS-LP', 'WHS-EA') THEN 'WHS'
                         ELSE dv.canal_rrhh
                     END
             """
-            _, ppto_rows = _run_dw_query(sql_ppto, [anho, mes])
+            _, ppto_rows = _run_dw_query(sql_ppto, [anho, mes, anho, mes])
             ppto_map = {r["canal"]: r["presupuesto"] for r in ppto_rows}
         except Exception:
             pass
@@ -1007,14 +1015,13 @@ def dashboard_nacional_por_categoria(request):
                     END AS categoria,
                     COALESCE(SUM(fp.venta_neta_presupuestada), 0) AS presupuesto
                 FROM dw.fact_presupuesto fp
-                JOIN dw.dim_presupuesto_version dpv ON fp.version_sk  = dpv.version_sk
                 JOIN dw.dim_producto             dp  ON fp.producto_sk = dp.producto_sk
                 WHERE fp.anho = %s AND fp.mes = %s
-                  AND dpv.activa = TRUE
+                  AND fp.version_sk = (SELECT MAX(version_sk) FROM dw.dim_presupuesto_version WHERE anho = %s AND mes = %s)
                   AND dp.linea IS NOT NULL
                 GROUP BY dp.linea
             """
-            _, ppto_rows = _run_dw_query(sql_ppto, [anho, mes])
+            _, ppto_rows = _run_dw_query(sql_ppto, [anho, mes, anho, mes])
             ppto_map = {r["categoria"]: r["presupuesto"] for r in ppto_rows}
         except Exception:
             pass
@@ -1058,15 +1065,15 @@ def _ppto_by_regional(anho, mes, ciudad_cond, canal_filter='', params_extra=None
     sql = f"""
         SELECT dv.canal_rrhh AS canal, COALESCE(SUM(fp.venta_neta_presupuestada), 0) AS presupuesto
         FROM dw.fact_presupuesto fp
-        JOIN dw.dim_presupuesto_version dpv ON fp.version_sk  = dpv.version_sk
         JOIN dw.dim_vendedor dv             ON fp.vendedor_sk = dv.vendedor_sk
-        WHERE fp.anho = %s AND fp.mes = %s AND dpv.activa = TRUE
+        WHERE fp.anho = %s AND fp.mes = %s
           AND ({ciudad_cond})
           AND dv.canal_rrhh IS NOT NULL
           {canal_filter}
+          AND fp.version_sk = (SELECT MAX(version_sk) FROM dw.dim_presupuesto_version WHERE anho = %s AND mes = %s)
         GROUP BY dv.canal_rrhh
     """
-    base = [anho, mes] + (params_extra or [])
+    base = [anho, mes] + (params_extra or []) + [anho, mes]
     try:
         _, rows = _run_dw_query(sql, base)
         return {r['canal']: float(r['presupuesto'] or 0) for r in rows}
@@ -1172,14 +1179,14 @@ def dashboard_regionales_tendencia(request):
         sql_ppto = f"""
             SELECT COALESCE(SUM(fp.venta_neta_presupuestada), 0) AS total
             FROM dw.fact_presupuesto fp
-            JOIN dw.dim_presupuesto_version dpv ON fp.version_sk  = dpv.version_sk
             JOIN dw.dim_vendedor dv             ON fp.vendedor_sk = dv.vendedor_sk
-            WHERE fp.anho = %s AND fp.mes = %s AND dpv.activa = TRUE
+            WHERE fp.anho = %s AND fp.mes = %s
               AND ({ciudad_cond})
+              AND fp.version_sk = (SELECT MAX(version_sk) FROM dw.dim_presupuesto_version WHERE anho = %s AND mes = %s)
         """
         presupuesto_mes = 0.0
         try:
-            _, p = _run_dw_query(sql_ppto, [anho, mes])
+            _, p = _run_dw_query(sql_ppto, [anho, mes, anho, mes])
             presupuesto_mes = float(p[0]['total']) if p else 0.0
         except Exception:
             pass
@@ -1293,16 +1300,16 @@ def dashboard_regionales_por_categoria(request):
                     {_CATEGORIA_CASE}                                        AS categoria,
                     COALESCE(SUM(fp.venta_neta_presupuestada), 0)             AS presupuesto
                 FROM dw.fact_presupuesto fp
-                JOIN dw.dim_presupuesto_version dpv ON fp.version_sk  = dpv.version_sk
                 JOIN dw.dim_vendedor dv              ON fp.vendedor_sk = dv.vendedor_sk
                 JOIN dw.dim_producto dp              ON fp.producto_sk = dp.producto_sk
-                WHERE fp.anho = %s AND fp.mes = %s AND dpv.activa = TRUE
+                WHERE fp.anho = %s AND fp.mes = %s
                   AND ({ciudad_cond})
                   AND dp.grupo_descripcion != 'EXHIBIDORES'
                   AND dp.grupo_descripcion IS NOT NULL
+                  AND fp.version_sk = (SELECT MAX(version_sk) FROM dw.dim_presupuesto_version WHERE anho = %s AND mes = %s)
                 GROUP BY {_CATEGORIA_CASE}
             """
-            _, ppto_rows = _run_dw_query(sql_ppto, [anho, mes])
+            _, ppto_rows = _run_dw_query(sql_ppto, [anho, mes, anho, mes])
             ppto_map = {r['categoria']: float(r['presupuesto'] or 0) for r in ppto_rows}
         except Exception:
             pass
@@ -1490,16 +1497,16 @@ def dashboard_canales_por_categoria(request):
                     {_CATEGORIA_CASE}                                        AS categoria,
                     COALESCE(SUM(fp.venta_neta_presupuestada), 0)             AS presupuesto
                 FROM dw.fact_presupuesto fp
-                JOIN dw.dim_presupuesto_version dpv ON fp.version_sk  = dpv.version_sk
                 JOIN dw.dim_vendedor dv              ON fp.vendedor_sk = dv.vendedor_sk
                 JOIN dw.dim_producto dp              ON fp.producto_sk = dp.producto_sk
-                WHERE fp.anho = %s AND fp.mes = %s AND dpv.activa = TRUE
+                WHERE fp.anho = %s AND fp.mes = %s
                   AND ({ciudad_cond}) {canal_cond}
                   AND dp.grupo_descripcion != 'EXHIBIDORES'
                   AND dp.grupo_descripcion IS NOT NULL
+                  AND fp.version_sk = (SELECT MAX(version_sk) FROM dw.dim_presupuesto_version WHERE anho = %s AND mes = %s)
                 GROUP BY {_CATEGORIA_CASE}
             """
-            _, ppto_rows = _run_dw_query(sql_ppto, params)
+            _, ppto_rows = _run_dw_query(sql_ppto, params + [anho, mes])
             ppto_map = {r['categoria']: float(r['presupuesto'] or 0) for r in ppto_rows}
         except Exception:
             pass
@@ -1585,14 +1592,14 @@ def dashboard_canales_por_sku(request):
                        COALESCE(SUM(fp.venta_neta_presupuestada), 0)       AS presupuesto,
                        COALESCE(SUM(fp.cantidad_presupuestada), 0)         AS presupuesto_uds
                 FROM dw.fact_presupuesto fp
-                JOIN dw.dim_presupuesto_version dpv ON fp.version_sk  = dpv.version_sk
                 JOIN dw.dim_vendedor dv              ON fp.vendedor_sk = dv.vendedor_sk
                 JOIN dw.dim_producto dp              ON fp.producto_sk = dp.producto_sk
-                WHERE fp.anho = %s AND fp.mes = %s AND dpv.activa = TRUE
+                WHERE fp.anho = %s AND fp.mes = %s
                   AND ({ciudad_cond}) {canal_cond} {cat_cond}
+                  AND fp.version_sk = (SELECT MAX(version_sk) FROM dw.dim_presupuesto_version WHERE anho = %s AND mes = %s)
                 GROUP BY dp.producto_codigo_erp
             """
-            _, ppto_rows = _run_dw_query(sql_ppto, params)
+            _, ppto_rows = _run_dw_query(sql_ppto, params + [anho, mes])
             ppto_map = {r['codigo']: r for r in ppto_rows}
         except Exception:
             pass
@@ -1673,16 +1680,18 @@ def dashboard_supervisores_vendedores(request):
             SELECT
                 dv.vendedor_sk,
                 dv.vendedor_nombre                                                          AS vendedor,
-                COALESCE(SUM(CASE WHEN dp.linea = 'ALIMENTOS'           THEN fv.venta_neta ELSE 0 END), 0) AS alimentos,
-                COALESCE(SUM(CASE WHEN dp.linea = 'APEGO'               THEN fv.venta_neta ELSE 0 END), 0) AS apego,
-                COALESCE(SUM(CASE WHEN dp.linea = 'BEBIDAS ALC'         THEN fv.venta_neta ELSE 0 END), 0) AS licores,
+                COALESCE(SUM(CASE WHEN dp.linea = 'ALIMENTOS'            THEN fv.venta_neta ELSE 0 END), 0) AS alimentos,
+                COALESCE(SUM(CASE WHEN dp.linea = 'APEGO'                THEN fv.venta_neta ELSE 0 END), 0) AS apego,
+                COALESCE(SUM(CASE WHEN dp.linea = 'BEBIDAS ALC'          THEN fv.venta_neta ELSE 0 END), 0) AS licores,
                 COALESCE(SUM(CASE WHEN dp.linea = 'HOME Y PERSONAL CARE' THEN fv.venta_neta ELSE 0 END), 0) AS hpc,
-                COALESCE(SUM(fv.venta_neta), 0)                                                             AS total,
-                COALESCE(SUM(CASE WHEN dp.linea = 'ALIMENTOS'           THEN fv.cantidad ELSE 0 END), 0)   AS alimentos_cant,
-                COALESCE(SUM(CASE WHEN dp.linea = 'APEGO'               THEN fv.cantidad ELSE 0 END), 0)   AS apego_cant,
-                COALESCE(SUM(CASE WHEN dp.linea = 'BEBIDAS ALC'         THEN fv.cantidad ELSE 0 END), 0)   AS licores_cant,
-                COALESCE(SUM(CASE WHEN dp.linea = 'HOME Y PERSONAL CARE' THEN fv.cantidad ELSE 0 END), 0)  AS hpc_cant,
-                COALESCE(SUM(fv.cantidad), 0)                                                               AS total_cant
+                COALESCE(SUM(CASE WHEN dp.linea = 'SIN LINEA' OR dp.linea IS NULL THEN fv.venta_neta ELSE 0 END), 0) AS sin_clasificar,
+                COALESCE(SUM(fv.venta_neta), 0)                                                              AS total,
+                COALESCE(SUM(CASE WHEN dp.linea = 'ALIMENTOS'            THEN fv.cantidad ELSE 0 END), 0)   AS alimentos_cant,
+                COALESCE(SUM(CASE WHEN dp.linea = 'APEGO'                THEN fv.cantidad ELSE 0 END), 0)   AS apego_cant,
+                COALESCE(SUM(CASE WHEN dp.linea = 'BEBIDAS ALC'          THEN fv.cantidad ELSE 0 END), 0)   AS licores_cant,
+                COALESCE(SUM(CASE WHEN dp.linea = 'HOME Y PERSONAL CARE' THEN fv.cantidad ELSE 0 END), 0)   AS hpc_cant,
+                COALESCE(SUM(CASE WHEN dp.linea = 'SIN LINEA' OR dp.linea IS NULL THEN fv.cantidad ELSE 0 END), 0) AS sin_clasificar_cant,
+                COALESCE(SUM(fv.cantidad), 0)                                                                AS total_cant
             FROM dw.fact_ventas fv
             JOIN dw.dim_fecha    df ON fv.fecha_sk    = df.fecha_sk
             JOIN dw.dim_vendedor dv ON fv.vendedor_sk = dv.vendedor_sk
@@ -1705,21 +1714,23 @@ def dashboard_supervisores_vendedores(request):
                     COALESCE(SUM(CASE WHEN dp.linea = 'APEGO'                THEN fp.venta_neta_presupuestada ELSE 0 END), 0) AS apego_ppto,
                     COALESCE(SUM(CASE WHEN dp.linea = 'BEBIDAS ALC'          THEN fp.venta_neta_presupuestada ELSE 0 END), 0) AS licores_ppto,
                     COALESCE(SUM(CASE WHEN dp.linea = 'HOME Y PERSONAL CARE' THEN fp.venta_neta_presupuestada ELSE 0 END), 0) AS hpc_ppto,
+                    COALESCE(SUM(CASE WHEN dp.linea = 'SIN LINEA' OR dp.linea IS NULL THEN fp.venta_neta_presupuestada ELSE 0 END), 0) AS sin_clasificar_ppto,
                     COALESCE(SUM(fp.venta_neta_presupuestada), 0)                                                              AS total_ppto,
                     COALESCE(SUM(CASE WHEN dp.linea = 'ALIMENTOS'            THEN fp.cantidad_presupuestada ELSE 0 END), 0)   AS alimentos_ppto_uds,
                     COALESCE(SUM(CASE WHEN dp.linea = 'APEGO'                THEN fp.cantidad_presupuestada ELSE 0 END), 0)   AS apego_ppto_uds,
                     COALESCE(SUM(CASE WHEN dp.linea = 'BEBIDAS ALC'          THEN fp.cantidad_presupuestada ELSE 0 END), 0)   AS licores_ppto_uds,
                     COALESCE(SUM(CASE WHEN dp.linea = 'HOME Y PERSONAL CARE' THEN fp.cantidad_presupuestada ELSE 0 END), 0)   AS hpc_ppto_uds,
+                    COALESCE(SUM(CASE WHEN dp.linea = 'SIN LINEA' OR dp.linea IS NULL THEN fp.cantidad_presupuestada ELSE 0 END), 0) AS sin_clasificar_ppto_uds,
                     COALESCE(SUM(fp.cantidad_presupuestada), 0)                                                                AS total_ppto_uds
                 FROM dw.fact_presupuesto fp
-                JOIN dw.dim_presupuesto_version dpv ON fp.version_sk  = dpv.version_sk
                 JOIN dw.dim_vendedor             dv  ON fp.vendedor_sk = dv.vendedor_sk
                 JOIN dw.dim_producto             dp  ON fp.producto_sk = dp.producto_sk
-                WHERE fp.anho = %s AND fp.mes = %s AND dpv.activa = TRUE
+                WHERE fp.anho = %s AND fp.mes = %s
                   AND ({ciudad_cond}) {canal_cond}
+                  AND fp.version_sk = (SELECT MAX(version_sk) FROM dw.dim_presupuesto_version WHERE anho = %s AND mes = %s)
                 GROUP BY dv.vendedor_sk
             """
-            _, ppto_rows = _run_dw_query(sql_ppto, params_base)
+            _, ppto_rows = _run_dw_query(sql_ppto, params_base + [anho, mes])
             ppto_map = {r['vendedor_sk']: r for r in ppto_rows}
         except Exception:
             pass
@@ -1736,24 +1747,27 @@ def dashboard_supervisores_vendedores(request):
         for row in ventas_rows:
             sk   = row['vendedor_sk']
             p    = ppto_map.get(sk, {})
-            a_a  = float(row['alimentos'] or 0);  ca_a = int(row['alimentos_cant'] or 0)
-            a_e  = float(row['apego']     or 0);  ca_e = int(row['apego_cant']     or 0)
-            a_l  = float(row['licores']   or 0);  ca_l = int(row['licores_cant']   or 0)
-            a_h  = float(row['hpc']       or 0);  ca_h = int(row['hpc_cant']       or 0)
-            a_t  = float(row['total']     or 0);  ca_t = int(row['total_cant']     or 0)
-            p_a  = float(p.get('alimentos_ppto')     or 0);  pu_a = float(p.get('alimentos_ppto_uds') or 0)
-            p_e  = float(p.get('apego_ppto')         or 0);  pu_e = float(p.get('apego_ppto_uds')     or 0)
-            p_l  = float(p.get('licores_ppto')       or 0);  pu_l = float(p.get('licores_ppto_uds')   or 0)
-            p_h  = float(p.get('hpc_ppto')           or 0);  pu_h = float(p.get('hpc_ppto_uds')       or 0)
-            p_t  = float(p.get('total_ppto')         or 0);  pu_t = float(p.get('total_ppto_uds')     or 0)
+            a_a  = float(row['alimentos']       or 0);  ca_a = int(row['alimentos_cant']       or 0)
+            a_e  = float(row['apego']           or 0);  ca_e = int(row['apego_cant']           or 0)
+            a_l  = float(row['licores']         or 0);  ca_l = int(row['licores_cant']         or 0)
+            a_h  = float(row['hpc']             or 0);  ca_h = int(row['hpc_cant']             or 0)
+            a_sc = float(row['sin_clasificar']  or 0);  ca_sc= int(row['sin_clasificar_cant']  or 0)
+            a_t  = float(row['total']           or 0);  ca_t = int(row['total_cant']           or 0)
+            p_a  = float(p.get('alimentos_ppto')        or 0);  pu_a  = float(p.get('alimentos_ppto_uds')        or 0)
+            p_e  = float(p.get('apego_ppto')            or 0);  pu_e  = float(p.get('apego_ppto_uds')            or 0)
+            p_l  = float(p.get('licores_ppto')          or 0);  pu_l  = float(p.get('licores_ppto_uds')          or 0)
+            p_h  = float(p.get('hpc_ppto')              or 0);  pu_h  = float(p.get('hpc_ppto_uds')              or 0)
+            p_sc = float(p.get('sin_clasificar_ppto')   or 0);  pu_sc = float(p.get('sin_clasificar_ppto_uds')   or 0)
+            p_t  = float(p.get('total_ppto')            or 0);  pu_t  = float(p.get('total_ppto_uds')            or 0)
             result.append({
-                'vendedor_sk': sk,
-                'vendedor':    row['vendedor'],
-                'alimentos':   a_a, 'alimentos_ppto': p_a, 'alimentos_pct': _pct(a_a, p_a), 'alimentos_cant': ca_a, 'alimentos_ppto_uds': int(pu_a), 'alimentos_pct_uds': _pct_uds(ca_a, pu_a),
-                'apego':       a_e, 'apego_ppto':     p_e, 'apego_pct':     _pct(a_e, p_e), 'apego_cant':     ca_e, 'apego_ppto_uds':     int(pu_e), 'apego_pct_uds':     _pct_uds(ca_e, pu_e),
-                'licores':     a_l, 'licores_ppto':   p_l, 'licores_pct':   _pct(a_l, p_l), 'licores_cant':   ca_l, 'licores_ppto_uds':   int(pu_l), 'licores_pct_uds':   _pct_uds(ca_l, pu_l),
-                'hpc':         a_h, 'hpc_ppto':       p_h, 'hpc_pct':       _pct(a_h, p_h), 'hpc_cant':       ca_h, 'hpc_ppto_uds':       int(pu_h), 'hpc_pct_uds':       _pct_uds(ca_h, pu_h),
-                'total':       a_t, 'total_ppto':     p_t, 'total_pct':     _pct(a_t, p_t), 'total_cant':     ca_t, 'total_ppto_uds':     int(pu_t), 'total_pct_uds':     _pct_uds(ca_t, pu_t),
+                'vendedor_sk':    sk,
+                'vendedor':       row['vendedor'],
+                'alimentos':      a_a,  'alimentos_ppto':      p_a,  'alimentos_pct':      _pct(a_a,  p_a),  'alimentos_cant':      ca_a,  'alimentos_ppto_uds':      int(pu_a),  'alimentos_pct_uds':      _pct_uds(ca_a,  pu_a),
+                'apego':          a_e,  'apego_ppto':          p_e,  'apego_pct':          _pct(a_e,  p_e),  'apego_cant':          ca_e,  'apego_ppto_uds':          int(pu_e),  'apego_pct_uds':          _pct_uds(ca_e,  pu_e),
+                'licores':        a_l,  'licores_ppto':        p_l,  'licores_pct':        _pct(a_l,  p_l),  'licores_cant':        ca_l,  'licores_ppto_uds':        int(pu_l),  'licores_pct_uds':        _pct_uds(ca_l,  pu_l),
+                'hpc':            a_h,  'hpc_ppto':            p_h,  'hpc_pct':            _pct(a_h,  p_h),  'hpc_cant':            ca_h,  'hpc_ppto_uds':            int(pu_h),  'hpc_pct_uds':            _pct_uds(ca_h,  pu_h),
+                'sin_clasificar': a_sc, 'sin_clasificar_ppto': p_sc, 'sin_clasificar_pct': _pct(a_sc, p_sc), 'sin_clasificar_cant': ca_sc, 'sin_clasificar_ppto_uds': int(pu_sc), 'sin_clasificar_pct_uds': _pct_uds(ca_sc, pu_sc),
+                'total':          a_t,  'total_ppto':          p_t,  'total_pct':          _pct(a_t,  p_t),  'total_cant':          ca_t,  'total_ppto_uds':          int(pu_t),  'total_pct_uds':          _pct_uds(ca_t,  pu_t),
             })
 
         total_avance = sum(r['total'] for r in result)
@@ -1794,12 +1808,17 @@ _UNIDADES_CAT_LINEA = {
     'Apego':                'APEGO',
     'Licores':              'BEBIDAS ALC',
     'Home & Personal Care': 'HOME Y PERSONAL CARE',
+    'Sin Clasificar':       None,   # linea IS NULL OR linea = 'SIN LINEA'
 }
+
+_SIN_CLASIFICAR_COND = "(dp.linea = 'SIN LINEA' OR dp.linea IS NULL)"
 
 
 def _unidades_cat_params(categoria, base_params):
     """Returns (cat_cond_sql, params_extended)."""
     if categoria and categoria in _UNIDADES_CAT_LINEA:
+        if categoria == 'Sin Clasificar':
+            return f"AND {_SIN_CLASIFICAR_COND}", list(base_params)
         return "AND dp.linea = %s", list(base_params) + [_UNIDADES_CAT_LINEA[categoria]]
     return "", list(base_params)
 
@@ -1841,15 +1860,15 @@ def dashboard_unidades_kpis(request):
         sql_p = f"""
             SELECT COALESCE(SUM(fp.venta_neta_presupuestada), 0) AS total_ppto
             FROM dw.fact_presupuesto fp
-            JOIN dw.dim_presupuesto_version dpv ON fp.version_sk  = dpv.version_sk
             JOIN dw.dim_vendedor             dv  ON fp.vendedor_sk = dv.vendedor_sk
             JOIN dw.dim_producto             dp  ON fp.producto_sk = dp.producto_sk
-            WHERE fp.anho = %s AND fp.mes = %s AND dpv.activa = TRUE
+            WHERE fp.anho = %s AND fp.mes = %s
               AND ({ciudad_cond}) {canal_cond} {ppto_cat_cond}
+              AND fp.version_sk = (SELECT MAX(version_sk) FROM dw.dim_presupuesto_version WHERE anho = %s AND mes = %s)
         """
         p_rows = []
         try:
-            _, p_rows = _run_dw_query(sql_p, params_p)
+            _, p_rows = _run_dw_query(sql_p, params_p + [anho, mes])
         except Exception:
             pass
 
@@ -1903,8 +1922,7 @@ def dashboard_unidades_por_subgrupo(request):
         ciudad_cond  = _regional_filter(regional)
         canal_cond   = "AND dv.canal_rrhh = %s" if canal else ""
         base_params  = [anho, mes] + ([canal] if canal else [])
-        cat_cond     = "AND dp.linea = %s"
-        params       = list(base_params) + [_UNIDADES_CAT_LINEA[categoria]]
+        cat_cond, params = _unidades_cat_params(categoria, base_params)
 
         sql_v = f"""
             SELECT
@@ -1924,20 +1942,21 @@ def dashboard_unidades_por_subgrupo(request):
 
         ppto_map = {}
         try:
+            ppto_cat_cond, params_p = _unidades_cat_params(categoria, base_params)
             sql_p = f"""
                 SELECT
                     COALESCE(dp.subgrupo_descripcion, 'Sin Subgrupo') AS subgrupo,
                     COALESCE(SUM(fp.venta_neta_presupuestada), 0)     AS presupuesto,
                     COALESCE(SUM(fp.cantidad_presupuestada), 0)        AS presupuesto_uds
                 FROM dw.fact_presupuesto fp
-                JOIN dw.dim_presupuesto_version dpv ON fp.version_sk  = dpv.version_sk
                 JOIN dw.dim_vendedor             dv  ON fp.vendedor_sk = dv.vendedor_sk
                 JOIN dw.dim_producto             dp  ON fp.producto_sk = dp.producto_sk
-                WHERE fp.anho = %s AND fp.mes = %s AND dpv.activa = TRUE
-                  AND ({ciudad_cond}) {canal_cond} {cat_cond}
+                WHERE fp.anho = %s AND fp.mes = %s
+                  AND ({ciudad_cond}) {canal_cond} {ppto_cat_cond}
+                  AND fp.version_sk = (SELECT MAX(version_sk) FROM dw.dim_presupuesto_version WHERE anho = %s AND mes = %s)
                 GROUP BY dp.subgrupo_descripcion
             """
-            _, p_rows = _run_dw_query(sql_p, params)
+            _, p_rows = _run_dw_query(sql_p, params_p + [anho, mes])
             ppto_map = {
                 r['subgrupo']: (float(r['presupuesto'] or 0), float(r['presupuesto_uds'] or 0))
                 for r in p_rows
@@ -1988,19 +2007,12 @@ def dashboard_unidades_por_sku(request):
         ciudad_cond  = _regional_filter(regional)
         canal_cond   = "AND dv.canal_rrhh = %s" if canal else ""
         base_params  = [anho, mes] + ([canal] if canal else [])
-        extra_params: list = []
-        cat_cond     = ""
-        sub_cond     = ""
+        cat_cond, cat_params = _unidades_cat_params(categoria, base_params)
+        sub_cond   = "AND dp.subgrupo_descripcion = %s" if subgrupo else ""
+        sub_extra  = [subgrupo] if subgrupo else []
 
-        if categoria and categoria in _UNIDADES_CAT_LINEA:
-            cat_cond = "AND dp.linea = %s"
-            extra_params.append(_UNIDADES_CAT_LINEA[categoria])
-        if subgrupo:
-            sub_cond = "AND dp.subgrupo_descripcion = %s"
-            extra_params.append(subgrupo)
-
-        params_v    = list(base_params) + extra_params + [limit]
-        params_ppto = list(base_params) + extra_params
+        params_v    = cat_params + sub_extra + [limit]
+        params_ppto = cat_params + sub_extra
 
         sql_v = f"""
             SELECT
@@ -2028,14 +2040,14 @@ def dashboard_unidades_por_sku(request):
                     COALESCE(SUM(fp.venta_neta_presupuestada), 0) AS presupuesto,
                     COALESCE(SUM(fp.cantidad_presupuestada), 0)   AS presupuesto_uds
                 FROM dw.fact_presupuesto fp
-                JOIN dw.dim_presupuesto_version dpv ON fp.version_sk  = dpv.version_sk
                 JOIN dw.dim_vendedor             dv  ON fp.vendedor_sk = dv.vendedor_sk
                 JOIN dw.dim_producto             dp  ON fp.producto_sk = dp.producto_sk
-                WHERE fp.anho = %s AND fp.mes = %s AND dpv.activa = TRUE
+                WHERE fp.anho = %s AND fp.mes = %s
                   AND ({ciudad_cond}) {canal_cond} {cat_cond} {sub_cond}
+                  AND fp.version_sk = (SELECT MAX(version_sk) FROM dw.dim_presupuesto_version WHERE anho = %s AND mes = %s)
                 GROUP BY dp.producto_codigo_erp
             """
-            _, p_rows = _run_dw_query(sql_p, params_ppto)
+            _, p_rows = _run_dw_query(sql_p, params_ppto + [anho, mes])
             ppto_map = {r['codigo']: r for r in p_rows}
         except Exception:
             pass
@@ -2124,13 +2136,13 @@ def dashboard_unidades_vendedor_sku(request):
                     COALESCE(SUM(fp.venta_neta_presupuestada), 0)     AS presupuesto,
                     COALESCE(SUM(fp.cantidad_presupuestada), 0)        AS presupuesto_uds
                 FROM dw.fact_presupuesto fp
-                JOIN dw.dim_presupuesto_version dpv ON fp.version_sk  = dpv.version_sk
                 JOIN dw.dim_producto             dp  ON fp.producto_sk = dp.producto_sk
-                WHERE fp.anho = %s AND fp.mes = %s AND dpv.activa = TRUE
+                WHERE fp.anho = %s AND fp.mes = %s
                   AND fp.vendedor_sk = %s
+                  AND fp.version_sk = (SELECT MAX(version_sk) FROM dw.dim_presupuesto_version WHERE anho = %s AND mes = %s)
                 GROUP BY dp.producto_codigo_erp
             """
-            _, p_rows = _run_dw_query(sql_p, [anho, mes, int(vendedor_sk)])
+            _, p_rows = _run_dw_query(sql_p, [anho, mes, int(vendedor_sk), anho, mes])
             ppto_map = {
                 r['codigo']: (float(r['presupuesto'] or 0), float(r['presupuesto_uds'] or 0))
                 for r in p_rows
@@ -2374,3 +2386,158 @@ def dashboard_proveedor_tabla(request):
         return JsonResponse({'success': True, 'data': rows})
     except Exception as e:
         return JsonResponse({'success': False, 'error': str(e)}, status=500)
+
+
+# ─────────────────────────────────────────
+#  EXPORTACIONES XLSX
+# ─────────────────────────────────────────
+
+_XLSX_HEADERS = [
+    "No.Venta", "Fecha", "Cliente", "Nombre Cliente",
+    "Grupo", "Descripcion Grupo",
+    "SubGrupo", "Descripcion SubGrupo",
+    "Clase", "Descripcion Clase",
+    "SubClase", "Descripcion SubClase",
+    "Articulo", "Descripcion Articulo",
+    "U/M", "Cantidad", "Precio", "SubTotal", "Descuento", "Total",
+    "Local", "Descripcion Local",
+    "Almacen", "Descripcion Almacen",
+    "Ruta", "Descripcion Ruta",
+    "Vendedor", "Descripcion Vendedor",
+    "Distribuidor", "Descripcion Distribuidor",
+    "Zona", "Descripcion Zona",
+    "Componente", "ICE", "Venta Neta", "Pago",
+    "Exhibidor", "Clase", "Ruta", "Punto Frio",
+]
+
+
+def exportar_ventas_combo_armado(request):
+    """
+    Exporta ventas a XLSX. Acepta token via header Authorization o query param _t.
+    Params: fecha_desde (YYYY-MM-DD), fecha_hasta (YYYY-MM-DD)
+    """
+    token_str = ""
+    auth_header = request.META.get("HTTP_AUTHORIZATION", "")
+    if auth_header.startswith("Token "):
+        token_str = auth_header[6:]
+    else:
+        token_str = request.GET.get("_t", "")
+
+    if not token_str:
+        return JsonResponse({"error": "No autorizado"}, status=401)
+
+    try:
+        from rest_framework.authtoken.models import Token as DRFToken
+        token_obj = DRFToken.objects.select_related("user").get(key=token_str)
+        if not token_obj.user.is_active:
+            return JsonResponse({"error": "Usuario inactivo"}, status=401)
+    except Exception:
+        return JsonResponse({"error": "Token inválido"}, status=401)
+
+    fecha_desde = request.GET.get("fecha_desde", "")
+    fecha_hasta = request.GET.get("fecha_hasta", "")
+
+    if not fecha_desde or not fecha_hasta:
+        return JsonResponse({"success": False, "error": "Parámetros fecha_desde y fecha_hasta requeridos"}, status=400)
+
+    try:
+        datetime.strptime(fecha_desde, "%Y-%m-%d")
+        datetime.strptime(fecha_hasta, "%Y-%m-%d")
+    except ValueError:
+        return JsonResponse({"success": False, "error": "Formato de fecha inválido. Use YYYY-MM-DD"}, status=400)
+
+    sql = """
+        SELECT
+            fv.numero_venta,
+            fv.fecha_venta,
+            dc.cliente_codigo_erp,
+            COALESCE(dc.cliente_nombre, ''),
+            COALESCE(dp.grupo_codigo::INTEGER, NULL),
+            COALESCE(dp.grupo_descripcion, ''),
+            COALESCE(dp.subgrupo_codigo::INTEGER, NULL),
+            COALESCE(dp.subgrupo_descripcion, ''),
+            COALESCE(dp.clase_codigo::INTEGER, NULL),
+            COALESCE(dp.clase_descripcion, ''),
+            COALESCE(dp.subclase_codigo::INTEGER, NULL),
+            COALESCE(dp.subclase_descripcion, ''),
+            dp.producto_codigo_erp,
+            COALESCE(dp.producto_nombre, ''),
+            COALESCE(dp.unidad_medida, ''),
+            fv.cantidad,
+            fv.precio_unitario,
+            fv.subtotal,
+            fv.descuento,
+            fv.total,
+            COALESCE(dl.local_codigo_erp::INTEGER, NULL),
+            COALESCE(dl.local_nombre, ''),
+            COALESCE(da.almacen_codigo_erp::INTEGER, NULL),
+            COALESCE(da.almacen_nombre, ''),
+            COALESCE(fv.ruta_codigo::INTEGER, NULL),
+            COALESCE(fv.ruta_descripcion, ''),
+            COALESCE(dv.vendedor_codigo_erp::INTEGER, NULL),
+            COALESCE(dv.vendedor_nombre, ''),
+            COALESCE(ddi.distribuidor_codigo_erp::INTEGER, NULL),
+            COALESCE(ddi.distribuidor_nombre, ''),
+            COALESCE(dz.zona_codigo_erp::INTEGER, NULL),
+            COALESCE(dz.zona_descripcion, ''),
+            COALESCE(dp.componente, ''),
+            fv.ice,
+            fv.venta_neta,
+            fv.pago
+        FROM dw.fact_ventas                  fv
+        JOIN      dw.dim_producto        dp  ON fv.producto_sk     = dp.producto_sk
+        JOIN      dw.dim_cliente         dc  ON fv.cliente_sk      = dc.cliente_sk
+        LEFT JOIN dw.dim_vendedor        dv  ON fv.vendedor_sk     = dv.vendedor_sk
+        LEFT JOIN dw.dim_local           dl  ON fv.local_sk        = dl.local_sk
+        LEFT JOIN dw.dim_almacen         da  ON fv.almacen_sk      = da.almacen_sk
+        LEFT JOIN dw.dim_distribuidor   ddi  ON fv.distribuidor_sk = ddi.distribuidor_sk
+        LEFT JOIN dw.dim_zona            dz  ON fv.zona_sk         = dz.zona_sk
+        WHERE SUBSTR(fv.fecha_venta, 7, 4) || '-' || SUBSTR(fv.fecha_venta, 4, 2) || '-' || SUBSTR(fv.fecha_venta, 1, 2)
+              BETWEEN %s AND %s
+        ORDER BY SUBSTR(fv.fecha_venta, 7, 4) || '-' || SUBSTR(fv.fecha_venta, 4, 2) || '-' || SUBSTR(fv.fecha_venta, 1, 2),
+                 fv.numero_venta
+    """
+
+    wb = openpyxl.Workbook(write_only=True)
+    ws = wb.create_sheet(title="Ventas Combo Armado")
+
+    bold = Font(bold=True)
+    header_row = []
+    for h in _XLSX_HEADERS:
+        c = openpyxl.cell.WriteOnlyCell(ws, value=h)
+        c.font = bold
+        header_row.append(c)
+    ws.append(header_row)
+
+    try:
+        with connections['dw'].cursor() as cursor:
+            cursor.execute(sql, [fecha_desde, fecha_hasta])
+            while True:
+                batch = cursor.fetchmany(2000)
+                if not batch:
+                    break
+                for row in batch:
+                    ws.append(list(row) + ["", "", "", ""])
+    except Exception as e:
+        return JsonResponse({"success": False, "error": str(e)}, status=500)
+
+    buffer = io.BytesIO()
+    wb.save(buffer)
+    file_size = buffer.tell()
+    buffer.seek(0)
+
+    def _chunks(buf, size=65536):
+        chunk = buf.read(size)
+        while chunk:
+            yield chunk
+            chunk = buf.read(size)
+
+    filename = f"ventas_combo_armado_{fecha_desde}_{fecha_hasta}.xlsx"
+    response = StreamingHttpResponse(
+        _chunks(buffer),
+        content_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    )
+    response["Content-Disposition"] = f'attachment; filename="{filename}"'
+    response["Content-Encoding"] = "identity"
+    response["X-File-Size"] = str(file_size)
+    return response

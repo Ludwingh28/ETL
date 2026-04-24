@@ -13,11 +13,12 @@ import DashboardLayout from "../components/DashboardLayout";
 interface VendedorRow {
   vendedor_sk:    number;
   vendedor:       string;
-  alimentos:      number; alimentos_cant: number; alimentos_pct: number | null; alimentos_ppto: number; alimentos_ppto_uds: number; alimentos_pct_uds: number | null;
-  apego:          number; apego_cant:     number; apego_pct:     number | null; apego_ppto:     number; apego_ppto_uds:     number; apego_pct_uds:     number | null;
-  licores:        number; licores_cant:   number; licores_pct:   number | null; licores_ppto:   number; licores_ppto_uds:   number; licores_pct_uds:   number | null;
-  hpc:            number; hpc_cant:       number; hpc_pct:       number | null; hpc_ppto:       number; hpc_ppto_uds:       number; hpc_pct_uds:       number | null;
-  total:          number; total_cant:     number; total_pct:     number | null; total_ppto:     number; total_ppto_uds:     number; total_pct_uds:     number | null;
+  alimentos:      number; alimentos_cant:      number; alimentos_pct:      number | null; alimentos_ppto:      number; alimentos_ppto_uds:      number; alimentos_pct_uds:      number | null;
+  apego:          number; apego_cant:          number; apego_pct:          number | null; apego_ppto:          number; apego_ppto_uds:          number; apego_pct_uds:          number | null;
+  licores:        number; licores_cant:        number; licores_pct:        number | null; licores_ppto:        number; licores_ppto_uds:        number; licores_pct_uds:        number | null;
+  hpc:            number; hpc_cant:            number; hpc_pct:            number | null; hpc_ppto:            number; hpc_ppto_uds:            number; hpc_pct_uds:            number | null;
+  sin_clasificar: number; sin_clasificar_cant: number; sin_clasificar_pct: number | null; sin_clasificar_ppto: number; sin_clasificar_ppto_uds: number; sin_clasificar_pct_uds: number | null;
+  total:          number; total_cant:          number; total_pct:          number | null; total_ppto:          number; total_ppto_uds:          number; total_pct_uds:          number | null;
 }
 
 interface ApiData {
@@ -49,7 +50,7 @@ interface SubgrupoRow {
 }
 
 type Regional  = "Nacional" | "Santa Cruz" | "Cochabamba" | "La Paz";
-type CatKey    = "alimentos" | "apego" | "licores" | "hpc" | "total";
+type CatKey    = "alimentos" | "apego" | "licores" | "hpc" | "sin_clasificar" | "total";
 
 const REGIONALES: Regional[] = ["Nacional", "Santa Cruz", "Cochabamba", "La Paz"];
 
@@ -87,11 +88,12 @@ interface CatCfg {
 }
 
 const CAT_CFG: Record<CatKey, CatCfg> = {
-  total:     { label: "Total",                cantKey: "total_cant",     bsKey: "total",     pptoKey: "total_ppto",     pptoUdsKey: "total_ppto_uds",     pctKey: "total_pct",     pctUdsKey: "total_pct_uds",     color: "text-slate-700", activeClass: "bg-slate-700 text-white",  barColor: "#3b82f6", barColorSel: "#1d4ed8" },
-  alimentos: { label: "Alimentos",            cantKey: "alimentos_cant", bsKey: "alimentos", pptoKey: "alimentos_ppto", pptoUdsKey: "alimentos_ppto_uds", pctKey: "alimentos_pct", pctUdsKey: "alimentos_pct_uds", color: "text-green-700", activeClass: "bg-green-600 text-white",  barColor: "#22c55e", barColorSel: "#15803d" },
-  apego:     { label: "Apego",                cantKey: "apego_cant",     bsKey: "apego",     pptoKey: "apego_ppto",     pptoUdsKey: "apego_ppto_uds",     pctKey: "apego_pct",     pctUdsKey: "apego_pct_uds",     color: "text-pink-700",  activeClass: "bg-pink-600 text-white",   barColor: "#ec4899", barColorSel: "#be185d" },
-  licores:   { label: "Licores",              cantKey: "licores_cant",   bsKey: "licores",   pptoKey: "licores_ppto",   pptoUdsKey: "licores_ppto_uds",   pctKey: "licores_pct",   pctUdsKey: "licores_pct_uds",   color: "text-rose-700",  activeClass: "bg-rose-600 text-white",   barColor: "#f43f5e", barColorSel: "#be123c" },
-  hpc:       { label: "Home & Personal Care", cantKey: "hpc_cant",       bsKey: "hpc",       pptoKey: "hpc_ppto",       pptoUdsKey: "hpc_ppto_uds",       pctKey: "hpc_pct",       pctUdsKey: "hpc_pct_uds",       color: "text-sky-700",   activeClass: "bg-sky-600 text-white",    barColor: "#0ea5e9", barColorSel: "#0369a1" },
+  total:          { label: "Total",                cantKey: "total_cant",          bsKey: "total",          pptoKey: "total_ppto",          pptoUdsKey: "total_ppto_uds",          pctKey: "total_pct",          pctUdsKey: "total_pct_uds",          color: "text-slate-700",  activeClass: "bg-slate-700 text-white",   barColor: "#3b82f6", barColorSel: "#1d4ed8" },
+  alimentos:      { label: "Alimentos",            cantKey: "alimentos_cant",      bsKey: "alimentos",      pptoKey: "alimentos_ppto",      pptoUdsKey: "alimentos_ppto_uds",      pctKey: "alimentos_pct",      pctUdsKey: "alimentos_pct_uds",      color: "text-green-700",  activeClass: "bg-green-600 text-white",   barColor: "#22c55e", barColorSel: "#15803d" },
+  apego:          { label: "Apego",                cantKey: "apego_cant",          bsKey: "apego",          pptoKey: "apego_ppto",          pptoUdsKey: "apego_ppto_uds",          pctKey: "apego_pct",          pctUdsKey: "apego_pct_uds",          color: "text-pink-700",   activeClass: "bg-pink-600 text-white",    barColor: "#ec4899", barColorSel: "#be185d" },
+  licores:        { label: "Licores",              cantKey: "licores_cant",        bsKey: "licores",        pptoKey: "licores_ppto",        pptoUdsKey: "licores_ppto_uds",        pctKey: "licores_pct",        pctUdsKey: "licores_pct_uds",        color: "text-rose-700",   activeClass: "bg-rose-600 text-white",    barColor: "#f43f5e", barColorSel: "#be123c" },
+  hpc:            { label: "Home & Personal Care", cantKey: "hpc_cant",            bsKey: "hpc",            pptoKey: "hpc_ppto",            pptoUdsKey: "hpc_ppto_uds",            pctKey: "hpc_pct",            pctUdsKey: "hpc_pct_uds",            color: "text-sky-700",    activeClass: "bg-sky-600 text-white",     barColor: "#0ea5e9", barColorSel: "#0369a1" },
+  sin_clasificar: { label: "Sin Clasificar",       cantKey: "sin_clasificar_cant", bsKey: "sin_clasificar", pptoKey: "sin_clasificar_ppto", pptoUdsKey: "sin_clasificar_ppto_uds", pctKey: "sin_clasificar_pct", pctUdsKey: "sin_clasificar_pct_uds", color: "text-orange-700", activeClass: "bg-orange-500 text-white",  barColor: "#f97316", barColorSel: "#c2410c" },
 };
 
 // Cargos que pueden ver y cambiar los filtros de regional/canal
@@ -519,6 +521,8 @@ export default function DashboardUnidadesSupervisores() {
                   <th className="text-right py-2 px-1 font-semibold text-rose-600 text-[10px]">Cumpl.</th>
                   <th className="text-right py-2 px-2 font-semibold text-sky-700">HPC</th>
                   <th className="text-right py-2 px-1 font-semibold text-sky-600 text-[10px]">Cumpl.</th>
+                  <th className="text-right py-2 px-2 font-semibold text-orange-700">Sin Clas.</th>
+                  <th className="text-right py-2 px-1 font-semibold text-orange-600 text-[10px]">Cumpl.</th>
                   <th className="text-right py-2 pl-3 font-semibold text-slate-700">Total</th>
                   <th className="text-right py-2 px-2 font-semibold text-slate-500 text-[10px]">Ppto.</th>
                   <th className="text-right py-2 pl-1 font-semibold text-slate-500 text-[10px]">Cumpl.</th>
@@ -528,10 +532,11 @@ export default function DashboardUnidadesSupervisores() {
                 {filteredVendedores.map((vend) => {
                   const isSel = selVendedor?.vendedor_sk === vend.vendedor_sk;
                   const isUds = metrica === "uds";
-                  const vA = isUds ? vend.alimentos_cant : vend.alimentos; const cA = isUds ? vend.alimentos_pct_uds : vend.alimentos_pct;
-                  const vE = isUds ? vend.apego_cant     : vend.apego;     const cE = isUds ? vend.apego_pct_uds     : vend.apego_pct;
-                  const vL = isUds ? vend.licores_cant   : vend.licores;   const cL = isUds ? vend.licores_pct_uds   : vend.licores_pct;
-                  const vH = isUds ? vend.hpc_cant       : vend.hpc;       const cH = isUds ? vend.hpc_pct_uds       : vend.hpc_pct;
+                  const vA  = isUds ? vend.alimentos_cant      : vend.alimentos;      const cA  = isUds ? vend.alimentos_pct_uds      : vend.alimentos_pct;
+                  const vE  = isUds ? vend.apego_cant          : vend.apego;          const cE  = isUds ? vend.apego_pct_uds          : vend.apego_pct;
+                  const vL  = isUds ? vend.licores_cant        : vend.licores;        const cL  = isUds ? vend.licores_pct_uds        : vend.licores_pct;
+                  const vH  = isUds ? vend.hpc_cant            : vend.hpc;            const cH  = isUds ? vend.hpc_pct_uds            : vend.hpc_pct;
+                  const vSC = isUds ? vend.sin_clasificar_cant : vend.sin_clasificar; const cSC = isUds ? vend.sin_clasificar_pct_uds : vend.sin_clasificar_pct;
                   const vT = isUds ? vend.total_cant     : vend.total;
                   const pT = isUds ? vend.total_ppto_uds : vend.total_ppto;
                   const cT = isUds ? vend.total_pct_uds  : vend.total_pct;
@@ -551,6 +556,8 @@ export default function DashboardUnidadesSupervisores() {
                       <td className={`py-2 px-1 text-right tabular-nums text-[10px] font-semibold ${pctColor(cL)}`}>{fmtPct(cL)}</td>
                       <td className="py-2 px-2 text-right tabular-nums text-slate-700">{fVal(vH)}</td>
                       <td className={`py-2 px-1 text-right tabular-nums text-[10px] font-semibold ${pctColor(cH)}`}>{fmtPct(cH)}</td>
+                      <td className="py-2 px-2 text-right tabular-nums text-slate-700">{fVal(vSC)}</td>
+                      <td className={`py-2 px-1 text-right tabular-nums text-[10px] font-semibold ${pctColor(cSC)}`}>{fmtPct(cSC)}</td>
                       <td className={`py-2 pl-3 text-right tabular-nums font-bold ${isSel ? "text-brand-700" : "text-slate-800"}`}>{fVal(vT)}</td>
                       <td className="py-2 px-2 text-right tabular-nums text-[10px] text-emerald-600">{fVal(pT)}</td>
                       <td className={`py-2 pl-1 text-right tabular-nums text-[10px] font-bold ${pctColor(cT)}`}>{fmtPct(cT)}</td>

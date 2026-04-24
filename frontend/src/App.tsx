@@ -19,6 +19,8 @@ import AdminGestionUsuarios from "./pages/AdminGestionUsuarios";
 import AdminCambiarContrasena from "./pages/AdminCambiarContrasena";
 import AdminRoute from "./components/AdminRoute";
 import DashboardProveedor from "./pages/DashboardProveedor";
+import DescargaArchivos from "./pages/DescargaArchivos";
+import DownloadToast from "./components/DownloadToast";
 
 function Protected({ children }: { children: React.ReactNode }) {
   return <ProtectedRoute>{children}</ProtectedRoute>;
@@ -91,6 +93,11 @@ export default function App() {
             element={<Dash perm="matriz"><DashboardMatriz /></Dash>}
           />
 
+          {/* ── Documentos ──────────────────────────────────────────────────── */}
+          <Route path="/documentos/descargas"
+            element={<Dash perm="descargas"><DescargaArchivos /></Dash>}
+          />
+
           {/* ── Proveedores ─────────────────────────────────────────────────── */}
           <Route path="/dashboard/pepsico"
             element={<Dash perm="pepsico"><DashboardProveedor perm="pepsico" nombre="Pepsico" /></Dash>}
@@ -124,6 +131,7 @@ export default function App() {
           <Route path="/"          element={<Navigate to="/dashboard/nacional" replace />} />
           <Route path="*"          element={<Navigate to="/dashboard/nacional" replace />} />
         </Routes>
+        <DownloadToast />
       </BrowserRouter>
     </AuthProvider>
   );

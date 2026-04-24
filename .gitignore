@@ -11,3 +11,8 @@ Thumbs.db
 # ── Scripts de parche temporales ─────────────────────────────────────────────
 _patch_*.py
 *.conf
+*.md
+run_queries.py
+*.xlsx
+*.xls
+examples/*
