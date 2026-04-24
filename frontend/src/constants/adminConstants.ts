@@ -71,9 +71,10 @@ export const DASHBOARD_GROUPS: DashboardGroup[] = [
     ],
   },
   {
-    grupo: 'Tabla Dinámica',
+    grupo: 'Documentos',
     items: [
-      { id: 'matriz', label: 'Dashboard Matriz' },
+      { id: 'matriz',     label: 'Dashboard Matriz'    },
+      { id: 'descargas',  label: 'Descargar Archivos'  },
     ],
   },
   {
@@ -99,7 +100,7 @@ export const PERMISOS_POR_CARGO: Record<Cargo, string[]> = {
   'Supervisor':                  ['canales', 'supervisores', 'preventas-realizadas', 'avances-ventas', 'unidades-supervisores', 'informacion-rutas'],
   'Vendedor':                    ['preventas-realizadas', 'avances-ventas'],
   'Proveedor':                   ['lista-precios', 'pepsico', 'softys', 'dmujer', 'apego', 'colher'],
-  'Analista de Datos':          ['nacional', 'regionales', 'canales', 'supervisores', 'preventas-realizadas', 'avances-ventas', 'unidades-vendidas', 'unidades-supervisores', 'informacion-rutas', 'ticket-promedio', 'margen-bruto', 'matriz'],
+  'Analista de Datos':          ['nacional', 'regionales', 'canales', 'supervisores', 'preventas-realizadas', 'avances-ventas', 'unidades-vendidas', 'unidades-supervisores', 'informacion-rutas', 'ticket-promedio', 'margen-bruto', 'matriz', 'descargas'],
   'Administrador de Sistema':   ALL_DASHBOARD_IDS,
   'Subadministrador de Sistemas': ALL_DASHBOARD_IDS,
 }
