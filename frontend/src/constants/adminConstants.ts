@@ -52,8 +52,9 @@ export const DASHBOARD_GROUPS: DashboardGroup[] = [
     items: [
       { id: 'unidades-vendidas',    label: 'Unidades Vendidas'              },
       { id: 'unidades-supervisores',label: 'Unidades Vendidas Supervisores' },
-      { id: 'informacion-rutas',    label: 'Información Rutas'              },
-      { id: 'ticket-promedio',      label: 'Ticket Promedio'                },
+      { id: 'informacion-rutas',       label: 'Información Rutas'              },
+      { id: 'tendencia-estacional',   label: 'Tendencia Estacional'          },
+      { id: 'ticket-promedio',        label: 'Ticket Promedio'               },
     ],
   },
   {
@@ -95,8 +96,8 @@ export const ALL_DASHBOARD_IDS = DASHBOARD_GROUPS.flatMap(g => g.items.map(i => 
 
 export const PERMISOS_POR_CARGO: Record<Cargo, string[]> = {
   'Gerente General':            ALL_DASHBOARD_IDS,
-  'Gerente de Ventas':          ['nacional', 'regionales', 'canales', 'supervisores', 'unidades-vendidas', 'unidades-supervisores', 'informacion-rutas', 'ticket-promedio', 'margen-bruto'],
-  'Gerente Regional':           ['regionales', 'canales', 'supervisores', 'preventas-realizadas', 'avances-ventas', 'unidades-vendidas', 'unidades-supervisores', 'informacion-rutas'],
+  'Gerente de Ventas':          ['nacional', 'regionales', 'canales', 'supervisores', 'unidades-vendidas', 'unidades-supervisores', 'informacion-rutas', 'tendencia-estacional', 'ticket-promedio', 'margen-bruto'],
+  'Gerente Regional':           ['regionales', 'canales', 'supervisores', 'preventas-realizadas', 'avances-ventas', 'unidades-vendidas', 'unidades-supervisores', 'informacion-rutas', 'tendencia-estacional'],
   'Supervisor':                  ['canales', 'supervisores', 'preventas-realizadas', 'avances-ventas', 'unidades-supervisores', 'informacion-rutas'],
   'Vendedor':                    ['preventas-realizadas', 'avances-ventas'],
   'Proveedor':                   ['lista-precios', 'pepsico', 'softys', 'dmujer', 'apego', 'colher'],

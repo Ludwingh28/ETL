@@ -1,4 +1,4 @@
-export const CURRENT_VERSION = "1.1.3";
+export const CURRENT_VERSION = "1.2.0";
 
 export interface ChangelogVersion {
   version: string;
@@ -12,6 +12,48 @@ export interface ChangelogVersion {
 }
 
 export const CHANGELOG: ChangelogVersion[] = [
+  {
+    version: "1.2.0",
+    date: "Mayo 2026",
+    fixes: [
+      "Dashboard Supervisores: tabla resumen y gráfico ahora incluyen la categoría «Sin Clasificar»",
+      "Períodos sin datos ya no muestran ceros: si el mes/año seleccionado no existe en el DW se salta automáticamente al período más reciente disponible",
+    ],
+    features: [
+      "Nuevo dashboard «Preventas Realizadas»: seguimiento de pedidos con selector de rango de fechas libre (día, semana, mes o período personalizado)",
+      "Gráfico de Preventas con drill-down automático: sin filtros muestra por canal, al seleccionar canal muestra por supervisor, al seleccionar supervisor muestra por vendedor",
+      "Tabla de vendedores con colores por monto (verde ≥ Bs 1.500, amarillo ≥ Bs 1.000, naranja ≥ Bs 500, rojo < Bs 500) y ordenamiento por monto o efectividad",
+      "Vendedores con múltiples rutas en el mismo período se consolidan en una sola fila con rutas concatenadas y suma de clientes de todas sus rutas",
+      "Porcentaje de efectividad calculado sobre el total de clientes activos de la ruta (fuente: dim_cliente_dual)",
+      "Dashboard Supervisores: toggle Bs / Uds en toda la sección de detalle por vendedor",
+      "Dashboard Supervisores: nueva sección «Liquidaciones» con ventas diarias por vendedor en formato de grilla de fechas",
+      "Dashboard Información Rutas: rediseño completo con filtros por marca, día de visita, supervisor y búsqueda de ruta",
+      "Dashboard Información Rutas: panel de detalle con ventas por semana, desglose por categoría y top SKUs con cobertura de clientes",
+      "Dashboard Información Rutas: botón de descarga del detalle de ruta en Excel",
+      "Tendencia Estacional agregado al menú lateral y a los permisos de Gerente de Ventas y Gerente Regional",
+    ],
+    newDashboardPerms: ["preventas-realizadas", "tendencia-estacional", "informacion-rutas"],
+    newDashboardNames: {
+      "preventas-realizadas": "Preventas Realizadas",
+      "tendencia-estacional": "Tendencia Estacional",
+      "informacion-rutas": "Información Rutas",
+    },
+  },
+  {
+    version: "1.1.4",
+    date: "Mayo 2026",
+    fixes: [
+      "Nombres de canal en tabla y Excel de Proveedores corregidos (ahora muestra WHS, DTS, PROV, SPM en lugar del nombre largo)",
+      "Dashboards ya no muestran ceros al inicio de un nuevo mes: se selecciona automáticamente el período con datos más reciente",
+    ],
+    features: [
+      "Nuevo dashboard «Tendencia Estacional» en Evolución Mes: compara ventas del mes actual contra los mismos meses de años anteriores o los últimos 6 meses",
+      "Filtros por Regional, Canal, Gestión y Mes con selector de corte de días (mes completo, hasta hoy, o rango personalizado)",
+      "Toggle Bs / Uds y modo Estacional / Últimos 6 meses en Tendencia Estacional",
+    ],
+    newDashboardPerms: ["tendencia-estacional"],
+    newDashboardNames: { "tendencia-estacional": "Tendencia Estacional" },
+  },
   {
     version: "1.1.3",
     date: "Abril 2026",
@@ -35,10 +77,7 @@ export const CHANGELOG: ChangelogVersion[] = [
   {
     version: "1.1.2",
     date: "Abril 2026",
-    fixes: [
-      "Clasificación de productos por categoría ahora usa la columna «línea» del DW (más precisa)",
-      "Redirect al cerrar sesión apunta a la ruta correcta en producción",
-    ],
+    fixes: ["Clasificación de productos por categoría ahora usa la columna «línea» del DW (más precisa)", "Redirect al cerrar sesión apunta a la ruta correcta en producción"],
     features: [
       "Unidades por Vendedor-SKU: toggle global Bs / Uds afecta toda la página (tabla de vendedores, gráfico y tabla de SKUs)",
       "Unidades por Vendedor-SKU: gráfico de SKUs muestra barra de Avance y barra de Presupuesto",
@@ -67,10 +106,10 @@ export const CHANGELOG: ChangelogVersion[] = [
     newDashboardPerms: ["pepsico", "softys", "dmujer", "apego", "colher"],
     newDashboardNames: {
       pepsico: "Dashboard Pepsico",
-      softys:  "Dashboard Softys",
-      dmujer:  "Dashboard DMujer",
-      apego:   "Dashboard Apego",
-      colher:  "Dashboard COLHER",
+      softys: "Dashboard Softys",
+      dmujer: "Dashboard DMujer",
+      apego: "Dashboard Apego",
+      colher: "Dashboard COLHER",
     },
   },
   {

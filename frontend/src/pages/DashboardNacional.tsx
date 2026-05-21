@@ -223,7 +223,14 @@ export default function DashboardNacional() {
   useEffect(() => {
     apiFetch<{ success: boolean; data: Periodo[] }>("/dashboard/nacional/periodos/")
       .then((r) => {
-        if (r.success) setPeriodos(r.data);
+        if (r.success && r.data.length > 0) {
+          setPeriodos(r.data);
+          const existe = r.data.some(p => p.anho === anho && p.mes_numero === mes);
+          if (!existe) {
+            setAnho(r.data[0].anho);
+            setMes(r.data[0].mes_numero);
+          }
+        }
       })
       .catch(() => undefined);
   }, []); // eslint-disable-line react-hooks/exhaustive-deps

@@ -49,7 +49,15 @@ urlpatterns = [
     path('dashboard/canales/por-sku/',       views.dashboard_canales_por_sku,       name='canales-por-sku'),
 
     # Dashboard Supervisores
-    path('dashboard/supervisores/vendedores/', views.dashboard_supervisores_vendedores, name='supervisores-vendedores'),
+    path('dashboard/supervisores/vendedores/',     views.dashboard_supervisores_vendedores,     name='supervisores-vendedores'),
+    path('dashboard/supervisores/liquidaciones/',  views.dashboard_supervisores_liquidaciones,  name='supervisores-liquidaciones'),
+
+    # Dashboard Preventas
+    path('dashboard/preventas/kpis/',              views.dashboard_preventas_kpis,               name='preventas-kpis'),
+    path('dashboard/preventas/por-canal/',          views.dashboard_preventas_por_canal,           name='preventas-por-canal'),
+    path('dashboard/preventas/por-vendedor/',      views.dashboard_preventas_por_vendedor,        name='preventas-por-vendedor'),
+    path('dashboard/preventas/top-faltantes/',     views.dashboard_preventas_top_faltantes,       name='preventas-top-faltantes'),
+    path('dashboard/preventas/supervisores/',      views.dashboard_preventas_supervisores_lista,  name='preventas-supervisores'),
 
     # Dashboard Unidades Vendidas
     path('dashboard/unidades/kpis/',          views.dashboard_unidades_kpis,          name='unidades-kpis'),
@@ -63,6 +71,18 @@ urlpatterns = [
     path('dashboard/proveedor/por-marca/', views.dashboard_proveedor_por_marca,  name='proveedor-por-marca'),
     path('dashboard/proveedor/tabla/',     views.dashboard_proveedor_tabla,      name='proveedor-tabla'),
 
+    # Dashboard Información Rutas
+    path('dashboard/informacion-rutas/marcas/',     views.dashboard_marcas_lista,                 name='informacion-rutas-marcas'),
+    path('dashboard/informacion-rutas/',            views.dashboard_informacion_rutas,            name='informacion-rutas'),
+    path('dashboard/informacion-rutas/detalle/',    views.dashboard_informacion_rutas_detalle,    name='informacion-rutas-detalle'),
+    path('dashboard/informacion-rutas/categorias/', views.dashboard_informacion_rutas_categorias, name='informacion-rutas-categorias'),
+    path('dashboard/informacion-rutas/skus/',       views.dashboard_informacion_rutas_skus,       name='informacion-rutas-skus'),
+
+    # Dashboard Tendencia Estacional
+    path('dashboard/tendencia-estacional/', views.dashboard_tendencia_estacional, name='tendencia-estacional'),
+    path('dashboard/canales/lista/',        views.dashboard_canales_lista,         name='canales-lista'),
+
     # Exportaciones XLSX
-    path('exportar/ventas-combo-armado/', views.exportar_ventas_combo_armado, name='exportar-ventas-combo-armado'),
+    path('exportar/ventas-combo-armado/',    views.exportar_ventas_combo_armado,    name='exportar-ventas-combo-armado'),
+    path('exportar/clientes-sin-compra/',    views.exportar_clientes_sin_compra,    name='exportar-clientes-sin-compra'),
 ]

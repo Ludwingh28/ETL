@@ -19,6 +19,8 @@ import AdminGestionUsuarios from "./pages/AdminGestionUsuarios";
 import AdminCambiarContrasena from "./pages/AdminCambiarContrasena";
 import AdminRoute from "./components/AdminRoute";
 import DashboardProveedor from "./pages/DashboardProveedor";
+import DashboardTendenciaEstacional from "./pages/DashboardTendenciaEstacional";
+import DashboardPreventas from "./pages/DashboardPreventas";
 import DescargaArchivos from "./pages/DescargaArchivos";
 import DownloadToast from "./components/DownloadToast";
 
@@ -52,7 +54,7 @@ export default function App() {
 
           {/* ── Seguimiento Día (DUAL+POD) ──────────────────────────────────── */}
           <Route path="/dashboard/preventas-realizadas"
-            element={<Dash perm="preventas-realizadas"><DashboardEnConstruccion titulo="Preventas Realizadas" grupo="Seguimiento Día (DUAL+POD)" /></Dash>}
+            element={<Dash perm="preventas-realizadas"><DashboardPreventas /></Dash>}
           />
           <Route path="/dashboard/avances-ventas"
             element={<Dash perm="avances-ventas"><DashboardEnConstruccion titulo="Avances de Ventas" grupo="Seguimiento Día (DUAL+POD)" /></Dash>}
@@ -67,6 +69,9 @@ export default function App() {
           />
           <Route path="/dashboard/informacion-rutas"
             element={<Dash perm="informacion-rutas"><DashboardInformacionRutas /></Dash>}
+          />
+          <Route path="/dashboard/tendencia-estacional"
+            element={<Dash perm="tendencia-estacional"><DashboardTendenciaEstacional /></Dash>}
           />
           <Route path="/dashboard/ticket-promedio"
             element={<Dash perm="ticket-promedio"><DashboardEnConstruccion titulo="Ticket Promedio" grupo="Evolución Mes" /></Dash>}

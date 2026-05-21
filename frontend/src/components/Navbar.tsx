@@ -75,6 +75,7 @@ const NAV_GROUPS: NavGroup[] = [
       { to: "/dashboard/unidades-vendidas", icon: Package, label: "Unidades Vendidas", perm: "unidades-vendidas" },
       { to: "/dashboard/unidades-supervisores", icon: UserCheck, label: "Unidades Vendidas Supervisores", perm: "unidades-supervisores" },
       { to: "/dashboard/informacion-rutas", icon: MapPin, label: "Información Rutas", perm: "informacion-rutas" },
+      { to: "/dashboard/tendencia-estacional", icon: TrendingUp, label: "Tendencia Estacional", perm: "tendencia-estacional" },
       { to: "/dashboard/ticket-promedio", icon: Tag, label: "Ticket Promedio", perm: "ticket-promedio" },
     ],
   },

@@ -11,12 +11,14 @@ import DashboardLayout from "../components/DashboardLayout";
 // ─── Tipos ────────────────────────────────────────────────────────────────────
 
 interface VendedorRow {
+  vendedor_sk:    number;
   vendedor:       string;
-  alimentos:      number; alimentos_ppto: number; alimentos_pct: number | null; alimentos_cant: number;
-  apego:          number; apego_ppto:     number; apego_pct:     number | null; apego_cant:     number;
-  licores:        number; licores_ppto:   number; licores_pct:   number | null; licores_cant:   number;
-  hpc:            number; hpc_ppto:       number; hpc_pct:       number | null; hpc_cant:       number;
-  total:          number; total_ppto:     number; total_pct:     number | null; total_cant:     number;
+  alimentos:      number; alimentos_cant:      number; alimentos_pct:      number | null; alimentos_ppto:      number; alimentos_ppto_uds:      number; alimentos_pct_uds:      number | null;
+  apego:          number; apego_cant:          number; apego_pct:          number | null; apego_ppto:          number; apego_ppto_uds:          number; apego_pct_uds:          number | null;
+  licores:        number; licores_cant:        number; licores_pct:        number | null; licores_ppto:        number; licores_ppto_uds:        number; licores_pct_uds:        number | null;
+  hpc:            number; hpc_cant:            number; hpc_pct:            number | null; hpc_ppto:            number; hpc_ppto_uds:            number; hpc_pct_uds:            number | null;
+  sin_clasificar: number; sin_clasificar_cant: number; sin_clasificar_pct: number | null; sin_clasificar_ppto: number; sin_clasificar_ppto_uds: number; sin_clasificar_pct_uds: number | null;
+  total:          number; total_cant:          number; total_pct:          number | null; total_ppto:          number; total_ppto_uds:          number; total_pct_uds:          number | null;
 }
 
 interface SupervisoresData {
@@ -27,6 +29,17 @@ interface SupervisoresData {
   total_pct:    number | null;
   fecha_corte:  string | null;
   vendedores:   VendedorRow[];
+}
+
+interface LiqRow {
+  vendedor_sk: number;
+  vendedor:    string;
+  ventas:      Record<string, number>;
+}
+
+interface LiqData {
+  fechas: string[];
+  rows:   LiqRow[];
 }
 
 type Regional = "Nacional" | "Santa Cruz" | "Cochabamba" | "La Paz";
@@ -114,18 +127,28 @@ export default function DashboardSupervisores() {
   const [search,  setSearch]  = useState("");
   const [selVend, setSelVend] = useState<string | null>(null);
   const [sortDir, setSortDir] = useState<"desc" | "asc">("desc");
+  const [metrica,  setMetrica]  = useState<"bs" | "uds">("bs");
+  const [vendSort, setVendSort] = useState<"valor" | "ppto">("valor");
 
   // Data
-  const [data,    setData]    = useState<SupervisoresData | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [error,   setError]   = useState<string | null>(null);
+  const [data,       setData]       = useState<SupervisoresData | null>(null);
+  const [loading,    setLoading]    = useState(true);
+  const [error,      setError]      = useState<string | null>(null);
+  const [liqData,    setLiqData]    = useState<LiqData | null>(null);
+  const [loadingLiq, setLoadingLiq] = useState(false);
 
   const [periodos, setPeriodos] = useState<Periodo[]>([]);
 
   // ── Fetch periodos ─────────────────────────────────────────────────────────
   useEffect(() => {
     apiFetch<{ success: boolean; data: Periodo[] }>("/dashboard/nacional/periodos/")
-      .then(r => { if (r.success) setPeriodos(r.data); })
+      .then(r => {
+        if (r.success && r.data.length > 0) {
+          setPeriodos(r.data);
+          const existe = r.data.some(p => p.anho === anho && p.mes_numero === mes);
+          if (!existe) { setAnho(r.data[0].anho); setMes(r.data[0].mes_numero); }
+        }
+      })
       .catch(() => undefined);
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -172,13 +195,36 @@ export default function DashboardSupervisores() {
 
   useEffect(() => { void fetchData(); }, [fetchData]);
 
-  // ── Filas ordenadas + filtradas (compartidas entre tabla y gráfico) ────────
+  // ── Fetch liquidaciones (ventas diarias por vendedor) ──────────────────────
+  useEffect(() => {
+    let cancelled = false;
+    const run = async () => {
+      setLoadingLiq(true);
+      try {
+        let url = `/dashboard/supervisores/liquidaciones/?anho=${anho}&mes=${mes}`;
+        if (isAdmin) {
+          url += `&regional=${REGIONAL_KEY[regional]}`;
+          if (canal) url += `&canal=${encodeURIComponent(canal)}`;
+        }
+        const j = await apiFetch<{ success: boolean; fechas: string[]; rows: LiqRow[] }>(url);
+        if (!cancelled && j.success) setLiqData({ fechas: j.fechas, rows: j.rows });
+        else if (!cancelled) setLiqData(null);
+      } catch {
+        if (!cancelled) setLiqData(null);
+      } finally {
+        if (!cancelled) setLoadingLiq(false);
+      }
+    };
+    void run();
+    return () => { cancelled = true; };
+  }, [apiFetch, isAdmin, regional, canal, anho, mes]);
+
+  // ── Filas para el gráfico/tabla detalle (Sección 2) ──────────────────────
   const processedRows = useMemo(() => {
     const q = search.trim().toLowerCase();
     const rows = (data?.vendedores ?? []).filter(
       (v) => !q || v.vendedor.toLowerCase().includes(q)
     );
-    // Ordenar por presupuesto de la categoría activa en el gráfico
     const pptoKey = CAT_CFG[catKey].pptoKey;
     return [...rows].sort((a, b) =>
       sortDir === "desc"
@@ -186,6 +232,20 @@ export default function DashboardSupervisores() {
         : (a[pptoKey] as number) - (b[pptoKey] as number)
     );
   }, [data, search, sortDir, catKey]);
+
+  // ── Filas para la tabla resumen (Sección 1) ───────────────────────────────
+  const filteredVendedores = useMemo(() => {
+    if (!data) return [];
+    const q = search.trim().toLowerCase();
+    const isUds = metrica === "uds";
+    const sortKey: keyof VendedorRow = vendSort === "ppto"
+      ? (isUds ? "total_ppto_uds" : "total_ppto")
+      : (isUds ? "total_cant"     : "total");
+    const rows = [...data.vendedores].sort(
+      (a, b) => (b[sortKey] as number) - (a[sortKey] as number)
+    );
+    return q ? rows.filter((r) => r.vendedor.toLowerCase().includes(q)) : rows;
+  }, [data, search, vendSort, metrica]);
 
   // ── UI helpers ────────────────────────────────────────────────────────────
   const cfg = CAT_CFG[catKey];
@@ -333,91 +393,196 @@ export default function DashboardSupervisores() {
       </div>
 
       {/* ══════════════════════════════════════════════════════════════════
-          SECCIÓN 1 — TABLA (todas las categorías como columnas)
+          SECCIÓN 1 — TABLA DE VENDEDORES (todas las categorías)
       ══════════════════════════════════════════════════════════════════ */}
       <div className="card mb-4">
-        <div className="flex flex-wrap items-center justify-between gap-3 mb-4">
+        <div className="flex flex-wrap items-center justify-between gap-3 mb-3">
           <div>
-            <h2 className="font-semibold text-slate-700">Resumen por Categoría</h2>
-            <p className="text-xs text-slate-400 mt-0.5">% avance vs presupuesto · {MESES[mes]} {anho}</p>
+            <div className="flex items-center gap-3">
+              <h2 className="font-semibold text-slate-700">Tabla de Vendedores</h2>
+              <div className="flex rounded-lg overflow-hidden border border-slate-200 text-xs font-semibold">
+                <button onClick={() => setMetrica("bs")}
+                  className={`px-3 py-1.5 transition-colors ${metrica === "bs" ? "bg-brand-600 text-white" : "bg-white text-slate-500 hover:bg-slate-50"}`}>
+                  Bs
+                </button>
+                <button onClick={() => setMetrica("uds")}
+                  className={`px-3 py-1.5 transition-colors ${metrica === "uds" ? "bg-brand-600 text-white" : "bg-white text-slate-500 hover:bg-slate-50"}`}>
+                  Uds
+                </button>
+              </div>
+            </div>
+            <p className="text-[11px] text-slate-400 mt-0.5">
+              {MESES[mes]} {anho} · {metrica === "bs" ? "en Bs" : "en Unidades"}
+              {selVend && <span> · seleccionado: <span className="font-semibold text-brand-600">{selVend}</span></span>}
+            </p>
           </div>
-          <div className="flex items-end gap-3 flex-wrap">
-            {/* Buscador */}
+          <div className="flex items-center gap-2 flex-wrap">
+            <button onClick={() => setVendSort((s) => s === "valor" ? "ppto" : "valor")}
+              className="text-xs font-semibold px-3 py-1.5 rounded-lg border bg-white text-slate-600 border-slate-200 hover:border-brand-400 hover:text-brand-600 transition-all flex items-center gap-1.5">
+              <ArrowUpDown size={12} />
+              Ordenar: {vendSort === "valor" ? "Ventas ↓" : "Presupuesto ↓"}
+            </button>
             <div className="relative">
-              <Search size={13} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-400" />
-              <input
-                type="text"
-                value={search}
+              <Search size={12} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-400" />
+              <input type="text" value={search}
                 onChange={(e) => setSearch(e.target.value)}
                 placeholder="Buscar vendedor…"
-                className="text-xs pl-8 pr-3 py-2 border border-slate-200 rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-brand-400 placeholder:text-slate-300 w-44"
-              />
+                className="text-xs pl-7 pr-3 py-1.5 border border-slate-200 rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-brand-400 placeholder:text-slate-300 w-44" />
             </div>
-            {/* Ordenar */}
-            <button
-              onClick={() => setSortDir((d) => d === "desc" ? "asc" : "desc")}
-              className="text-xs font-semibold px-3 py-2 rounded-lg border bg-white text-slate-600 border-slate-200 hover:border-brand-400 hover:text-brand-600 transition-all flex items-center gap-1.5"
-            >
-              <ArrowUpDown size={12} />
-              Presupuesto {sortDir === "desc" ? "↓" : "↑"}
-            </button>
           </div>
         </div>
 
-        <div className="overflow-y-auto scrollbar-thin scrollbar-thumb-slate-200 scrollbar-track-transparent" style={{ maxHeight: 400 }}>
-          <table className="w-full text-xs">
-            <thead className="sticky top-0 bg-white z-10 shadow-[0_1px_0_0_#f1f5f9]">
-              <tr className="text-slate-400">
-                <th className="text-left py-2.5 font-semibold pr-4 min-w-36">Vendedor</th>
-                <th className="text-right py-2.5 font-semibold px-3 text-green-600">Alimentos</th>
-                <th className="text-right py-2.5 font-semibold px-3 text-pink-600">Apego</th>
-                <th className="text-right py-2.5 font-semibold px-3 text-rose-600">Licores</th>
-                <th className="text-right py-2.5 font-semibold px-3 text-sky-600">H&PC</th>
-                <th className="text-right py-2.5 font-semibold pl-3">Total</th>
-              </tr>
-            </thead>
-            <tbody>
-              {loading
-                ? Array.from({ length: 8 }).map((_, i) => (
-                    <tr key={i} className="border-b border-slate-50">
-                      <td colSpan={6} className="py-2.5">
-                        <div className="h-4 bg-slate-100 animate-pulse rounded" />
-                      </td>
+        {loading ? (
+          <div className="space-y-1.5">{Array.from({ length: 6 }).map((_, i) => <div key={i} className="h-8 bg-slate-50 animate-pulse rounded" />)}</div>
+        ) : (
+          <div className="overflow-x-auto overflow-y-auto scrollbar-thin scrollbar-thumb-slate-200 scrollbar-track-transparent" style={{ maxHeight: 440 }}>
+            <table className="w-full text-xs min-w-225">
+              <thead className="sticky top-0 bg-white z-10 shadow-[0_1px_0_0_#f1f5f9]">
+                <tr className="text-slate-500">
+                  <th className="text-left py-2 pr-4 font-semibold w-44">Vendedor</th>
+                  <th className="text-right py-2 px-2 font-semibold text-green-700">Alimentos</th>
+                  <th className="text-right py-2 px-1 font-semibold text-green-600 text-[10px]">Cumpl.</th>
+                  <th className="text-right py-2 px-2 font-semibold text-pink-700">Apego</th>
+                  <th className="text-right py-2 px-1 font-semibold text-pink-600 text-[10px]">Cumpl.</th>
+                  <th className="text-right py-2 px-2 font-semibold text-rose-700">Licores</th>
+                  <th className="text-right py-2 px-1 font-semibold text-rose-600 text-[10px]">Cumpl.</th>
+                  <th className="text-right py-2 px-2 font-semibold text-sky-700">HPC</th>
+                  <th className="text-right py-2 px-1 font-semibold text-sky-600 text-[10px]">Cumpl.</th>
+                  <th className="text-right py-2 px-2 font-semibold text-orange-700">Sin Clas.</th>
+                  <th className="text-right py-2 px-1 font-semibold text-orange-600 text-[10px]">Cumpl.</th>
+                  <th className="text-right py-2 pl-3 font-semibold text-slate-700">Total</th>
+                  <th className="text-right py-2 px-2 font-semibold text-slate-500 text-[10px]">Ppto.</th>
+                  <th className="text-right py-2 pl-1 font-semibold text-slate-500 text-[10px]">Cumpl.</th>
+                </tr>
+              </thead>
+              <tbody>
+                {filteredVendedores.map((vend) => {
+                  const isSel  = vend.vendedor === selVend;
+                  const isUds  = metrica === "uds";
+                  const vA  = isUds ? vend.alimentos_cant      : vend.alimentos;      const cA  = isUds ? vend.alimentos_pct_uds      : vend.alimentos_pct;
+                  const vE  = isUds ? vend.apego_cant          : vend.apego;          const cE  = isUds ? vend.apego_pct_uds          : vend.apego_pct;
+                  const vL  = isUds ? vend.licores_cant        : vend.licores;        const cL  = isUds ? vend.licores_pct_uds        : vend.licores_pct;
+                  const vH  = isUds ? vend.hpc_cant            : vend.hpc;            const cH  = isUds ? vend.hpc_pct_uds            : vend.hpc_pct;
+                  const vSC = isUds ? vend.sin_clasificar_cant : vend.sin_clasificar; const cSC = isUds ? vend.sin_clasificar_pct_uds : vend.sin_clasificar_pct;
+                  const vT  = isUds ? vend.total_cant          : vend.total;
+                  const pT  = isUds ? vend.total_ppto_uds      : vend.total_ppto;
+                  const cT  = isUds ? vend.total_pct_uds       : vend.total_pct;
+                  const fVal = (n: number) => isUds ? fmtN(n) : fmtCur(n);
+                  return (
+                    <tr key={vend.vendedor_sk}
+                      onClick={() => setSelVend((prev) => prev === vend.vendedor ? null : vend.vendedor)}
+                      className={`border-b border-slate-50 cursor-pointer transition-colors ${
+                        isSel ? "bg-brand-50 ring-1 ring-inset ring-brand-300" : "hover:bg-slate-50"
+                      }`}>
+                      <td className={`py-2 pr-4 font-semibold truncate max-w-44 ${isSel ? "text-brand-700" : "text-slate-700"}`} title={vend.vendedor}>{vend.vendedor}</td>
+                      <td className="py-2 px-2 text-right tabular-nums text-slate-700">{fVal(vA)}</td>
+                      <td className={`py-2 px-1 text-right tabular-nums text-[10px] font-semibold ${pctColor(cA)}`}>{fmtPct(cA)}</td>
+                      <td className="py-2 px-2 text-right tabular-nums text-slate-700">{fVal(vE)}</td>
+                      <td className={`py-2 px-1 text-right tabular-nums text-[10px] font-semibold ${pctColor(cE)}`}>{fmtPct(cE)}</td>
+                      <td className="py-2 px-2 text-right tabular-nums text-slate-700">{fVal(vL)}</td>
+                      <td className={`py-2 px-1 text-right tabular-nums text-[10px] font-semibold ${pctColor(cL)}`}>{fmtPct(cL)}</td>
+                      <td className="py-2 px-2 text-right tabular-nums text-slate-700">{fVal(vH)}</td>
+                      <td className={`py-2 px-1 text-right tabular-nums text-[10px] font-semibold ${pctColor(cH)}`}>{fmtPct(cH)}</td>
+                      <td className="py-2 px-2 text-right tabular-nums text-slate-700">{fVal(vSC)}</td>
+                      <td className={`py-2 px-1 text-right tabular-nums text-[10px] font-semibold ${pctColor(cSC)}`}>{fmtPct(cSC)}</td>
+                      <td className={`py-2 pl-3 text-right tabular-nums font-bold ${isSel ? "text-brand-700" : "text-slate-800"}`}>{fVal(vT)}</td>
+                      <td className="py-2 px-2 text-right tabular-nums text-[10px] text-emerald-600">{fVal(pT)}</td>
+                      <td className={`py-2 pl-1 text-right tabular-nums text-[10px] font-bold ${pctColor(cT)}`}>{fmtPct(cT)}</td>
                     </tr>
-                  ))
-                : processedRows.map((v) => {
-                    const isSel = v.vendedor === selVend;
+                  );
+                })}
+              </tbody>
+            </table>
+            {filteredVendedores.length === 0 && (
+              <div className="flex flex-col items-center justify-center py-10 text-slate-300 gap-2">
+                <Users size={26} />
+                <p className="text-sm">Sin datos</p>
+              </div>
+            )}
+          </div>
+        )}
+        <p className="text-[10px] text-slate-400 mt-2">
+          {filteredVendedores.length}{filteredVendedores.length !== (data?.vendedores.length ?? 0) ? `/${data?.vendedores.length}` : ""} vendedores · Clic en una fila para resaltar en el gráfico
+        </p>
+      </div>
+
+      {/* ══════════════════════════════════════════════════════════════════
+          SECCIÓN 1b — LIQUIDACIONES (venta diaria por vendedor)
+      ══════════════════════════════════════════════════════════════════ */}
+      <div className="card mb-4">
+        <div className="flex flex-wrap items-center justify-between gap-3 mb-3">
+          <div>
+            <h2 className="font-semibold text-slate-700">Liquidaciones</h2>
+            <p className="text-[11px] text-slate-400 mt-0.5">
+              Venta neta diaria por vendedor · {MESES[mes]} {anho} · excluye domingos
+            </p>
+          </div>
+        </div>
+
+        {loadingLiq ? (
+          <div className="space-y-1.5">{Array.from({ length: 5 }).map((_, i) => <div key={i} className="h-7 bg-slate-50 animate-pulse rounded" />)}</div>
+        ) : !liqData || liqData.rows.length === 0 ? (
+          <div className="flex flex-col items-center justify-center py-8 text-slate-300 gap-2">
+            <Users size={24} />
+            <p className="text-sm">Sin datos</p>
+          </div>
+        ) : (() => {
+          const DOW_SHORT = ["","L","M","X","J","V","S"];
+          const sortedRows = [...liqData.rows].sort((a, b) => {
+            const totA = liqData.fechas.reduce((s, f) => s + (a.ventas[f] ?? 0), 0);
+            const totB = liqData.fechas.reduce((s, f) => s + (b.ventas[f] ?? 0), 0);
+            return totB - totA;
+          });
+          return (
+            <div className="overflow-x-auto overflow-y-auto scrollbar-thin scrollbar-thumb-slate-200 scrollbar-track-transparent" style={{ maxHeight: 420 }}>
+              <table className="text-xs border-collapse" style={{ minWidth: `${Math.max(400, liqData.fechas.length * 64 + 200)}px` }}>
+                <thead className="sticky top-0 z-10">
+                  <tr>
+                    <th className="sticky left-0 z-20 bg-white text-left py-2 pr-4 font-semibold text-slate-600 shadow-[1px_0_0_0_#f1f5f9] min-w-40">
+                      Vendedor
+                    </th>
+                    {liqData.fechas.map((f) => {
+                      const d   = new Date(f + "T12:00:00");
+                      const dow = d.getDay();
+                      const dia = d.getDate();
+                      return (
+                        <th key={f} className="bg-white py-2 px-1 font-semibold text-center text-slate-400 min-w-14">
+                          <span className="block text-[10px] font-normal text-slate-300">{DOW_SHORT[dow]}</span>
+                          <span>{dia}</span>
+                        </th>
+                      );
+                    })}
+                    <th className="sticky right-0 z-20 bg-white py-2 pl-3 pr-2 font-semibold text-right text-slate-600 shadow-[-1px_0_0_0_#f1f5f9] min-w-20">
+                      Total
+                    </th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {sortedRows.map((row) => {
+                    const total = liqData.fechas.reduce((s, f) => s + (row.ventas[f] ?? 0), 0);
                     return (
-                      <tr
-                        key={v.vendedor}
-                        onClick={() => setSelVend((prev) => prev === v.vendedor ? null : v.vendedor)}
-                        className={`border-b border-slate-50 cursor-pointer transition-colors ${
-                          isSel ? "bg-brand-50 ring-1 ring-inset ring-brand-300" : "hover:bg-slate-50"
-                        }`}
-                      >
-                        <td className={`py-2 pr-4 font-semibold ${isSel ? "text-brand-700" : "text-slate-700"}`}>
-                          {v.vendedor}
+                      <tr key={row.vendedor_sk} className="border-b border-slate-50 hover:bg-slate-50 transition-colors">
+                        <td className="sticky left-0 z-10 bg-white py-1.5 pr-4 font-semibold text-slate-700 truncate max-w-40 shadow-[1px_0_0_0_#f1f5f9]"
+                          title={row.vendedor}>{row.vendedor}</td>
+                        {liqData.fechas.map((f) => {
+                          const v = row.ventas[f] ?? 0;
+                          return (
+                            <td key={f} className={`py-1.5 px-1 text-center tabular-nums ${v > 0 ? "text-slate-700" : "text-slate-200"}`}>
+                              {v > 0 ? fmtAbbr(v) : "·"}
+                            </td>
+                          );
+                        })}
+                        <td className="sticky right-0 z-10 bg-white py-1.5 pl-3 pr-2 text-right tabular-nums font-bold text-slate-800 shadow-[-1px_0_0_0_#f1f5f9]">
+                          {fmtAbbr(total)}
                         </td>
-                        <td className={`py-2 px-3 text-right font-bold ${pctColor(v.alimentos_pct)}`}>{fmtPct(v.alimentos_pct)}</td>
-                        <td className={`py-2 px-3 text-right font-bold ${pctColor(v.apego_pct)}`}>{fmtPct(v.apego_pct)}</td>
-                        <td className={`py-2 px-3 text-right font-bold ${pctColor(v.licores_pct)}`}>{fmtPct(v.licores_pct)}</td>
-                        <td className={`py-2 px-3 text-right font-bold ${pctColor(v.hpc_pct)}`}>{fmtPct(v.hpc_pct)}</td>
-                        <td className={`py-2 pl-3 text-right font-bold ${pctColor(v.total_pct)}`}>{fmtPct(v.total_pct)}</td>
                       </tr>
                     );
                   })}
-            </tbody>
-          </table>
-          {!loading && processedRows.length === 0 && (
-            <div className="flex flex-col items-center justify-center py-10 text-slate-300 gap-2">
-              <Users size={26} />
-              <p className="text-sm">Sin datos</p>
+                </tbody>
+              </table>
             </div>
-          )}
-        </div>
-        <p className="text-[10px] text-slate-400 mt-2">
-          {processedRows.length}{processedRows.length !== (data?.vendedores.length ?? 0) ? `/${data?.vendedores.length}` : ""} vendedores · Clic en una fila para resaltar en el gráfico
-        </p>
+          );
+        })()}
       </div>
 
       {/* ══════════════════════════════════════════════════════════════════

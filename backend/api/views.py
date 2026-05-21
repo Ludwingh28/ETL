@@ -986,7 +986,7 @@ def dashboard_nacional_por_categoria(request):
                     WHEN 'APEGO'                THEN 'Apego'
                     WHEN 'BEBIDAS ALC'          THEN 'Licores'
                     WHEN 'HOME Y PERSONAL CARE' THEN 'Home & Personal Care'
-                    ELSE 'Otros'
+                    ELSE 'Sin clasificar'
                 END AS categoria,
                 COALESCE(SUM(fv.venta_neta), 0) AS venta_neta,
                 COALESCE(SUM(fv.cantidad), 0)   AS cantidad,
@@ -1011,7 +1011,7 @@ def dashboard_nacional_por_categoria(request):
                         WHEN 'APEGO'                THEN 'Apego'
                         WHEN 'BEBIDAS ALC'          THEN 'Licores'
                         WHEN 'HOME Y PERSONAL CARE' THEN 'Home & Personal Care'
-                        ELSE 'Otros'
+                        ELSE 'Sin clasificar'
                     END AS categoria,
                     COALESCE(SUM(fp.venta_neta_presupuestada), 0) AS presupuesto
                 FROM dw.fact_presupuesto fp
@@ -1257,7 +1257,7 @@ _CATEGORIA_CASE = """
         WHEN 'APEGO'                THEN 'Apego'
         WHEN 'BEBIDAS ALC'          THEN 'Licores'
         WHEN 'HOME Y PERSONAL CARE' THEN 'Home & Personal Care'
-        ELSE 'Otros'
+        ELSE 'Sin clasificar'
     END
 """
 
@@ -1795,6 +1795,391 @@ def dashboard_supervisores_vendedores(request):
             'fecha_corte':  fecha_corte,
             'vendedores':   result,
         })
+    except Exception as e:
+        return JsonResponse({'success': False, 'error': str(e)}, status=500)
+
+
+@api_view(['GET'])
+@authentication_classes([ExpiringTokenAuthentication])
+@permission_classes([IsAuthenticated])
+@_require_perm('supervisores')
+def dashboard_supervisores_liquidaciones(request):
+    """
+    Venta neta diaria por vendedor, excluyendo domingos.
+    Retorna { fechas: [str], rows: [{ vendedor_sk, vendedor, ventas: {fecha: monto} }] }
+    """
+    try:
+        is_admin = _is_admin(request.user)
+        profile  = _get_or_create_profile(request.user)
+
+        if is_admin:
+            regional_key = request.GET.get('regional', 'santa_cruz').lower().replace(' ', '_')
+            canal        = _safe_str(request.GET.get('canal', ''))
+        else:
+            if 'supervisor' not in profile.cargo.lower():
+                return JsonResponse({'success': False, 'error': 'Acceso denegado'}, status=403)
+            regional_key = _REGIONAL_NAME_TO_KEY.get(profile.regional, 'santa_cruz')
+            canal        = profile.canal.strip()
+
+        anho = _safe_int(request.GET.get('anho'), datetime.now().year)
+        mes  = _safe_int(request.GET.get('mes'),  datetime.now().month)
+
+        if regional_key not in REGIONALES_VALID:
+            return JsonResponse({'success': False, 'error': 'Regional inválida'}, status=400)
+
+        ciudad_cond = _regional_filter(regional_key)
+        canal_cond  = "AND dv.canal_rrhh = %s" if canal else ""
+        params      = [anho, mes] + ([canal] if canal else [])
+
+        sql = f"""
+            SELECT
+                dv.vendedor_sk,
+                dv.vendedor_nombre                               AS vendedor,
+                df.fecha_completa::date                          AS fecha,
+                COALESCE(SUM(fv.venta_neta), 0)                 AS venta_neta
+            FROM dw.fact_ventas fv
+            JOIN dw.dim_fecha    df ON fv.fecha_sk    = df.fecha_sk
+            JOIN dw.dim_vendedor dv ON fv.vendedor_sk = dv.vendedor_sk
+            WHERE df.anho = %s AND df.mes_numero = %s
+              AND EXTRACT(DOW FROM df.fecha_completa) != 0
+              AND ({ciudad_cond}) {canal_cond}
+            GROUP BY dv.vendedor_sk, dv.vendedor_nombre, df.fecha_completa::date
+            ORDER BY dv.vendedor_nombre, df.fecha_completa::date
+        """
+        _, rows = _run_dw_query(sql, params)
+
+        vendedores: dict = {}
+        fechas_set: set  = set()
+        for r in rows:
+            sk    = r['vendedor_sk']
+            fecha = str(r['fecha'])
+            venta = float(r['venta_neta'] or 0)
+            fechas_set.add(fecha)
+            if sk not in vendedores:
+                vendedores[sk] = {'vendedor_sk': sk, 'vendedor': r['vendedor'], 'ventas': {}}
+            vendedores[sk]['ventas'][fecha] = venta
+
+        fechas = sorted(fechas_set)
+        return JsonResponse({'success': True, 'fechas': fechas, 'rows': list(vendedores.values())})
+    except Exception as e:
+        return JsonResponse({'success': False, 'error': str(e)}, status=500)
+
+
+# ─────────────────────────────────────────
+#  DASHBOARD PREVENTAS REALIZADAS
+# ─────────────────────────────────────────
+
+import calendar as _cal_mod
+
+def _preventas_fecha_rango(request):
+    """Returns (fecha_desde, fecha_hasta) strings 'YYYY-MM-DD' for SQL filter.
+    Accepts fecha_desde/fecha_hasta params; falls back to anho+mes."""
+    fd = request.GET.get('fecha_desde', '').strip()
+    fh = request.GET.get('fecha_hasta', '').strip()
+    if fd and fh:
+        try:
+            date.fromisoformat(fd)
+            date.fromisoformat(fh)
+            return fd, fh
+        except ValueError:
+            pass
+    now  = datetime.now()
+    anho = _safe_int(request.GET.get('anho'), now.year)
+    mes  = _safe_int(request.GET.get('mes'),  now.month)
+    last = _cal_mod.monthrange(anho, mes)[1]
+    return f"{anho}-{mes:02d}-01", f"{anho}-{mes:02d}-{last:02d}"
+
+@api_view(['GET'])
+@authentication_classes([ExpiringTokenAuthentication])
+@permission_classes([IsAuthenticated])
+@_require_perm('preventas-realizadas')
+def dashboard_preventas_kpis(request):
+    try:
+        is_admin = _is_admin(request.user)
+        profile  = _get_or_create_profile(request.user)
+        if is_admin:
+            regional_key = request.GET.get('regional', 'santa_cruz').lower().replace(' ', '_')
+            canal        = _safe_str(request.GET.get('canal', ''))
+        else:
+            regional_key = _REGIONAL_NAME_TO_KEY.get(profile.regional, 'santa_cruz')
+            canal        = profile.canal.strip()
+        fecha_desde, fecha_hasta = _preventas_fecha_rango(request)
+        supervisor = _safe_str(request.GET.get('supervisor', ''))
+        if regional_key not in REGIONALES_VALID:
+            return JsonResponse({'success': False, 'error': 'Regional inválida'}, status=400)
+        ciudad_cond     = _regional_filter(regional_key, campo='dv.ciudad')
+        canal_cond      = "AND dv.canal_rrhh = %s" if canal else ""
+        supervisor_cond = "AND dv.supervisor = %s" if supervisor else ""
+        params = [fecha_desde, fecha_hasta] + ([canal] if canal else []) + ([supervisor] if supervisor else [])
+        sql = f"""
+            SELECT
+                COUNT(DISTINCT dp.nro_transaccion)                             AS total_pedidos,
+                ROUND(COALESCE(SUM(dp.importe_total), 0)::NUMERIC, 2)          AS total_importe
+            FROM dual.dim_preventa dp
+            LEFT JOIN dw.dim_vendedor dv ON dv.vendedor_codigo_erp = dp.codigo_usuario
+                AND dv.es_vendedor_actual = TRUE
+            WHERE dp.fecha_transaccion BETWEEN %s AND %s
+              AND ({ciudad_cond}) {canal_cond} {supervisor_cond}
+        """
+        _, rows = _run_dw_query(sql, params)
+        row = rows[0] if rows else {}
+        return JsonResponse({
+            'success':        True,
+            'total_pedidos':  row.get('total_pedidos', 0),
+            'total_importe':  float(row.get('total_importe', 0) or 0),
+        })
+    except Exception as e:
+        return JsonResponse({'success': False, 'error': str(e)}, status=500)
+
+
+@api_view(['GET'])
+@authentication_classes([ExpiringTokenAuthentication])
+@permission_classes([IsAuthenticated])
+@_require_perm('preventas-realizadas')
+def dashboard_preventas_por_canal(request):
+    try:
+        is_admin = _is_admin(request.user)
+        profile  = _get_or_create_profile(request.user)
+        if is_admin:
+            regional_key = request.GET.get('regional', 'santa_cruz').lower().replace(' ', '_')
+            canal        = _safe_str(request.GET.get('canal', ''))
+        else:
+            regional_key = _REGIONAL_NAME_TO_KEY.get(profile.regional, 'santa_cruz')
+            canal        = profile.canal.strip()
+        fecha_desde, fecha_hasta = _preventas_fecha_rango(request)
+        supervisor = _safe_str(request.GET.get('supervisor', ''))
+        if regional_key not in REGIONALES_VALID:
+            return JsonResponse({'success': False, 'error': 'Regional inválida'}, status=400)
+        ciudad_cond     = _regional_filter(regional_key, campo='dv.ciudad')
+        canal_cond      = "AND dv.canal_rrhh = %s" if canal else ""
+        supervisor_cond = "AND dv.supervisor = %s" if supervisor else ""
+        # supervisor activo → agrupa por vendedor; canal activo → por supervisor; sin filtros → por canal
+        if supervisor:
+            grupo_col        = "dp.nombre_usuario"
+            agrupado_por_val = "vendedor"
+        elif canal:
+            grupo_col        = "dv.supervisor"
+            agrupado_por_val = "supervisor"
+        else:
+            grupo_col        = "dv.canal_rrhh"
+            agrupado_por_val = "canal"
+        params = [fecha_desde, fecha_hasta] + ([canal] if canal else []) + ([supervisor] if supervisor else [])
+        sql = f"""
+            SELECT
+                COALESCE({grupo_col}, 'Sin Asignar')                           AS grupo,
+                COUNT(DISTINCT dp.nro_transaccion)                             AS pedidos,
+                ROUND(COALESCE(SUM(dp.importe_total), 0)::NUMERIC, 2)          AS monto
+            FROM dual.dim_preventa dp
+            LEFT JOIN dw.dim_vendedor dv ON dv.vendedor_codigo_erp = dp.codigo_usuario
+                AND dv.es_vendedor_actual = TRUE
+            WHERE dp.fecha_transaccion BETWEEN %s AND %s
+              AND ({ciudad_cond}) {canal_cond} {supervisor_cond}
+            GROUP BY {grupo_col}
+            ORDER BY monto DESC
+            LIMIT 20
+        """
+        _, rows = _run_dw_query(sql, params)
+        data = [
+            {
+                'grupo':   r['grupo'],
+                'pedidos': r['pedidos'],
+                'monto':   float(r['monto'] or 0),
+            }
+            for r in rows
+        ]
+        return JsonResponse({'success': True, 'data': data, 'agrupado_por': agrupado_por_val})
+    except Exception as e:
+        return JsonResponse({'success': False, 'error': str(e)}, status=500)
+
+
+@api_view(['GET'])
+@authentication_classes([ExpiringTokenAuthentication])
+@permission_classes([IsAuthenticated])
+@_require_perm('preventas-realizadas')
+def dashboard_preventas_por_vendedor(request):
+    try:
+        is_admin = _is_admin(request.user)
+        profile  = _get_or_create_profile(request.user)
+        if is_admin:
+            regional_key = request.GET.get('regional', 'santa_cruz').lower().replace(' ', '_')
+            canal        = _safe_str(request.GET.get('canal', ''))
+        else:
+            regional_key = _REGIONAL_NAME_TO_KEY.get(profile.regional, 'santa_cruz')
+            canal        = profile.canal.strip()
+        fecha_desde, fecha_hasta = _preventas_fecha_rango(request)
+        supervisor = _safe_str(request.GET.get('supervisor', ''))
+        if regional_key not in REGIONALES_VALID:
+            return JsonResponse({'success': False, 'error': 'Regional inválida'}, status=400)
+        ciudad_cond     = _regional_filter(regional_key, campo='dv.ciudad')
+        canal_cond      = "AND dv.canal_rrhh = %s" if canal else ""
+        supervisor_cond = "AND dv.supervisor = %s" if supervisor else ""
+        # params: [fd,fh] for rutas CTE, [fd,fh] for clientes CTE inner, [fd,fh] for main WHERE + filters
+        params = (
+            [fecha_desde, fecha_hasta]
+            + [fecha_desde, fecha_hasta]
+            + [fecha_desde, fecha_hasta]
+            + ([canal] if canal else [])
+            + ([supervisor] if supervisor else [])
+        )
+        sql = f"""
+            WITH ruta_clientes AS (
+                SELECT ruta, COUNT(*) AS total_clientes
+                FROM dual.dim_cliente_dual
+                WHERE es_actual = true
+                GROUP BY ruta
+            ),
+            vendedor_rutas AS (
+                SELECT
+                    nombre_usuario,
+                    STRING_AGG(DISTINCT ruta, ' / ' ORDER BY ruta) AS rutas_concat
+                FROM dual.dim_preventa
+                WHERE fecha_transaccion BETWEEN %s AND %s
+                GROUP BY nombre_usuario
+            ),
+            vendedor_clientes_total AS (
+                SELECT
+                    sub.nombre_usuario,
+                    COALESCE(SUM(rc.total_clientes), 0) AS total_clientes
+                FROM (
+                    SELECT DISTINCT nombre_usuario, ruta
+                    FROM dual.dim_preventa
+                    WHERE fecha_transaccion BETWEEN %s AND %s
+                ) sub
+                LEFT JOIN ruta_clientes rc ON rc.ruta = sub.ruta
+                GROUP BY sub.nombre_usuario
+            )
+            SELECT
+                dp.nombre_usuario                                                       AS vendedor,
+                vr.rutas_concat                                                         AS ruta,
+                MAX(dv.supervisor)                                                      AS supervisor,
+                COALESCE(vtc.total_clientes, 0)                                         AS total_clientes,
+                COUNT(DISTINCT dp.cod_cliente)                                          AS pedidos,
+                ROUND(
+                    COUNT(DISTINCT dp.cod_cliente)::NUMERIC
+                    / NULLIF(COALESCE(vtc.total_clientes, 0), 0) * 100
+                , 1)                                                                    AS pct_efectividad,
+                ROUND(COALESCE(SUM(dp.importe_total), 0)::NUMERIC, 2)                  AS monto_total
+            FROM dual.dim_preventa dp
+            LEFT JOIN dw.dim_vendedor dv ON dv.vendedor_codigo_erp = dp.codigo_usuario
+                AND dv.es_vendedor_actual = TRUE
+            LEFT JOIN vendedor_rutas vr ON vr.nombre_usuario = dp.nombre_usuario
+            LEFT JOIN vendedor_clientes_total vtc ON vtc.nombre_usuario = dp.nombre_usuario
+            WHERE dp.fecha_transaccion BETWEEN %s AND %s
+              AND ({ciudad_cond}) {canal_cond} {supervisor_cond}
+            GROUP BY dp.nombre_usuario, vr.rutas_concat, vtc.total_clientes
+            ORDER BY monto_total DESC
+        """
+        _, rows = _run_dw_query(sql, params)
+        data = [
+            {
+                'vendedor':        r['vendedor'],
+                'ruta':            r['ruta'],
+                'supervisor':      r['supervisor'],
+                'total_clientes':  r['total_clientes'] or 0,
+                'pedidos':         r['pedidos'],
+                'pct_efectividad': float(r['pct_efectividad']) if r.get('pct_efectividad') is not None else None,
+                'monto_total':     float(r['monto_total'] or 0),
+            }
+            for r in rows
+        ]
+        return JsonResponse({'success': True, 'data': data})
+    except Exception as e:
+        return JsonResponse({'success': False, 'error': str(e)}, status=500)
+
+
+@api_view(['GET'])
+@authentication_classes([ExpiringTokenAuthentication])
+@permission_classes([IsAuthenticated])
+@_require_perm('preventas-realizadas')
+def dashboard_preventas_top_faltantes(request):
+    try:
+        is_admin = _is_admin(request.user)
+        profile  = _get_or_create_profile(request.user)
+        if is_admin:
+            regional_key = request.GET.get('regional', 'santa_cruz').lower().replace(' ', '_')
+            canal        = _safe_str(request.GET.get('canal', ''))
+        else:
+            regional_key = _REGIONAL_NAME_TO_KEY.get(profile.regional, 'santa_cruz')
+            canal        = profile.canal.strip()
+        fecha_desde, fecha_hasta = _preventas_fecha_rango(request)
+        supervisor = _safe_str(request.GET.get('supervisor', ''))
+        if regional_key not in REGIONALES_VALID:
+            return JsonResponse({'success': False, 'error': 'Regional inválida'}, status=400)
+        ciudad_cond     = _regional_filter(regional_key, campo='dv.ciudad')
+        canal_cond      = "AND dv.canal_rrhh = %s" if canal else ""
+        supervisor_cond = "AND dv.supervisor = %s" if supervisor else ""
+        params = [fecha_desde, fecha_hasta] + ([canal] if canal else []) + ([supervisor] if supervisor else [])
+        sql = f"""
+            SELECT
+                dp.cod_producto                                                    AS codigo,
+                dp.nombre_producto                                                 AS producto,
+                COALESCE(SUM(dp.cantidad), 0)                                      AS cant_pedida,
+                COALESCE(SUM(CASE WHEN dp.estado = true  THEN dp.cantidad ELSE 0 END), 0) AS cant_atendida,
+                COALESCE(SUM(CASE WHEN dp.estado = false THEN dp.cantidad ELSE 0 END), 0) AS cant_faltante,
+                ROUND(
+                    SUM(CASE WHEN dp.estado = true THEN dp.cantidad ELSE 0 END)
+                    / NULLIF(SUM(dp.cantidad), 0) * 100
+                , 1) AS ns_pct
+            FROM dual.dim_preventa dp
+            LEFT JOIN dw.dim_vendedor dv ON dv.vendedor_codigo_erp = dp.codigo_usuario
+                AND dv.es_vendedor_actual = TRUE
+            WHERE dp.fecha_transaccion BETWEEN %s AND %s
+              AND ({ciudad_cond}) {canal_cond} {supervisor_cond}
+            GROUP BY dp.cod_producto, dp.nombre_producto
+            HAVING SUM(CASE WHEN dp.estado = false THEN dp.cantidad ELSE 0 END) > 0
+            ORDER BY cant_faltante DESC
+            LIMIT 20
+        """
+        _, rows = _run_dw_query(sql, params)
+        data = [
+            {
+                'codigo':       r['codigo'],
+                'producto':     r['producto'],
+                'linea':        '',
+                'cant_pedida':  float(r['cant_pedida'] or 0),
+                'cant_atendida':float(r['cant_atendida'] or 0),
+                'cant_faltante':float(r['cant_faltante'] or 0),
+                'ns_pct':       float(r['ns_pct']) if r.get('ns_pct') is not None else None,
+            }
+            for r in rows
+        ]
+        return JsonResponse({'success': True, 'data': data})
+    except Exception as e:
+        return JsonResponse({'success': False, 'error': str(e)}, status=500)
+
+
+@api_view(['GET'])
+@authentication_classes([ExpiringTokenAuthentication])
+@permission_classes([IsAuthenticated])
+@_require_perm('preventas-realizadas')
+def dashboard_preventas_supervisores_lista(request):
+    try:
+        is_admin = _is_admin(request.user)
+        profile  = _get_or_create_profile(request.user)
+        if is_admin:
+            regional_key = request.GET.get('regional', 'santa_cruz').lower().replace(' ', '_')
+            canal        = _safe_str(request.GET.get('canal', ''))
+        else:
+            regional_key = _REGIONAL_NAME_TO_KEY.get(profile.regional, 'santa_cruz')
+            canal        = profile.canal.strip()
+        fecha_desde, fecha_hasta = _preventas_fecha_rango(request)
+        if regional_key not in REGIONALES_VALID:
+            return JsonResponse({'success': False, 'error': 'Regional inválida'}, status=400)
+        ciudad_cond = _regional_filter(regional_key, campo='dv.ciudad')
+        canal_cond  = "AND dv.canal_rrhh = %s" if canal else ""
+        params      = [fecha_desde, fecha_hasta] + ([canal] if canal else [])
+        sql = f"""
+            SELECT DISTINCT dv.supervisor
+            FROM dual.dim_preventa dp
+            LEFT JOIN dw.dim_vendedor dv ON dv.vendedor_codigo_erp = dp.codigo_usuario
+                AND dv.es_vendedor_actual = TRUE
+            WHERE dp.fecha_transaccion BETWEEN %s AND %s
+              AND ({ciudad_cond}) {canal_cond}
+              AND dv.supervisor IS NOT NULL AND dv.supervisor != ''
+            ORDER BY dv.supervisor
+        """
+        _, rows = _run_dw_query(sql, params)
+        return JsonResponse({'success': True, 'data': [r['supervisor'] for r in rows]})
     except Exception as e:
         return JsonResponse({'success': False, 'error': str(e)}, status=500)
 
@@ -2358,7 +2743,7 @@ def dashboard_proveedor_tabla(request):
 
         sql = """
             SELECT
-                dv.canal,
+                dv.canal_rrhh AS canal,
                 da.ciudad,
                 df.mes_nombre,
                 dp.proveedor,
@@ -2541,3 +2926,608 @@ def exportar_ventas_combo_armado(request):
     response["Content-Encoding"] = "identity"
     response["X-File-Size"] = str(file_size)
     return response
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+#  CANALES DISPONIBLES (lista para selectores)
+# ─────────────────────────────────────────────────────────────────────────────
+
+@api_view(['GET'])
+@authentication_classes([ExpiringTokenAuthentication])
+@permission_classes([IsAuthenticated])
+def dashboard_canales_lista(request):
+    """Devuelve la lista de canal_rrhh distintos presentes en dim_vendedor."""
+    cached = cache.get('canales_lista')
+    if cached is not None:
+        return JsonResponse({'success': True, 'data': cached})
+    try:
+        _, rows = _run_dw_query(
+            "SELECT DISTINCT canal_rrhh FROM dw.dim_vendedor "
+            "WHERE canal_rrhh IS NOT NULL ORDER BY canal_rrhh"
+        )
+        canales = [r['canal_rrhh'] for r in rows]
+        cache.set('canales_lista', canales, 3600)
+        return JsonResponse({'success': True, 'data': canales})
+    except Exception as e:
+        return JsonResponse({'success': False, 'error': str(e)}, status=500)
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+#  DASHBOARD INFORMACIÓN RUTAS
+# ─────────────────────────────────────────────────────────────────────────────
+
+@api_view(['GET'])
+@authentication_classes([ExpiringTokenAuthentication])
+@permission_classes([IsAuthenticated])
+@_require_perm('informacion-rutas')
+def dashboard_marcas_lista(_request):
+    """Lista de marcas activas en el DW, para filtro de cobertura."""
+    try:
+        sql = """
+            SELECT DISTINCT dp.marca
+            FROM dw.dim_producto dp
+            WHERE dp.marca IS NOT NULL
+              AND dp.marca != ''
+            ORDER BY dp.marca
+        """
+        _, rows = _run_dw_query(sql, [])
+        return JsonResponse({'success': True, 'data': [r['marca'] for r in rows]})
+    except Exception as e:
+        return JsonResponse({'success': False, 'error': str(e)}, status=500)
+
+
+@api_view(['GET'])
+@authentication_classes([ExpiringTokenAuthentication])
+@permission_classes([IsAuthenticated])
+@_require_perm('informacion-rutas')
+def dashboard_informacion_rutas(request):
+    """
+    Tabla de rutas con cobertura del mes.
+    Params: regional, canal, supervisor, dia, marca, anho, mes
+    """
+    regional_raw = request.GET.get('regional', 'nacional').lower().replace(' ', '_')
+    regional     = regional_raw if regional_raw in REGIONALES_VALID else 'nacional'
+    canal        = _safe_str(request.GET.get('canal',      'Todos'), 30)
+    dia          = _safe_str(request.GET.get('dia',        'Todos'), 10)
+    supervisor   = _safe_str(request.GET.get('supervisor', 'Todos'), 100)
+    marca        = _safe_str(request.GET.get('marca',      ''),      80)
+    anho         = _safe_int(request.GET.get('anho'), datetime.now().year)
+    mes          = _safe_int(request.GET.get('mes'),  datetime.now().month)
+
+    ciudad_cond   = _regional_filter(regional)
+    regional_cond = "" if regional == 'nacional' else f"AND ({ciudad_cond})"
+    canal_cond    = "AND dv.canal_rrhh = %s" if canal      != 'Todos' else ""
+    dia_cond      = "AND dp.dia = %s"        if dia        != 'Todos' else ""
+    sup_cond      = "AND dv.supervisor = %s" if supervisor != 'Todos' else ""
+    marca_cond    = "AND dprod.marca = %s" if marca else ""
+
+    params_main = [anho, mes]
+    if marca: params_main.append(marca)
+    if canal      != 'Todos': params_main.append(canal)
+    if dia        != 'Todos': params_main.append(dia)
+    if supervisor != 'Todos': params_main.append(supervisor)
+
+    try:
+        sql = f"""
+            WITH ventas_mes AS (
+                SELECT DISTINCT fv.cliente_sk, dv2.canal_rrhh
+                FROM dw.fact_ventas    fv
+                JOIN dw.dim_fecha      df    ON df.fecha_sk     = fv.fecha_sk
+                JOIN dw.dim_vendedor   dv2   ON dv2.vendedor_sk = fv.vendedor_sk
+                JOIN dw.dim_producto   dprod ON dprod.producto_sk = fv.producto_sk
+                WHERE df.anho = %s AND df.mes_numero = %s
+                  {marca_cond}
+            )
+            SELECT
+                dc.ruta,
+                dp.vendedor,
+                dv.supervisor,
+                dp.dia,
+                COUNT(DISTINCT dc.id_cliente)                                          AS total_clientes,
+                COUNT(DISTINCT CASE WHEN vm.canal_rrhh = dv.canal_rrhh
+                                    THEN dck.cliente_sk END)                           AS clientes_con_compra,
+                ROUND(
+                    COUNT(DISTINCT CASE WHEN vm.canal_rrhh = dv.canal_rrhh
+                                        THEN dck.cliente_sk END)::NUMERIC
+                    / NULLIF(COUNT(DISTINCT dc.id_cliente), 0) * 100
+                , 1)                                                                   AS pct_cobertura
+            FROM dual.dim_cliente_dual dc
+            LEFT JOIN dual.dim_planificacion dp
+                   ON dp.ruta = dc.ruta AND dp.es_actual = true
+            LEFT JOIN dw.dim_vendedor dv
+                   ON dv.vendedor_codigo_erp = SPLIT_PART(dp.codigo_erp, '.', 1)
+                  AND dv.es_vendedor_actual = true
+            LEFT JOIN dw.dim_cliente dck
+                   ON dck.cliente_codigo_erp = dc.codigo_cliente
+                  AND dck.es_cliente_actual = true
+            LEFT JOIN ventas_mes vm ON vm.cliente_sk = dck.cliente_sk
+            WHERE dc.es_actual = true
+              {regional_cond}
+              {canal_cond}
+              {dia_cond}
+              {sup_cond}
+            GROUP BY dc.ruta, dp.vendedor, dv.supervisor, dp.dia
+            ORDER BY dc.ruta
+        """
+        _, rows = _run_dw_query(sql, params_main)
+
+        # Lista de supervisores para el filtro (no afectada por filtro de supervisor)
+        params_sup = []
+        if canal != 'Todos': params_sup.append(canal)
+        sql_sup = f"""
+            SELECT DISTINCT dv.supervisor
+            FROM dual.dim_planificacion dp
+            JOIN dw.dim_vendedor dv
+                   ON dv.vendedor_codigo_erp = SPLIT_PART(dp.codigo_erp, '.', 1)
+                  AND dv.es_vendedor_actual = true
+            WHERE dp.es_actual = true
+              AND dv.supervisor IS NOT NULL
+              {regional_cond}
+              {canal_cond}
+            ORDER BY dv.supervisor
+        """
+        _, sup_rows = _run_dw_query(sql_sup, params_sup)
+        supervisores = [r['supervisor'] for r in sup_rows if r.get('supervisor')]
+
+        return JsonResponse({'success': True, 'data': rows, 'supervisores': supervisores})
+    except Exception as e:
+        return JsonResponse({'success': False, 'error': str(e)}, status=500)
+
+
+@api_view(['GET'])
+@authentication_classes([ExpiringTokenAuthentication])
+@permission_classes([IsAuthenticated])
+@_require_perm('informacion-rutas')
+def dashboard_informacion_rutas_detalle(request):
+    """
+    Ventas y pedidos semanales de una ruta específica.
+    Params: ruta, canal, marca, anho, mes
+    """
+    ruta  = _safe_str(request.GET.get('ruta',  ''), 100)
+    canal = _safe_str(request.GET.get('canal', ''), 30)
+    marca = _safe_str(request.GET.get('marca', ''), 80)
+    anho  = _safe_int(request.GET.get('anho'), datetime.now().year)
+    mes   = _safe_int(request.GET.get('mes'),  datetime.now().month)
+
+    if not ruta:
+        return JsonResponse({'success': False, 'error': 'Parámetro ruta requerido'}, status=400)
+
+    try:
+        canal_cond = "AND dv.canal_rrhh = %s" if canal else ""
+        marca_cond = "AND dp.marca = %s"       if marca else ""
+        params_det = [anho, mes, ruta] + ([canal] if canal else []) + ([marca] if marca else [])
+        sql = f"""
+            SELECT
+                CEIL(df.dia_numero / 7.0)::INT                      AS semana,
+                COUNT(DISTINCT fv.numero_venta)                      AS pedidos,
+                ROUND(COALESCE(SUM(fv.venta_neta), 0)::NUMERIC, 2)  AS venta_neta
+            FROM dw.fact_ventas       fv
+            JOIN dw.dim_fecha         df  ON df.fecha_sk    = fv.fecha_sk
+            JOIN dw.dim_vendedor      dv  ON dv.vendedor_sk = fv.vendedor_sk
+            JOIN dw.dim_producto      dp  ON dp.producto_sk = fv.producto_sk
+            JOIN dw.dim_cliente       dck ON dck.cliente_sk = fv.cliente_sk
+            JOIN dual.dim_cliente_dual dcd
+                   ON dcd.codigo_cliente = dck.cliente_codigo_erp
+                  AND dcd.es_actual = true
+            WHERE df.anho = %s AND df.mes_numero = %s
+              AND dcd.ruta = %s
+              {canal_cond}
+              {marca_cond}
+            GROUP BY semana
+            ORDER BY semana
+        """
+        _, rows = _run_dw_query(sql, params_det)
+        return JsonResponse({'success': True, 'data': rows})
+    except Exception as e:
+        return JsonResponse({'success': False, 'error': str(e)}, status=500)
+
+
+@api_view(['GET'])
+@authentication_classes([ExpiringTokenAuthentication])
+@permission_classes([IsAuthenticated])
+@_require_perm('informacion-rutas')
+def dashboard_informacion_rutas_categorias(request):
+    """
+    Ventas por categoría para una ruta, con % del total.
+    Params: ruta, canal, marca, anho, mes
+    """
+    ruta  = _safe_str(request.GET.get('ruta',  ''), 100)
+    canal = _safe_str(request.GET.get('canal', ''), 30)
+    marca = _safe_str(request.GET.get('marca', ''), 80)
+    anho  = _safe_int(request.GET.get('anho'), datetime.now().year)
+    mes   = _safe_int(request.GET.get('mes'),  datetime.now().month)
+
+    if not ruta:
+        return JsonResponse({'success': False, 'error': 'Parámetro ruta requerido'}, status=400)
+
+    try:
+        canal_cond = "AND dv.canal_rrhh = %s" if canal else ""
+        marca_cond = "AND dp.marca = %s"       if marca else ""
+        params = [anho, mes, ruta] + ([canal] if canal else []) + ([marca] if marca else [])
+        sql = f"""
+            SELECT
+                {_CATEGORIA_CASE}                                         AS categoria,
+                COUNT(DISTINCT fv.numero_venta)                           AS pedidos,
+                ROUND(COALESCE(SUM(fv.venta_neta), 0)::NUMERIC, 2)       AS venta_neta
+            FROM dw.fact_ventas       fv
+            JOIN dw.dim_fecha         df  ON df.fecha_sk    = fv.fecha_sk
+            JOIN dw.dim_vendedor      dv  ON dv.vendedor_sk = fv.vendedor_sk
+            JOIN dw.dim_producto      dp  ON dp.producto_sk = fv.producto_sk
+            JOIN dw.dim_cliente       dck ON dck.cliente_sk = fv.cliente_sk
+            JOIN dual.dim_cliente_dual dcd
+                   ON dcd.codigo_cliente = dck.cliente_codigo_erp
+                  AND dcd.es_actual = true
+            WHERE df.anho = %s AND df.mes_numero = %s
+              AND dcd.ruta = %s
+              {canal_cond}
+              {marca_cond}
+            GROUP BY {_CATEGORIA_CASE}
+            ORDER BY venta_neta DESC
+        """
+        _, rows = _run_dw_query(sql, params)
+        total_bs = sum(float(r['venta_neta']) for r in rows)
+        for r in rows:
+            r['pct'] = round(float(r['venta_neta']) / total_bs * 100, 1) if total_bs > 0 else 0
+        return JsonResponse({'success': True, 'data': rows})
+    except Exception as e:
+        return JsonResponse({'success': False, 'error': str(e)}, status=500)
+
+
+@api_view(['GET'])
+@authentication_classes([ExpiringTokenAuthentication])
+@permission_classes([IsAuthenticated])
+@_require_perm('informacion-rutas')
+def dashboard_informacion_rutas_skus(request):
+    """
+    Top SKUs de una categoría para una ruta, con % cobertura de clientes.
+    Params: ruta, canal, categoria, marca, anho, mes
+    """
+    ruta      = _safe_str(request.GET.get('ruta',      ''), 100)
+    canal     = _safe_str(request.GET.get('canal',     ''), 30)
+    categoria = _safe_str(request.GET.get('categoria', ''), 50)
+    marca     = _safe_str(request.GET.get('marca',     ''), 80)
+    anho      = _safe_int(request.GET.get('anho'), datetime.now().year)
+    mes       = _safe_int(request.GET.get('mes'),  datetime.now().month)
+
+    if not ruta:
+        return JsonResponse({'success': False, 'error': 'Parámetro ruta requerido'}, status=400)
+
+    canal_cond = "AND dv.canal_rrhh = %s" if canal else ""
+    marca_cond = "AND dp.marca = %s"       if marca else ""
+
+    if categoria and categoria in _UNIDADES_CAT_LINEA:
+        if categoria == 'Sin Clasificar':
+            cat_cond   = f"AND {_SIN_CLASIFICAR_COND}"
+            cat_params = []
+        else:
+            cat_cond   = "AND dp.linea = %s"
+            cat_params = [_UNIDADES_CAT_LINEA[categoria]]
+    else:
+        cat_cond   = ""
+        cat_params = []
+
+    try:
+        params = [ruta, anho, mes, ruta] + ([canal] if canal else []) + ([marca] if marca else []) + cat_params
+        sql = f"""
+            WITH total_ruta AS (
+                SELECT COUNT(DISTINCT codigo_cliente) AS n
+                FROM dual.dim_cliente_dual
+                WHERE es_actual = true AND ruta = %s
+            )
+            SELECT
+                dp.producto_codigo_erp                                     AS codigo,
+                dp.producto_nombre                                         AS producto,
+                COUNT(DISTINCT fv.numero_venta)                            AS pedidos,
+                ROUND(COALESCE(SUM(fv.venta_neta), 0)::NUMERIC, 2)        AS venta_neta,
+                COUNT(DISTINCT dck.cliente_sk)                             AS clientes_con_sku,
+                (SELECT n FROM total_ruta)                                 AS total_clientes,
+                ROUND(
+                    COUNT(DISTINCT dck.cliente_sk)::NUMERIC
+                    / NULLIF((SELECT n FROM total_ruta), 0) * 100
+                , 1)                                                       AS pct_cobertura
+            FROM dw.fact_ventas       fv
+            JOIN dw.dim_fecha         df  ON df.fecha_sk    = fv.fecha_sk
+            JOIN dw.dim_vendedor      dv  ON dv.vendedor_sk = fv.vendedor_sk
+            JOIN dw.dim_producto      dp  ON dp.producto_sk = fv.producto_sk
+            JOIN dw.dim_cliente       dck ON dck.cliente_sk = fv.cliente_sk
+            JOIN dual.dim_cliente_dual dcd
+                   ON dcd.codigo_cliente = dck.cliente_codigo_erp
+                  AND dcd.es_actual = true
+            WHERE df.anho = %s AND df.mes_numero = %s
+              AND dcd.ruta = %s
+              {canal_cond}
+              {marca_cond}
+              {cat_cond}
+            GROUP BY dp.producto_codigo_erp, dp.producto_nombre
+            ORDER BY venta_neta DESC
+            LIMIT 30
+        """
+        _, rows = _run_dw_query(sql, params)
+        return JsonResponse({'success': True, 'data': rows})
+    except Exception as e:
+        return JsonResponse({'success': False, 'error': str(e)}, status=500)
+
+
+def exportar_clientes_sin_compra(request):
+    """
+    Exporta a XLSX los clientes de las rutas que no compraron en el mes indicado.
+    Auth: header Authorization: Token xxx
+    Params: regional, canal, dia, supervisor, anho, mes
+    """
+    token_str = ""
+    auth_header = request.META.get("HTTP_AUTHORIZATION", "")
+    if auth_header.startswith("Token "):
+        token_str = auth_header[6:]
+    else:
+        token_str = request.GET.get("_t", "")
+    if not token_str:
+        return JsonResponse({"error": "No autorizado"}, status=401)
+    try:
+        from rest_framework.authtoken.models import Token as DRFToken
+        token_obj = DRFToken.objects.select_related("user").get(key=token_str)
+        if not token_obj.user.is_active:
+            return JsonResponse({"error": "Usuario inactivo"}, status=401)
+    except Exception:
+        return JsonResponse({"error": "Token inválido"}, status=401)
+
+    regional_raw = request.GET.get('regional', 'nacional').lower().replace(' ', '_')
+    regional     = regional_raw if regional_raw in REGIONALES_VALID else 'nacional'
+    canal        = _safe_str(request.GET.get('canal',      'Todos'), 30)
+    dia          = _safe_str(request.GET.get('dia',        'Todos'), 10)
+    supervisor   = _safe_str(request.GET.get('supervisor', 'Todos'), 100)
+    marca        = _safe_str(request.GET.get('marca',      ''),      80)
+    anho         = _safe_int(request.GET.get('anho'), datetime.now().year)
+    mes          = _safe_int(request.GET.get('mes'),  datetime.now().month)
+
+    ciudad_cond    = _regional_filter(regional)
+    regional_cond  = "" if regional == 'nacional' else f"AND ({ciudad_cond})"
+    canal_cond     = "AND dv.canal_rrhh = %s" if canal      != 'Todos' else ""
+    dia_cond       = "AND dp.dia = %s"        if dia        != 'Todos' else ""
+    sup_cond       = "AND dv.supervisor = %s" if supervisor != 'Todos' else ""
+    canal_cte_cond = "AND dv2.canal_rrhh = %s" if canal != 'Todos' else ""
+    marca_cte_cond = "AND dprod.marca = %s"     if marca else ""
+
+    params = [anho, mes]
+    if canal != 'Todos': params.append(canal)   # CTE ventas_mes canal
+    if marca:            params.append(marca)   # CTE ventas_mes marca
+    if canal != 'Todos': params.append(canal)   # WHERE canal_cond
+    if dia   != 'Todos': params.append(dia)
+    if supervisor != 'Todos': params.append(supervisor)
+
+    sql = f"""
+        WITH ventas_mes AS (
+            SELECT DISTINCT fv.cliente_sk
+            FROM dw.fact_ventas    fv
+            JOIN dw.dim_fecha      df    ON df.fecha_sk     = fv.fecha_sk
+            JOIN dw.dim_vendedor   dv2   ON dv2.vendedor_sk = fv.vendedor_sk
+            JOIN dw.dim_producto   dprod ON dprod.producto_sk = fv.producto_sk
+            WHERE df.anho = %s AND df.mes_numero = %s
+              {canal_cte_cond}
+              {marca_cte_cond}
+        ),
+        ultima_compra AS (
+            SELECT fv.cliente_sk, MAX(df.fecha_completa) AS ultima_fecha
+            FROM dw.fact_ventas fv
+            JOIN dw.dim_fecha   df ON df.fecha_sk = fv.fecha_sk
+            GROUP BY fv.cliente_sk
+        )
+        SELECT
+            dc.ruta,
+            COALESCE(dp.vendedor,   'Sin asignar') AS vendedor,
+            COALESCE(dv.supervisor, '—')           AS supervisor,
+            COALESCE(dp.dia,        '—')           AS dia,
+            dc.codigo_cliente,
+            dc.nombre_compania,
+            COALESCE(dv.canal_rrhh, dc.canal)      AS canal,
+            TO_CHAR(uc.ultima_fecha, 'DD/MM/YYYY') AS ultima_compra
+        FROM dual.dim_cliente_dual dc
+        LEFT JOIN dual.dim_planificacion dp
+               ON dp.ruta = dc.ruta AND dp.es_actual = true
+        LEFT JOIN dw.dim_vendedor dv
+               ON dv.vendedor_codigo_erp = SPLIT_PART(dp.codigo_erp, '.', 1)
+              AND dv.es_vendedor_actual = true
+        LEFT JOIN dw.dim_cliente dck
+               ON dck.cliente_codigo_erp = dc.codigo_cliente
+              AND dck.es_cliente_actual = true
+        LEFT JOIN ventas_mes  vm ON vm.cliente_sk  = dck.cliente_sk
+        LEFT JOIN ultima_compra uc ON uc.cliente_sk = dck.cliente_sk
+        WHERE dc.es_actual = true
+          AND vm.cliente_sk IS NULL
+          {regional_cond}
+          {canal_cond}
+          {dia_cond}
+          {sup_cond}
+        ORDER BY dc.ruta, dc.nombre_compania
+    """
+
+    headers = ["Ruta", "Vendedor", "Supervisor", "Día", "Cód. Cliente", "Nombre", "Canal", "Última Compra"]
+
+    wb = openpyxl.Workbook(write_only=True)
+    ws = wb.create_sheet(title="Clientes Sin Compra")
+    bold = Font(bold=True)
+    header_row = []
+    for h in headers:
+        c = openpyxl.cell.WriteOnlyCell(ws, value=h)
+        c.font = bold
+        header_row.append(c)
+    ws.append(header_row)
+
+    try:
+        with connections['dw'].cursor() as cursor:
+            cursor.execute(sql, params)
+            while True:
+                batch = cursor.fetchmany(2000)
+                if not batch: break
+                for row in batch:
+                    ws.append(list(row))
+    except Exception as e:
+        return JsonResponse({"success": False, "error": str(e)}, status=500)
+
+    buffer = io.BytesIO()
+    wb.save(buffer)
+    file_size = buffer.tell()
+    buffer.seek(0)
+
+    def _chunks(buf, size=65536):
+        chunk = buf.read(size)
+        while chunk:
+            yield chunk
+            chunk = buf.read(size)
+
+    mes_str   = str(mes).zfill(2)
+    sup_slug  = supervisor.replace(' ', '_') if supervisor != 'Todos' else 'todos'
+    marca_slug = marca.replace(' ', '_') if marca else 'todas'
+    filename  = f"clientes_sin_compra_{sup_slug}_{marca_slug}_{anho}_{mes_str}.xlsx"
+    response = StreamingHttpResponse(
+        _chunks(buffer),
+        content_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    )
+    response["Content-Disposition"] = f'attachment; filename="{filename}"'
+    response["Content-Encoding"]    = "identity"
+    response["X-File-Size"]         = str(file_size)
+    return response
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+#  DASHBOARD TENDENCIA ESTACIONAL
+# ─────────────────────────────────────────────────────────────────────────────
+
+@api_view(['GET'])
+@authentication_classes([ExpiringTokenAuthentication])
+@permission_classes([IsAuthenticated])
+@_require_perm('tendencia-estacional')
+def dashboard_tendencia_estacional(request):
+    """
+    Comparación estacional (mismo mes entre gestiones) o últimos 6 meses.
+    Params:
+      regional  : Nacional | Santa Cruz | Cochabamba | La Paz
+      canal     : Todos | WHS | DTS | PROV | SPM
+      anho      : int
+      mes       : int  (1-12)
+      modo      : estacional | ultimos6
+      dia_corte : 0 = mes completo, N = primeros N días del mes
+    """
+    regional_raw = request.GET.get('regional', 'nacional').lower().replace(' ', '_')
+    regional     = regional_raw if regional_raw in REGIONALES_VALID else 'nacional'
+    canal        = _safe_str(request.GET.get('canal', 'Todos'), 20)
+    anho         = _safe_int(request.GET.get('anho'),  datetime.now().year)
+    mes          = _safe_int(request.GET.get('mes'),   datetime.now().month)
+    modo         = request.GET.get('modo', 'estacional')
+    dia_corte    = _safe_int(request.GET.get('dia_corte'), 0)
+
+    joins = """
+        FROM dw.fact_ventas fv
+        JOIN dw.dim_fecha        df ON df.fecha_sk    = fv.fecha_sk
+        JOIN dw.dim_vendedor     dv ON dv.vendedor_sk = fv.vendedor_sk
+        LEFT JOIN dw.dim_producto dp ON dp.producto_sk = fv.producto_sk
+    """
+
+    ciudad_cond = _regional_filter(regional)
+    extra_conds  = [f"({ciudad_cond})"]
+    extra_params = []
+    if canal != 'Todos':
+        extra_conds.append("dv.canal_rrhh = %s")
+        extra_params.append(canal)
+    extra_where = " AND " + " AND ".join(extra_conds)
+
+    # Helper: ejecuta queries de desglose por categoría y canal para un WHERE+params dado
+    def _desgloses(where_conds, params_base):
+        # Categorías
+        sql_cat = f"""
+            SELECT {_CATEGORIA_CASE} AS categoria,
+                   df.anho, df.mes_numero,
+                   ROUND(COALESCE(SUM(fv.venta_neta), 0)::NUMERIC, 2) AS total,
+                   COALESCE(SUM(fv.cantidad), 0)                       AS cantidad
+            {joins}
+            WHERE {where_conds}
+            GROUP BY categoria, df.anho, df.mes_numero
+            ORDER BY df.anho, df.mes_numero, categoria
+        """
+        _, cat_rows = _run_dw_query(sql_cat, params_base)
+
+        # Canales (solo cuando no hay filtro de canal)
+        canal_rows = []
+        if canal == 'Todos':
+            sql_canal = f"""
+                SELECT dv.canal_rrhh AS canal,
+                       df.anho, df.mes_numero,
+                       ROUND(COALESCE(SUM(fv.venta_neta), 0)::NUMERIC, 2) AS total,
+                       COALESCE(SUM(fv.cantidad), 0)                       AS cantidad
+                {joins}
+                WHERE {where_conds} AND dv.canal_rrhh IS NOT NULL
+                GROUP BY dv.canal_rrhh, df.anho, df.mes_numero
+                ORDER BY df.anho, df.mes_numero, dv.canal_rrhh
+            """
+            _, canal_rows = _run_dw_query(sql_canal, params_base)
+
+        return cat_rows, canal_rows
+
+    try:
+        if modo == 'estacional':
+            conds = ["df.mes_numero = %s", "df.anho BETWEEN %s AND %s"]
+            params = [mes, anho - 2, anho]
+            if dia_corte > 0:
+                conds.append("df.dia_numero <= %s")
+                params.append(dia_corte)
+            params.extend(extra_params)
+            where_str = " AND ".join(conds) + extra_where
+
+            sql = f"""
+                SELECT df.anho,
+                       ROUND(COALESCE(SUM(fv.venta_neta), 0)::NUMERIC, 2) AS total,
+                       COALESCE(SUM(fv.cantidad), 0)                       AS cantidad
+                {joins}
+                WHERE {where_str}
+                GROUP BY df.anho
+                ORDER BY df.anho
+            """
+            _, rows = _run_dw_query(sql, params)
+            cat_rows, canal_rows = _desgloses(where_str, params)
+
+            return JsonResponse({
+                'success':        True,
+                'modo':           'estacional',
+                'mes_numero':     mes,
+                'anho_ref':       anho,
+                'dia_corte':      dia_corte,
+                'data':           rows,
+                'data_categoria': cat_rows,
+                'data_canal':     canal_rows,
+            })
+
+        else:  # ultimos6
+            start_m, start_y = mes - 5, anho
+            while start_m <= 0:
+                start_m += 12
+                start_y -= 1
+
+            u6_conds = ["df.anho * 100 + df.mes_numero BETWEEN %s AND %s"]
+            u6_params = [start_y * 100 + start_m, anho * 100 + mes]
+            if dia_corte > 0:
+                u6_conds.append("df.dia_numero <= %s")
+                u6_params.append(dia_corte)
+            u6_params.extend(extra_params)
+            where_str = " AND ".join(u6_conds) + extra_where
+
+            sql = f"""
+                SELECT df.anho, df.mes_numero,
+                       ROUND(COALESCE(SUM(fv.venta_neta), 0)::NUMERIC, 2) AS total,
+                       COALESCE(SUM(fv.cantidad), 0)                       AS cantidad
+                {joins}
+                WHERE {where_str}
+                GROUP BY df.anho, df.mes_numero
+                ORDER BY df.anho, df.mes_numero
+            """
+            _, rows = _run_dw_query(sql, u6_params)
+            cat_rows, canal_rows = _desgloses(where_str, u6_params)
+
+            return JsonResponse({
+                'success':        True,
+                'modo':           'ultimos6',
+                'data':           rows,
+                'data_categoria': cat_rows,
+                'data_canal':     canal_rows,
+            })
+
+    except Exception as e:
+        return JsonResponse({'success': False, 'error': str(e)}, status=500)
