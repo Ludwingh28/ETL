@@ -55,24 +55,6 @@ const isAdminUser = (cargo?: string, is_staff?: boolean) =>
 
 const toISO = (d: Date) => d.toISOString().slice(0, 10);
 
-function getQuickRanges() {
-  const today = new Date(); today.setHours(0, 0, 0, 0);
-  const todayStr = toISO(today);
-  const weekStart = new Date(today);
-  weekStart.setDate(today.getDate() - (today.getDay() === 0 ? 6 : today.getDay() - 1));
-  const monthStart     = new Date(today.getFullYear(), today.getMonth(), 1);
-  const prevMonthStart = new Date(today.getFullYear(), today.getMonth() - 1, 1);
-  const prevMonthEnd   = new Date(today.getFullYear(), today.getMonth(), 0);
-  const threeStart     = new Date(today.getFullYear(), today.getMonth() - 2, 1);
-  return [
-    { label: "Hoy",          desde: todayStr,              hasta: todayStr },
-    { label: "Esta semana",  desde: toISO(weekStart),      hasta: todayStr },
-    { label: "Este mes",     desde: toISO(monthStart),     hasta: todayStr },
-    { label: "Mes anterior", desde: toISO(prevMonthStart), hasta: toISO(prevMonthEnd) },
-    { label: "3 meses",      desde: toISO(threeStart),     hasta: todayStr },
-  ];
-}
-const QUICK_RANGES = getQuickRanges();
 
 // ─── Formatters ───────────────────────────────────────────────────────────────
 
@@ -495,7 +477,7 @@ export default function DashboardPreventas() {
               <YAxis tick={{ fontSize: 10 }} tickFormatter={fmtAbbrBs} width={70} />
               <Tooltip content={(props: any) => <CanalTooltip {...props} />} />
               <Bar dataKey="monto" name="Monto Bs" radius={[4,4,0,0]}
-                label={{ position: "top", fontSize: 9, formatter: (v: number) => fmtAbbrBs(v) }}>
+                label={{ position: "top", fontSize: 9, formatter: (v: unknown) => fmtAbbrBs(Number(v)) }}>
                 {canales.map((_, i) => <Cell key={i} fill={CANAL_COLORS[i % CANAL_COLORS.length]} />)}
               </Bar>
             </BarChart>

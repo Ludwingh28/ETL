@@ -718,9 +718,10 @@ export default function DashboardInformacionRutas() {
                       radius={[4, 4, 0, 0]}
                       cursor="pointer"
                       maxBarSize={72}
-                      onClick={(data: CategoriaRow) => {
-                        if (data.venta_neta === 0) return;
-                        setSelectedCategoria(prev => prev === data.categoria ? null : data.categoria);
+                      onClick={(data: unknown) => {
+                        const d = data as CategoriaRow;
+                        if (d.venta_neta === 0) return;
+                        setSelectedCategoria(prev => prev === d.categoria ? null : d.categoria);
                       }}
                     >
                       {chartCategorias.map(c => (
