@@ -24,13 +24,16 @@ interface CanalRow {
 }
 
 interface VendedorRow {
-  vendedor:        string;
-  ruta:            string;
-  supervisor:      string | null;
-  total_clientes:  number;
-  pedidos:         number;
-  pct_efectividad: number | null;
-  monto_total:     number;
+  vendedor:           string;
+  ruta:               string;
+  supervisor:         string | null;
+  total_clientes:     number;
+  pedidos:            number;
+  pct_efectividad:    number | null;
+  monto_total:        number;
+  hora_inicio:        string | null;
+  hora_ultimo:        string | null;
+  minutos_trabajados: number | null;
 }
 
 type AgrupadoPor = "canal" | "supervisor" | "vendedor";
@@ -69,6 +72,14 @@ const fmtAbbrBs = (n: number) => {
   if (abs >= 1_000)     return `${sign}Bs ${(abs / 1_000).toFixed(0)}K`;
   return CUR.format(n);
 };
+
+function fmtTrabajado(min: number | null) {
+  if (min == null) return "—";
+  const h = Math.floor(min / 60);
+  const m = min % 60;
+  if (h === 0) return `${m}m`;
+  return m === 0 ? `${h}h` : `${h}h ${m}m`;
+}
 
 const MESES_SHORT = ["","Ene","Feb","Mar","Abr","May","Jun","Jul","Ago","Sep","Oct","Nov","Dic"];
 function fmtFechaLarga(iso: string) {
@@ -542,9 +553,9 @@ export default function DashboardPreventas() {
                     <td className="py-2 px-3 font-medium text-slate-700 wrap-break-word leading-snug">{v.vendedor}</td>
                     <td className="py-2 px-3 text-slate-600 text-xs font-mono wrap-break-word leading-snug">{v.ruta ?? "—"}</td>
                     <td className="py-2 px-3 text-slate-500 text-xs wrap-break-word leading-snug">{v.supervisor ?? "—"}</td>
-                    <td className="py-2 px-3 text-center text-slate-300 text-xs">—</td>
-                    <td className="py-2 px-3 text-center text-slate-300 text-xs">—</td>
-                    <td className="py-2 px-3 text-center text-slate-300 text-xs">—</td>
+                    <td className="py-2 px-3 text-center text-slate-600 text-xs tabular-nums">{v.hora_inicio ?? "—"}</td>
+                    <td className="py-2 px-3 text-center text-slate-600 text-xs tabular-nums">{v.hora_ultimo ?? "—"}</td>
+                    <td className="py-2 px-3 text-center text-slate-600 text-xs tabular-nums">{fmtTrabajado(v.minutos_trabajados)}</td>
                     <td className="py-2 px-3 text-right tabular-nums text-slate-600">{fmtN(v.total_clientes)}</td>
                     <td className="py-2 px-3 text-center text-slate-300 text-xs">—</td>
                     <td className="py-2 px-3 text-right tabular-nums text-slate-700 font-medium">{fmtN(v.pedidos)}</td>

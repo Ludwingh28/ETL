@@ -1918,7 +1918,7 @@ def dashboard_preventas_kpis(request):
             FROM dual.dim_preventa dp
             LEFT JOIN dw.dim_vendedor dv ON dv.vendedor_codigo_erp = dp.codigo_usuario
                 AND dv.es_vendedor_actual = TRUE
-            WHERE dp.fecha_transaccion BETWEEN %s AND %s
+            WHERE dp.fecha_transaccion::date BETWEEN %s AND %s
               AND ({ciudad_cond}) {canal_cond} {supervisor_cond}
         """
         _, rows = _run_dw_query(sql, params)
@@ -1972,7 +1972,7 @@ def dashboard_preventas_por_canal(request):
             FROM dual.dim_preventa dp
             LEFT JOIN dw.dim_vendedor dv ON dv.vendedor_codigo_erp = dp.codigo_usuario
                 AND dv.es_vendedor_actual = TRUE
-            WHERE dp.fecha_transaccion BETWEEN %s AND %s
+            WHERE dp.fecha_transaccion::date BETWEEN %s AND %s
               AND ({ciudad_cond}) {canal_cond} {supervisor_cond}
             GROUP BY {grupo_col}
             ORDER BY monto DESC
@@ -2033,7 +2033,7 @@ def dashboard_preventas_por_vendedor(request):
                     nombre_usuario,
                     STRING_AGG(DISTINCT ruta, ' / ' ORDER BY ruta) AS rutas_concat
                 FROM dual.dim_preventa
-                WHERE fecha_transaccion BETWEEN %s AND %s
+                WHERE fecha_transaccion::date BETWEEN %s AND %s
                 GROUP BY nombre_usuario
             ),
             vendedor_clientes_total AS (
@@ -2043,7 +2043,7 @@ def dashboard_preventas_por_vendedor(request):
                 FROM (
                     SELECT DISTINCT nombre_usuario, ruta
                     FROM dual.dim_preventa
-                    WHERE fecha_transaccion BETWEEN %s AND %s
+                    WHERE fecha_transaccion::date BETWEEN %s AND %s
                 ) sub
                 LEFT JOIN ruta_clientes rc ON rc.ruta = sub.ruta
                 GROUP BY sub.nombre_usuario
@@ -2058,13 +2058,17 @@ def dashboard_preventas_por_vendedor(request):
                     COUNT(DISTINCT dp.cod_cliente)::NUMERIC
                     / NULLIF(COALESCE(vtc.total_clientes, 0), 0) * 100
                 , 1)                                                                    AS pct_efectividad,
-                ROUND(COALESCE(SUM(dp.importe_total), 0)::NUMERIC, 2)                  AS monto_total
+                ROUND(COALESCE(SUM(dp.importe_total), 0)::NUMERIC, 2)                  AS monto_total,
+                TO_CHAR(MIN(dp.fecha_transaccion), 'HH24:MI')                          AS hora_inicio,
+                TO_CHAR(MAX(dp.fecha_transaccion), 'HH24:MI')                          AS hora_ultimo,
+                ROUND(EXTRACT(EPOCH FROM (MAX(dp.fecha_transaccion)
+                    - MIN(dp.fecha_transaccion))) / 60)                                AS minutos_trabajados
             FROM dual.dim_preventa dp
             LEFT JOIN dw.dim_vendedor dv ON dv.vendedor_codigo_erp = dp.codigo_usuario
                 AND dv.es_vendedor_actual = TRUE
             LEFT JOIN vendedor_rutas vr ON vr.nombre_usuario = dp.nombre_usuario
             LEFT JOIN vendedor_clientes_total vtc ON vtc.nombre_usuario = dp.nombre_usuario
-            WHERE dp.fecha_transaccion BETWEEN %s AND %s
+            WHERE dp.fecha_transaccion::date BETWEEN %s AND %s
               AND ({ciudad_cond}) {canal_cond} {supervisor_cond}
             GROUP BY dp.nombre_usuario, vr.rutas_concat, vtc.total_clientes
             ORDER BY monto_total DESC
@@ -2072,13 +2076,16 @@ def dashboard_preventas_por_vendedor(request):
         _, rows = _run_dw_query(sql, params)
         data = [
             {
-                'vendedor':        r['vendedor'],
-                'ruta':            r['ruta'],
-                'supervisor':      r['supervisor'],
-                'total_clientes':  r['total_clientes'] or 0,
-                'pedidos':         r['pedidos'],
-                'pct_efectividad': float(r['pct_efectividad']) if r.get('pct_efectividad') is not None else None,
-                'monto_total':     float(r['monto_total'] or 0),
+                'vendedor':           r['vendedor'],
+                'ruta':               r['ruta'],
+                'supervisor':         r['supervisor'],
+                'total_clientes':     r['total_clientes'] or 0,
+                'pedidos':            r['pedidos'],
+                'pct_efectividad':    float(r['pct_efectividad']) if r.get('pct_efectividad') is not None else None,
+                'monto_total':        float(r['monto_total'] or 0),
+                'hora_inicio':        r.get('hora_inicio'),
+                'hora_ultimo':        r.get('hora_ultimo'),
+                'minutos_trabajados': int(r['minutos_trabajados']) if r.get('minutos_trabajados') is not None else None,
             }
             for r in rows
         ]
@@ -2123,7 +2130,7 @@ def dashboard_preventas_top_faltantes(request):
             FROM dual.dim_preventa dp
             LEFT JOIN dw.dim_vendedor dv ON dv.vendedor_codigo_erp = dp.codigo_usuario
                 AND dv.es_vendedor_actual = TRUE
-            WHERE dp.fecha_transaccion BETWEEN %s AND %s
+            WHERE dp.fecha_transaccion::date BETWEEN %s AND %s
               AND ({ciudad_cond}) {canal_cond} {supervisor_cond}
             GROUP BY dp.cod_producto, dp.nombre_producto
             HAVING SUM(CASE WHEN dp.estado = false THEN dp.cantidad ELSE 0 END) > 0
@@ -2173,7 +2180,7 @@ def dashboard_preventas_supervisores_lista(request):
             FROM dual.dim_preventa dp
             LEFT JOIN dw.dim_vendedor dv ON dv.vendedor_codigo_erp = dp.codigo_usuario
                 AND dv.es_vendedor_actual = TRUE
-            WHERE dp.fecha_transaccion BETWEEN %s AND %s
+            WHERE dp.fecha_transaccion::date BETWEEN %s AND %s
               AND ({ciudad_cond}) {canal_cond}
               AND dv.supervisor IS NOT NULL AND dv.supervisor != ''
             ORDER BY dv.supervisor

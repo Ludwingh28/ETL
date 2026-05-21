@@ -1,4 +1,4 @@
-export const CURRENT_VERSION = "1.2.1";
+export const CURRENT_VERSION = "1.2.2";
 
 export interface ChangelogVersion {
   version: string;
@@ -12,6 +12,18 @@ export interface ChangelogVersion {
 }
 
 export const CHANGELOG: ChangelogVersion[] = [
+  {
+    version: "1.2.2",
+    date: "Mayo 2026",
+    fixes: [
+      "Preventas: filtro de fecha corregido para columnas timestamp — ahora un solo día muestra datos correctamente",
+    ],
+    features: [
+      "Preventas: columnas H. Inicio, Últ. Movimiento y T. Trabajado ahora muestran la primera y última transacción del día por vendedor y el tiempo total trabajado",
+    ],
+    newDashboardPerms: [],
+    newDashboardNames: {},
+  },
   {
     version: "1.2.1",
     date: "Mayo 2026",
