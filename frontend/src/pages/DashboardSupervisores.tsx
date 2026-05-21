@@ -536,9 +536,9 @@ export default function DashboardSupervisores() {
           return (
             <div className="overflow-x-auto overflow-y-auto scrollbar-thin scrollbar-thumb-slate-200 scrollbar-track-transparent" style={{ maxHeight: 420 }}>
               <table className="text-xs border-collapse" style={{ minWidth: `${Math.max(400, liqData.fechas.length * 64 + 200)}px` }}>
-                <thead className="sticky top-0 z-10">
+                <thead className="sticky top-0 z-20">
                   <tr>
-                    <th className="sticky left-0 z-20 bg-white text-left py-2 pr-4 font-semibold text-slate-600 shadow-[1px_0_0_0_#f1f5f9] min-w-40">
+                    <th className="sticky left-0 z-30 bg-white text-left py-2 pr-4 font-semibold text-slate-600 shadow-[1px_0_0_0_#f1f5f9] min-w-40 border-b border-slate-100">
                       Vendedor
                     </th>
                     {liqData.fechas.map((f) => {
@@ -546,13 +546,13 @@ export default function DashboardSupervisores() {
                       const dow = d.getDay();
                       const dia = d.getDate();
                       return (
-                        <th key={f} className="bg-white py-2 px-1 font-semibold text-center text-slate-400 min-w-14">
+                        <th key={f} className="bg-white py-2 px-1 font-semibold text-center text-slate-400 min-w-14 border-b border-slate-100">
                           <span className="block text-[10px] font-normal text-slate-300">{DOW_SHORT[dow]}</span>
                           <span>{dia}</span>
                         </th>
                       );
                     })}
-                    <th className="sticky right-0 z-20 bg-white py-2 pl-3 pr-2 font-semibold text-right text-slate-600 shadow-[-1px_0_0_0_#f1f5f9] min-w-20">
+                    <th className="sticky right-0 z-30 bg-white py-2 pl-3 pr-2 font-semibold text-right text-slate-600 shadow-[-1px_0_0_0_#f1f5f9] min-w-20 border-b border-slate-100">
                       Total
                     </th>
                   </tr>
@@ -562,18 +562,19 @@ export default function DashboardSupervisores() {
                     const total = liqData.fechas.reduce((s, f) => s + (row.ventas[f] ?? 0), 0);
                     return (
                       <tr key={row.vendedor_sk} className="border-b border-slate-50 hover:bg-slate-50 transition-colors">
-                        <td className="sticky left-0 z-10 bg-white py-1.5 pr-4 font-semibold text-slate-700 truncate max-w-40 shadow-[1px_0_0_0_#f1f5f9]"
-                          title={row.vendedor}>{row.vendedor}</td>
+                        <td className="sticky left-0 z-10 bg-white py-1.5 pr-4 font-semibold text-slate-700 wrap-break-word leading-snug shadow-[1px_0_0_0_#f1f5f9]">
+                          {row.vendedor}
+                        </td>
                         {liqData.fechas.map((f) => {
                           const v = row.ventas[f] ?? 0;
                           return (
                             <td key={f} className={`py-1.5 px-1 text-center tabular-nums ${v > 0 ? "text-slate-700" : "text-slate-200"}`}>
-                              {v > 0 ? fmtAbbr(v) : "·"}
+                              {v > 0 ? fmtN(v) : "·"}
                             </td>
                           );
                         })}
                         <td className="sticky right-0 z-10 bg-white py-1.5 pl-3 pr-2 text-right tabular-nums font-bold text-slate-800 shadow-[-1px_0_0_0_#f1f5f9]">
-                          {fmtAbbr(total)}
+                          {fmtN(total)}
                         </td>
                       </tr>
                     );

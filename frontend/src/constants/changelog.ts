@@ -1,4 +1,4 @@
-export const CURRENT_VERSION = "1.2.0";
+export const CURRENT_VERSION = "1.2.1";
 
 export interface ChangelogVersion {
   version: string;
@@ -12,6 +12,16 @@ export interface ChangelogVersion {
 }
 
 export const CHANGELOG: ChangelogVersion[] = [
+  {
+    version: "1.2.1",
+    date: "Mayo 2026",
+    fixes: [
+      "Dashboard Supervisores: tabla de liquidaciones muestra el monto completo en Bs sin abreviar (antes mostraba formato xxK)",
+    ],
+    features: [],
+    newDashboardPerms: [],
+    newDashboardNames: {},
+  },
   {
     version: "1.2.0",
     date: "Mayo 2026",
