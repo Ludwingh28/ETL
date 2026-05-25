@@ -187,10 +187,24 @@ const Spinner = () => (
   </div>
 );
 
+// ─── Admin cargos ─────────────────────────────────────────────────────────────
+
+const ADMIN_CARGOS = new Set([
+  'Administrador de Sistema',
+  'Subadministrador de Sistemas',
+  'Analista de Datos',
+  'Gerente General',
+  'Gerente de Ventas',
+]);
+
 // ─── Page ─────────────────────────────────────────────────────────────────────
 
 export default function DashboardInformacionRutas() {
-  const { apiFetch, token } = useAuth() as AuthContextValue;
+  const { apiFetch, token, user } = useAuth() as AuthContextValue;
+
+  const isAdmin           = !!(user && (user.is_staff || ADMIN_CARGOS.has(user.cargo ?? '')));
+  const isGerenteRegional = !isAdmin && user?.cargo === "Gerente Regional";
+  const isSuperv          = !isAdmin && !isGerenteRegional && (user?.cargo?.toLowerCase().includes("supervisor") ?? false);
 
   const [anho,        setAnho]        = useState(now.getFullYear());
   const [mes,         setMes]         = useState(now.getMonth() + 1);
@@ -229,6 +243,14 @@ export default function DashboardInformacionRutas() {
       .then(r => { if (r.success) setMarcas(r.data); })
       .catch(() => undefined);
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Bloquear regional/canal para usuarios no-admin según su perfil
+  useEffect(() => {
+    if (!isAdmin) {
+      if (user?.regional) setRegional(user.regional as Regional);
+      if (user?.canal)    setCanal(user.canal);
+    }
+  }, [isAdmin, user?.regional, user?.canal]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Cargar tabla de rutas
   useEffect(() => {
@@ -406,10 +428,16 @@ export default function DashboardInformacionRutas() {
           </div>
           <div className="flex flex-col gap-1">
             <label className="text-[10px] uppercase tracking-widest text-slate-400 font-semibold">Canal</label>
-            <select value={canal} onChange={(e: ChangeEvent<HTMLSelectElement>) => { setCanal(e.target.value); setSupervisor("Todos"); }} className={selCls}>
-              <option value="Todos">Todos</option>
-              {canales.map(c => <option key={c} value={c}>{c}</option>)}
-            </select>
+            {(isAdmin || isGerenteRegional) ? (
+              <select value={canal} onChange={(e: ChangeEvent<HTMLSelectElement>) => { setCanal(e.target.value); setSupervisor("Todos"); }} className={selCls}>
+                <option value="Todos">Todos</option>
+                {canales.map(c => <option key={c} value={c}>{c}</option>)}
+              </select>
+            ) : (
+              <span className="inline-flex items-center text-sm font-semibold px-3 py-2 rounded-lg bg-brand-50 text-brand-700 border border-brand-200">
+                {canal !== "Todos" ? canal : "—"}
+              </span>
+            )}
           </div>
           <div className="flex flex-col gap-1">
             <label className="text-[10px] uppercase tracking-widest text-slate-400 font-semibold">Día</label>
@@ -420,10 +448,16 @@ export default function DashboardInformacionRutas() {
           </div>
           <div className="flex flex-col gap-1">
             <label className="text-[10px] uppercase tracking-widest text-slate-400 font-semibold">Supervisor</label>
-            <select value={supervisor} onChange={(e: ChangeEvent<HTMLSelectElement>) => setSupervisor(e.target.value)} className={selCls}>
-              <option value="Todos">Todos</option>
-              {supervisores.map(s => <option key={s} value={s}>{s}</option>)}
-            </select>
+            {isSuperv ? (
+              <span className="inline-flex items-center text-sm font-semibold px-3 py-2 rounded-lg bg-slate-100 text-slate-600 border border-slate-200">
+                {user?.full_name || user?.username || "—"}
+              </span>
+            ) : (
+              <select value={supervisor} onChange={(e: ChangeEvent<HTMLSelectElement>) => setSupervisor(e.target.value)} className={selCls}>
+                <option value="Todos">Todos</option>
+                {supervisores.map(s => <option key={s} value={s}>{s}</option>)}
+              </select>
+            )}
           </div>
           <div className="flex flex-col gap-1">
             <label className="text-[10px] uppercase tracking-widest text-slate-400 font-semibold">
@@ -437,14 +471,20 @@ export default function DashboardInformacionRutas() {
       {/* Regional */}
       <div className="flex flex-wrap items-center gap-2 mb-5">
         <span className="text-[10px] uppercase tracking-widest text-slate-400 font-semibold mr-1">Regional</span>
-        {REGIONALES.map(r => (
-          <button key={r} onClick={() => { setRegional(r); setSupervisor("Todos"); }}
-            className={`text-xs font-semibold px-3 py-1.5 rounded-lg border transition-all ${
-              regional === r
-                ? `${REGIONAL_CONFIG[r].badge} shadow-sm`
-                : "bg-white text-slate-500 border-slate-200 hover:border-slate-300"
-            }`}>{r}</button>
-        ))}
+        {isAdmin ? (
+          REGIONALES.map(r => (
+            <button key={r} onClick={() => { setRegional(r); setSupervisor("Todos"); }}
+              className={`text-xs font-semibold px-3 py-1.5 rounded-lg border transition-all ${
+                regional === r
+                  ? `${REGIONAL_CONFIG[r].badge} shadow-sm`
+                  : "bg-white text-slate-500 border-slate-200 hover:border-slate-300"
+              }`}>{r}</button>
+          ))
+        ) : (
+          <span className={`text-xs font-semibold px-3 py-1.5 rounded-lg border ${REGIONAL_CONFIG[regional]?.badge ?? "bg-slate-100 text-slate-600 border-slate-200"}`}>
+            {regional}
+          </span>
+        )}
       </div>
 
       {error && (

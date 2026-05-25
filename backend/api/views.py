@@ -76,6 +76,29 @@ def _clear_failed_logins(username, ip):
 
 _ADMIN_CARGOS = frozenset(['Administrador de Sistema', 'Subadministrador de Sistemas'])
 
+# Permisos de dashboard por defecto según cargo (espejo del frontend adminConstants)
+_PERMISOS_POR_CARGO: dict[str, list[str]] = {
+    'Gerente General':    ['nacional', 'regionales', 'canales', 'supervisores', 'preventas-realizadas',
+                           'avances-ventas', 'unidades-vendidas', 'unidades-supervisores',
+                           'informacion-rutas', 'tendencia-estacional', 'ticket-promedio',
+                           'margen-bruto', 'matriz', 'descargas',
+                           'pepsico', 'softys', 'dmujer', 'apego', 'colher'],
+    'Gerente de Ventas':  ['nacional', 'regionales', 'canales', 'supervisores', 'unidades-vendidas',
+                           'unidades-supervisores', 'informacion-rutas', 'tendencia-estacional',
+                           'ticket-promedio', 'margen-bruto'],
+    'Gerente Regional':   ['regionales', 'canales', 'supervisores', 'preventas-realizadas',
+                           'avances-ventas', 'unidades-vendidas', 'unidades-supervisores',
+                           'informacion-rutas', 'tendencia-estacional'],
+    'Supervisor':         ['canales', 'supervisores', 'preventas-realizadas', 'avances-ventas',
+                           'unidades-supervisores', 'informacion-rutas'],
+    'Vendedor':           ['preventas-realizadas', 'avances-ventas'],
+    'Proveedor':          ['lista-precios', 'pepsico', 'softys', 'dmujer', 'apego', 'colher'],
+    'Analista de Datos':  ['nacional', 'regionales', 'canales', 'supervisores', 'preventas-realizadas',
+                           'avances-ventas', 'unidades-vendidas', 'unidades-supervisores',
+                           'informacion-rutas', 'tendencia-estacional', 'ticket-promedio',
+                           'margen-bruto', 'matriz', 'descargas'],
+}
+
 
 def _has_dashboard_perm(user, perm_id):
     """True si el usuario tiene acceso al dashboard perm_id."""
@@ -95,6 +118,21 @@ def _require_perm(perm_id):
         @wraps(func)
         def wrapper(request, *args, **kwargs):
             if not _has_dashboard_perm(request.user, perm_id):
+                return JsonResponse(
+                    {'success': False, 'error': 'Sin acceso a este dashboard'},
+                    status=403
+                )
+            return func(request, *args, **kwargs)
+        return wrapper
+    return decorator
+
+
+def _require_any_perm(*perm_ids):
+    """Decorator que acepta cualquiera de los permisos listados."""
+    def decorator(func):
+        @wraps(func)
+        def wrapper(request, *args, **kwargs):
+            if not any(_has_dashboard_perm(request.user, p) for p in perm_ids):
                 return JsonResponse(
                     {'success': False, 'error': 'Sin acceso a este dashboard'},
                     status=403
@@ -832,6 +870,8 @@ def admin_create_user(request):
     canal                 = data.get('canal', '')
     password              = data.get('password', '')
     dashboard_permissions = data.get('dashboard_permissions', [])
+    if not isinstance(dashboard_permissions, list) or len(dashboard_permissions) == 0:
+        dashboard_permissions = _PERMISOS_POR_CARGO.get(cargo, [])
 
     if not username:
         return JsonResponse({'success': False, 'error': 'El nombre de usuario es requerido'}, status=400)
@@ -856,7 +896,7 @@ def admin_create_user(request):
         cargo                 = cargo,
         regional              = regional,
         canal                 = canal,
-        dashboard_permissions = dashboard_permissions if isinstance(dashboard_permissions, list) else [],
+        dashboard_permissions = dashboard_permissions,
     )
     return JsonResponse({'success': True, 'user': _serialize_user(new_user)}, status=201)
 
@@ -1645,25 +1685,34 @@ _LINEA_HPC       = 'HOME Y PERSONAL CARE'
 @api_view(['GET'])
 @authentication_classes([ExpiringTokenAuthentication])
 @permission_classes([IsAuthenticated])
-@_require_perm('supervisores')
+@_require_any_perm('supervisores', 'unidades-supervisores')
 def dashboard_supervisores_vendedores(request):
     """
     Avance por vendedor desglosado por categoría.
-    - Admins: filtran por regional/canal via query params (canal vacío = sin filtro).
-    - Supervisores: ven solo su regional+canal del perfil.
+    - Admins: filtran por regional/canal/supervisor via query params.
+    - Gerente Regional: regional+canal del perfil, supervisor libre via query param.
+    - Supervisores: regional+canal del perfil, supervisor = su propio nombre.
     """
     try:
         is_admin = _is_admin(request.user)
         profile  = _get_or_create_profile(request.user)
+        cargo    = (profile.cargo or '').strip()
 
         if is_admin:
-            regional_key = request.GET.get('regional', 'santa_cruz').lower().replace(' ', '_')
-            canal        = _safe_str(request.GET.get('canal', ''))
+            regional_key      = request.GET.get('regional', 'santa_cruz').lower().replace(' ', '_')
+            canal             = _safe_str(request.GET.get('canal', ''))
+            supervisor_filter = _safe_str(request.GET.get('supervisor', ''))
+        elif cargo == 'Gerente Regional':
+            regional_key      = _REGIONAL_NAME_TO_KEY.get(profile.regional, 'santa_cruz')
+            canal             = _safe_str(request.GET.get('canal', ''), 30)
+            supervisor_filter = _safe_str(request.GET.get('supervisor', ''))
+        elif 'supervisor' in cargo.lower():
+            regional_key      = _REGIONAL_NAME_TO_KEY.get(profile.regional, 'santa_cruz')
+            canal             = (profile.canal or '').strip()
+            full_name         = f"{profile.user.first_name} {profile.user.last_name}".strip()
+            supervisor_filter = full_name
         else:
-            if 'supervisor' not in profile.cargo.lower():
-                return JsonResponse({'success': False, 'error': 'Acceso denegado'}, status=403)
-            regional_key = _REGIONAL_NAME_TO_KEY.get(profile.regional, 'santa_cruz')
-            canal        = profile.canal.strip()
+            return JsonResponse({'success': False, 'error': 'Acceso denegado'}, status=403)
 
         anho = _safe_int(request.GET.get('anho'), datetime.now().year)
         mes  = _safe_int(request.GET.get('mes'),  datetime.now().month)
@@ -1671,9 +1720,10 @@ def dashboard_supervisores_vendedores(request):
         if regional_key not in REGIONALES_VALID:
             return JsonResponse({'success': False, 'error': 'Regional inválida'}, status=400)
 
-        ciudad_cond = _regional_filter(regional_key)
-        canal_cond  = "AND dv.canal_rrhh = %s" if canal else ""
-        params_base = [anho, mes] + ([canal] if canal else [])
+        ciudad_cond     = _regional_filter(regional_key)
+        canal_cond      = "AND dv.canal_rrhh = %s" if canal else ""
+        supervisor_cond = "AND UPPER(dv.supervisor) = UPPER(%s)" if supervisor_filter else ""
+        params_base     = [anho, mes] + ([canal] if canal else []) + ([supervisor_filter] if supervisor_filter else [])
 
         # ── Ventas por vendedor y categoría (CASE WHEN pivot) ──────────────────
         sql_ventas = f"""
@@ -1697,7 +1747,7 @@ def dashboard_supervisores_vendedores(request):
             JOIN dw.dim_vendedor dv ON fv.vendedor_sk = dv.vendedor_sk
             JOIN dw.dim_producto dp ON fv.producto_sk = dp.producto_sk
             WHERE df.anho = %s AND df.mes_numero = %s
-              AND ({ciudad_cond}) {canal_cond}
+              AND ({ciudad_cond}) {canal_cond} {supervisor_cond}
             GROUP BY dv.vendedor_sk, dv.vendedor_nombre
             ORDER BY total DESC
         """
@@ -1726,7 +1776,7 @@ def dashboard_supervisores_vendedores(request):
                 JOIN dw.dim_vendedor             dv  ON fp.vendedor_sk = dv.vendedor_sk
                 JOIN dw.dim_producto             dp  ON fp.producto_sk = dp.producto_sk
                 WHERE fp.anho = %s AND fp.mes = %s
-                  AND ({ciudad_cond}) {canal_cond}
+                  AND ({ciudad_cond}) {canal_cond} {supervisor_cond}
                   AND fp.version_sk = (SELECT MAX(version_sk) FROM dw.dim_presupuesto_version WHERE anho = %s AND mes = %s)
                 GROUP BY dv.vendedor_sk
             """
@@ -1780,7 +1830,7 @@ def dashboard_supervisores_vendedores(request):
             JOIN dw.dim_fecha    df ON fv.fecha_sk    = df.fecha_sk
             JOIN dw.dim_vendedor dv ON fv.vendedor_sk = dv.vendedor_sk
             WHERE df.anho = %s AND df.mes_numero = %s
-              AND ({ciudad_cond}) {canal_cond}
+              AND ({ciudad_cond}) {canal_cond} {supervisor_cond}
         """
         _, fc_rows  = _run_dw_query(sql_fc, params_base)
         fecha_corte = str(fc_rows[0]['fc']) if fc_rows and fc_rows[0]['fc'] else None
@@ -1789,6 +1839,7 @@ def dashboard_supervisores_vendedores(request):
             'success':      True,
             'regional':     regional_key,
             'canal':        canal,
+            'supervisor':   supervisor_filter,
             'total_avance': total_avance,
             'total_ppto':   total_ppto,
             'total_pct':    round(total_avance / total_ppto * 100, 1) if total_ppto > 0 else None,
@@ -1802,7 +1853,7 @@ def dashboard_supervisores_vendedores(request):
 @api_view(['GET'])
 @authentication_classes([ExpiringTokenAuthentication])
 @permission_classes([IsAuthenticated])
-@_require_perm('supervisores')
+@_require_any_perm('supervisores', 'unidades-supervisores')
 def dashboard_supervisores_liquidaciones(request):
     """
     Venta neta diaria por vendedor, excluyendo domingos.
@@ -1811,15 +1862,23 @@ def dashboard_supervisores_liquidaciones(request):
     try:
         is_admin = _is_admin(request.user)
         profile  = _get_or_create_profile(request.user)
+        cargo    = (profile.cargo or '').strip()
 
         if is_admin:
-            regional_key = request.GET.get('regional', 'santa_cruz').lower().replace(' ', '_')
-            canal        = _safe_str(request.GET.get('canal', ''))
+            regional_key      = request.GET.get('regional', 'santa_cruz').lower().replace(' ', '_')
+            canal             = _safe_str(request.GET.get('canal', ''))
+            supervisor_filter = _safe_str(request.GET.get('supervisor', ''))
+        elif cargo == 'Gerente Regional':
+            regional_key      = _REGIONAL_NAME_TO_KEY.get(profile.regional, 'santa_cruz')
+            canal             = _safe_str(request.GET.get('canal', ''), 30)
+            supervisor_filter = _safe_str(request.GET.get('supervisor', ''))
+        elif 'supervisor' in cargo.lower():
+            regional_key      = _REGIONAL_NAME_TO_KEY.get(profile.regional, 'santa_cruz')
+            canal             = (profile.canal or '').strip()
+            full_name         = f"{profile.user.first_name} {profile.user.last_name}".strip()
+            supervisor_filter = full_name
         else:
-            if 'supervisor' not in profile.cargo.lower():
-                return JsonResponse({'success': False, 'error': 'Acceso denegado'}, status=403)
-            regional_key = _REGIONAL_NAME_TO_KEY.get(profile.regional, 'santa_cruz')
-            canal        = profile.canal.strip()
+            return JsonResponse({'success': False, 'error': 'Acceso denegado'}, status=403)
 
         anho = _safe_int(request.GET.get('anho'), datetime.now().year)
         mes  = _safe_int(request.GET.get('mes'),  datetime.now().month)
@@ -1827,9 +1886,10 @@ def dashboard_supervisores_liquidaciones(request):
         if regional_key not in REGIONALES_VALID:
             return JsonResponse({'success': False, 'error': 'Regional inválida'}, status=400)
 
-        ciudad_cond = _regional_filter(regional_key)
-        canal_cond  = "AND dv.canal_rrhh = %s" if canal else ""
-        params      = [anho, mes] + ([canal] if canal else [])
+        ciudad_cond     = _regional_filter(regional_key)
+        canal_cond      = "AND dv.canal_rrhh = %s" if canal else ""
+        supervisor_cond = "AND UPPER(dv.supervisor) = UPPER(%s)" if supervisor_filter else ""
+        params          = [anho, mes] + ([canal] if canal else []) + ([supervisor_filter] if supervisor_filter else [])
 
         sql = f"""
             SELECT
@@ -1842,7 +1902,7 @@ def dashboard_supervisores_liquidaciones(request):
             JOIN dw.dim_vendedor dv ON fv.vendedor_sk = dv.vendedor_sk
             WHERE df.anho = %s AND df.mes_numero = %s
               AND EXTRACT(DOW FROM df.fecha_completa) != 0
-              AND ({ciudad_cond}) {canal_cond}
+              AND ({ciudad_cond}) {canal_cond} {supervisor_cond}
             GROUP BY dv.vendedor_sk, dv.vendedor_nombre, df.fecha_completa::date
             ORDER BY dv.vendedor_nombre, df.fecha_completa::date
         """
@@ -1861,6 +1921,53 @@ def dashboard_supervisores_liquidaciones(request):
 
         fechas = sorted(fechas_set)
         return JsonResponse({'success': True, 'fechas': fechas, 'rows': list(vendedores.values())})
+    except Exception as e:
+        return JsonResponse({'success': False, 'error': str(e)}, status=500)
+
+
+@api_view(['GET'])
+@authentication_classes([ExpiringTokenAuthentication])
+@permission_classes([IsAuthenticated])
+@_require_any_perm('supervisores', 'tendencia-estacional', 'preventas-realizadas',
+                   'unidades-supervisores', 'informacion-rutas', 'canales', 'regionales')
+def dashboard_supervisores_supervisor_lista(request):
+    """Retorna lista de supervisores distintos para el regional/canal/año/mes dado."""
+    try:
+        is_admin = _is_admin(request.user)
+        profile  = _get_or_create_profile(request.user)
+        cargo    = (profile.cargo or '').strip()
+
+        if is_admin:
+            regional_key = request.GET.get('regional', 'santa_cruz').lower().replace(' ', '_')
+            canal        = _safe_str(request.GET.get('canal', ''))
+        elif cargo == 'Gerente Regional':
+            regional_key = _REGIONAL_NAME_TO_KEY.get(profile.regional, 'santa_cruz')
+            canal        = _safe_str(request.GET.get('canal', ''), 30)
+        else:
+            return JsonResponse({'success': True, 'data': []})
+
+        anho = _safe_int(request.GET.get('anho'), datetime.now().year)
+        mes  = _safe_int(request.GET.get('mes'),  datetime.now().month)
+
+        if regional_key not in REGIONALES_VALID:
+            return JsonResponse({'success': False, 'error': 'Regional inválida'}, status=400)
+
+        ciudad_cond = _regional_filter(regional_key)
+        canal_cond  = "AND dv.canal_rrhh = %s" if canal else ""
+        params      = [anho, mes] + ([canal] if canal else [])
+
+        sql = f"""
+            SELECT DISTINCT INITCAP(dv.supervisor) AS supervisor
+            FROM dw.fact_ventas fv
+            JOIN dw.dim_fecha    df ON fv.fecha_sk    = df.fecha_sk
+            JOIN dw.dim_vendedor dv ON fv.vendedor_sk = dv.vendedor_sk
+            WHERE df.anho = %s AND df.mes_numero = %s
+              AND ({ciudad_cond}) {canal_cond}
+              AND dv.supervisor IS NOT NULL AND dv.supervisor != ''
+            ORDER BY supervisor
+        """
+        _, rows = _run_dw_query(sql, params)
+        return JsonResponse({'success': True, 'data': [r['supervisor'] for r in rows]})
     except Exception as e:
         return JsonResponse({'success': False, 'error': str(e)}, status=500)
 
@@ -1897,19 +2004,29 @@ def dashboard_preventas_kpis(request):
     try:
         is_admin = _is_admin(request.user)
         profile  = _get_or_create_profile(request.user)
+        cargo    = (profile.cargo or '').strip()
         if is_admin:
             regional_key = request.GET.get('regional', 'santa_cruz').lower().replace(' ', '_')
             canal        = _safe_str(request.GET.get('canal', ''))
+            supervisor   = _safe_str(request.GET.get('supervisor', ''))
+        elif cargo == 'Gerente Regional':
+            regional_key = _REGIONAL_NAME_TO_KEY.get(profile.regional, 'santa_cruz')
+            canal        = _safe_str(request.GET.get('canal', ''), 30)
+            supervisor   = _safe_str(request.GET.get('supervisor', ''))
+        elif 'supervisor' in cargo.lower():
+            regional_key = _REGIONAL_NAME_TO_KEY.get(profile.regional, 'santa_cruz')
+            canal        = (profile.canal or '').strip()
+            supervisor   = f"{profile.user.first_name} {profile.user.last_name}".strip()
         else:
             regional_key = _REGIONAL_NAME_TO_KEY.get(profile.regional, 'santa_cruz')
-            canal        = profile.canal.strip()
+            canal        = (profile.canal or '').strip()
+            supervisor   = _safe_str(request.GET.get('supervisor', ''))
         fecha_desde, fecha_hasta = _preventas_fecha_rango(request)
-        supervisor = _safe_str(request.GET.get('supervisor', ''))
         if regional_key not in REGIONALES_VALID:
             return JsonResponse({'success': False, 'error': 'Regional inválida'}, status=400)
         ciudad_cond     = _regional_filter(regional_key, campo='dv.ciudad')
         canal_cond      = "AND dv.canal_rrhh = %s" if canal else ""
-        supervisor_cond = "AND dv.supervisor = %s" if supervisor else ""
+        supervisor_cond = "AND UPPER(dv.supervisor) = UPPER(%s)" if supervisor else ""
         params = [fecha_desde, fecha_hasta] + ([canal] if canal else []) + ([supervisor] if supervisor else [])
         sql = f"""
             SELECT
@@ -1940,19 +2057,29 @@ def dashboard_preventas_por_canal(request):
     try:
         is_admin = _is_admin(request.user)
         profile  = _get_or_create_profile(request.user)
+        cargo    = (profile.cargo or '').strip()
         if is_admin:
             regional_key = request.GET.get('regional', 'santa_cruz').lower().replace(' ', '_')
             canal        = _safe_str(request.GET.get('canal', ''))
+            supervisor   = _safe_str(request.GET.get('supervisor', ''))
+        elif cargo == 'Gerente Regional':
+            regional_key = _REGIONAL_NAME_TO_KEY.get(profile.regional, 'santa_cruz')
+            canal        = _safe_str(request.GET.get('canal', ''), 30)
+            supervisor   = _safe_str(request.GET.get('supervisor', ''))
+        elif 'supervisor' in cargo.lower():
+            regional_key = _REGIONAL_NAME_TO_KEY.get(profile.regional, 'santa_cruz')
+            canal        = (profile.canal or '').strip()
+            supervisor   = f"{profile.user.first_name} {profile.user.last_name}".strip()
         else:
             regional_key = _REGIONAL_NAME_TO_KEY.get(profile.regional, 'santa_cruz')
-            canal        = profile.canal.strip()
+            canal        = (profile.canal or '').strip()
+            supervisor   = _safe_str(request.GET.get('supervisor', ''))
         fecha_desde, fecha_hasta = _preventas_fecha_rango(request)
-        supervisor = _safe_str(request.GET.get('supervisor', ''))
         if regional_key not in REGIONALES_VALID:
             return JsonResponse({'success': False, 'error': 'Regional inválida'}, status=400)
         ciudad_cond     = _regional_filter(regional_key, campo='dv.ciudad')
         canal_cond      = "AND dv.canal_rrhh = %s" if canal else ""
-        supervisor_cond = "AND dv.supervisor = %s" if supervisor else ""
+        supervisor_cond = "AND UPPER(dv.supervisor) = UPPER(%s)" if supervisor else ""
         # supervisor activo → agrupa por vendedor; canal activo → por supervisor; sin filtros → por canal
         if supervisor:
             grupo_col        = "dp.nombre_usuario"
@@ -2000,19 +2127,29 @@ def dashboard_preventas_por_vendedor(request):
     try:
         is_admin = _is_admin(request.user)
         profile  = _get_or_create_profile(request.user)
+        cargo    = (profile.cargo or '').strip()
         if is_admin:
             regional_key = request.GET.get('regional', 'santa_cruz').lower().replace(' ', '_')
             canal        = _safe_str(request.GET.get('canal', ''))
+            supervisor   = _safe_str(request.GET.get('supervisor', ''))
+        elif cargo == 'Gerente Regional':
+            regional_key = _REGIONAL_NAME_TO_KEY.get(profile.regional, 'santa_cruz')
+            canal        = _safe_str(request.GET.get('canal', ''), 30)
+            supervisor   = _safe_str(request.GET.get('supervisor', ''))
+        elif 'supervisor' in cargo.lower():
+            regional_key = _REGIONAL_NAME_TO_KEY.get(profile.regional, 'santa_cruz')
+            canal        = (profile.canal or '').strip()
+            supervisor   = f"{profile.user.first_name} {profile.user.last_name}".strip()
         else:
             regional_key = _REGIONAL_NAME_TO_KEY.get(profile.regional, 'santa_cruz')
-            canal        = profile.canal.strip()
+            canal        = (profile.canal or '').strip()
+            supervisor   = _safe_str(request.GET.get('supervisor', ''))
         fecha_desde, fecha_hasta = _preventas_fecha_rango(request)
-        supervisor = _safe_str(request.GET.get('supervisor', ''))
         if regional_key not in REGIONALES_VALID:
             return JsonResponse({'success': False, 'error': 'Regional inválida'}, status=400)
         ciudad_cond     = _regional_filter(regional_key, campo='dv.ciudad')
         canal_cond      = "AND dv.canal_rrhh = %s" if canal else ""
-        supervisor_cond = "AND dv.supervisor = %s" if supervisor else ""
+        supervisor_cond = "AND UPPER(dv.supervisor) = UPPER(%s)" if supervisor else ""
         # params: [fd,fh] for rutas CTE, [fd,fh] for clientes CTE inner, [fd,fh] for main WHERE + filters
         params = (
             [fecha_desde, fecha_hasta]
@@ -2114,7 +2251,7 @@ def dashboard_preventas_top_faltantes(request):
             return JsonResponse({'success': False, 'error': 'Regional inválida'}, status=400)
         ciudad_cond     = _regional_filter(regional_key, campo='dv.ciudad')
         canal_cond      = "AND dv.canal_rrhh = %s" if canal else ""
-        supervisor_cond = "AND dv.supervisor = %s" if supervisor else ""
+        supervisor_cond = "AND UPPER(dv.supervisor) = UPPER(%s)" if supervisor else ""
         params = [fecha_desde, fecha_hasta] + ([canal] if canal else []) + ([supervisor] if supervisor else [])
         sql = f"""
             SELECT
@@ -2294,7 +2431,7 @@ def dashboard_unidades_kpis(request):
 @api_view(['GET'])
 @authentication_classes([ExpiringTokenAuthentication])
 @permission_classes([IsAuthenticated])
-@_require_perm('unidades-vendidas')
+@_require_any_perm('unidades-vendidas', 'unidades-supervisores')
 def dashboard_unidades_por_subgrupo(request):
     """
     Ventas+presupuesto agrupados por subgrupo dentro de la categoría seleccionada.
@@ -2469,7 +2606,7 @@ def dashboard_unidades_por_sku(request):
 @api_view(['GET'])
 @authentication_classes([ExpiringTokenAuthentication])
 @permission_classes([IsAuthenticated])
-@_require_perm('unidades-vendidas')
+@_require_any_perm('unidades-vendidas', 'unidades-supervisores')
 def dashboard_unidades_vendedor_sku(request):
     """
     SKUs vendidos por un vendedor específico, filtrado por categoría y opcionalmente subgrupo.
@@ -2992,27 +3129,46 @@ def dashboard_informacion_rutas(request):
     Tabla de rutas con cobertura del mes.
     Params: regional, canal, supervisor, dia, marca, anho, mes
     """
-    regional_raw = request.GET.get('regional', 'nacional').lower().replace(' ', '_')
-    regional     = regional_raw if regional_raw in REGIONALES_VALID else 'nacional'
-    canal        = _safe_str(request.GET.get('canal',      'Todos'), 30)
-    dia          = _safe_str(request.GET.get('dia',        'Todos'), 10)
-    supervisor   = _safe_str(request.GET.get('supervisor', 'Todos'), 100)
-    marca        = _safe_str(request.GET.get('marca',      ''),      80)
-    anho         = _safe_int(request.GET.get('anho'), datetime.now().year)
-    mes          = _safe_int(request.GET.get('mes'),  datetime.now().month)
+    is_admin = _is_admin(request.user)
+    profile  = _get_or_create_profile(request.user)
+    cargo    = (profile.cargo or '').strip()
+
+    dia   = _safe_str(request.GET.get('dia',   'Todos'), 10)
+    marca = _safe_str(request.GET.get('marca', ''),       80)
+    anho  = _safe_int(request.GET.get('anho'), datetime.now().year)
+    mes   = _safe_int(request.GET.get('mes'),  datetime.now().month)
+
+    if is_admin:
+        regional_raw = request.GET.get('regional', 'nacional').lower().replace(' ', '_')
+        regional     = regional_raw if regional_raw in REGIONALES_VALID else 'nacional'
+        canal        = _safe_str(request.GET.get('canal',      'Todos'), 30)
+        supervisor   = _safe_str(request.GET.get('supervisor', 'Todos'), 100)
+    elif cargo == 'Gerente Regional':
+        regional     = _REGIONAL_NAME_TO_KEY.get(profile.regional, 'nacional')
+        canal        = _safe_str(request.GET.get('canal', 'Todos'), 30)
+        supervisor   = _safe_str(request.GET.get('supervisor', 'Todos'), 100)
+    elif 'supervisor' in cargo.lower():
+        regional     = _REGIONAL_NAME_TO_KEY.get(profile.regional, 'nacional')
+        canal        = (profile.canal or '').strip()
+        supervisor   = f"{profile.user.first_name} {profile.user.last_name}".strip()
+    else:
+        regional_raw = request.GET.get('regional', 'nacional').lower().replace(' ', '_')
+        regional     = regional_raw if regional_raw in REGIONALES_VALID else 'nacional'
+        canal        = _safe_str(request.GET.get('canal',      'Todos'), 30)
+        supervisor   = _safe_str(request.GET.get('supervisor', 'Todos'), 100)
 
     ciudad_cond   = _regional_filter(regional)
     regional_cond = "" if regional == 'nacional' else f"AND ({ciudad_cond})"
-    canal_cond    = "AND dv.canal_rrhh = %s" if canal      != 'Todos' else ""
-    dia_cond      = "AND dp.dia = %s"        if dia        != 'Todos' else ""
-    sup_cond      = "AND dv.supervisor = %s" if supervisor != 'Todos' else ""
+    canal_cond    = "AND dv.canal_rrhh = %s"               if canal and canal != 'Todos' else ""
+    dia_cond      = "AND dp.dia = %s"                      if dia != 'Todos'             else ""
+    sup_cond      = "AND UPPER(dv.supervisor) = UPPER(%s)" if supervisor and supervisor != 'Todos' else ""
     marca_cond    = "AND dprod.marca = %s" if marca else ""
 
     params_main = [anho, mes]
-    if marca: params_main.append(marca)
-    if canal      != 'Todos': params_main.append(canal)
-    if dia        != 'Todos': params_main.append(dia)
-    if supervisor != 'Todos': params_main.append(supervisor)
+    if marca:                          params_main.append(marca)
+    if canal and canal != 'Todos':     params_main.append(canal)
+    if dia != 'Todos':                 params_main.append(dia)
+    if supervisor and supervisor != 'Todos': params_main.append(supervisor)
 
     try:
         sql = f"""
@@ -3054,13 +3210,13 @@ def dashboard_informacion_rutas(request):
               {dia_cond}
               {sup_cond}
             GROUP BY dc.ruta, dp.vendedor, dv.supervisor, dp.dia
-            ORDER BY dc.ruta
+            ORDER BY pct_cobertura DESC NULLS LAST, dc.ruta
         """
         _, rows = _run_dw_query(sql, params_main)
 
         # Lista de supervisores para el filtro (no afectada por filtro de supervisor)
         params_sup = []
-        if canal != 'Todos': params_sup.append(canal)
+        if canal and canal != 'Todos': params_sup.append(canal)
         sql_sup = f"""
             SELECT DISTINCT dv.supervisor
             FROM dual.dim_planificacion dp
@@ -3414,13 +3570,33 @@ def dashboard_tendencia_estacional(request):
       modo      : estacional | ultimos6
       dia_corte : 0 = mes completo, N = primeros N días del mes
     """
-    regional_raw = request.GET.get('regional', 'nacional').lower().replace(' ', '_')
-    regional     = regional_raw if regional_raw in REGIONALES_VALID else 'nacional'
-    canal        = _safe_str(request.GET.get('canal', 'Todos'), 20)
-    anho         = _safe_int(request.GET.get('anho'),  datetime.now().year)
-    mes          = _safe_int(request.GET.get('mes'),   datetime.now().month)
-    modo         = request.GET.get('modo', 'estacional')
-    dia_corte    = _safe_int(request.GET.get('dia_corte'), 0)
+    is_admin = _is_admin(request.user)
+    profile  = _get_or_create_profile(request.user)
+    cargo    = (profile.cargo or '').strip()
+
+    anho      = _safe_int(request.GET.get('anho'),  datetime.now().year)
+    mes       = _safe_int(request.GET.get('mes'),   datetime.now().month)
+    modo      = request.GET.get('modo', 'estacional')
+    dia_corte = _safe_int(request.GET.get('dia_corte'), 0)
+
+    if is_admin:
+        regional_raw = request.GET.get('regional', 'nacional').lower().replace(' ', '_')
+        regional     = regional_raw if regional_raw in REGIONALES_VALID else 'nacional'
+        canal        = _safe_str(request.GET.get('canal',      'Todos'), 20)
+        supervisor   = _safe_str(request.GET.get('supervisor', ''),      100)
+    elif cargo == 'Gerente Regional':
+        regional     = _REGIONAL_NAME_TO_KEY.get(profile.regional, 'nacional')
+        canal        = _safe_str(request.GET.get('canal', 'Todos'), 20)
+        supervisor   = _safe_str(request.GET.get('supervisor', ''), 100)
+    elif 'supervisor' in cargo.lower():
+        regional     = _REGIONAL_NAME_TO_KEY.get(profile.regional, 'nacional')
+        canal        = (profile.canal or '').strip()
+        supervisor   = f"{profile.user.first_name} {profile.user.last_name}".strip()
+    else:
+        regional_raw = request.GET.get('regional', 'nacional').lower().replace(' ', '_')
+        regional     = regional_raw if regional_raw in REGIONALES_VALID else 'nacional'
+        canal        = _safe_str(request.GET.get('canal',      'Todos'), 20)
+        supervisor   = _safe_str(request.GET.get('supervisor', ''),      100)
 
     joins = """
         FROM dw.fact_ventas fv
@@ -3432,9 +3608,12 @@ def dashboard_tendencia_estacional(request):
     ciudad_cond = _regional_filter(regional)
     extra_conds  = [f"({ciudad_cond})"]
     extra_params = []
-    if canal != 'Todos':
+    if canal and canal != 'Todos':
         extra_conds.append("dv.canal_rrhh = %s")
         extra_params.append(canal)
+    if supervisor:
+        extra_conds.append("UPPER(dv.supervisor) = UPPER(%s)")
+        extra_params.append(supervisor)
     extra_where = " AND " + " AND ".join(extra_conds)
 
     # Helper: ejecuta queries de desglose por categoría y canal para un WHERE+params dado

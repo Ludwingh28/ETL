@@ -49,7 +49,7 @@ const REGIONAL_KEY: Record<Regional, string> = {
 
 const ADMIN_CARGOS = new Set([
   "Administrador de Sistema", "Subadministrador de Sistemas",
-  "Gerente General", "Gerente de Ventas", "Gerente Regional", "Analista de Datos",
+  "Gerente General", "Gerente de Ventas", "Analista de Datos",
 ]);
 const isAdminUser = (cargo?: string, is_staff?: boolean) =>
   is_staff === true || ADMIN_CARGOS.has(cargo ?? "");
@@ -249,7 +249,9 @@ function chartSubtitle(agrupado: AgrupadoPor) {
 
 export default function DashboardPreventas() {
   const { apiFetch, user } = useAuth();
-  const isAdmin = isAdminUser(user?.cargo, user?.is_staff);
+  const isAdmin           = isAdminUser(user?.cargo, user?.is_staff);
+  const isGerenteRegional = !isAdmin && user?.cargo === "Gerente Regional";
+  const isSuperv          = !isAdmin && !isGerenteRegional && (user?.cargo?.toLowerCase().includes("supervisor") ?? false);
 
   const defaultDesde = () => toISO(new Date());
   const defaultHasta = () => toISO(new Date());
@@ -281,43 +283,53 @@ export default function DashboardPreventas() {
   const [vendSearch, setVendSearch] = useState("");
   const [vendSort,   setVendSort]   = useState<"monto"|"efectividad">("monto");
 
+  // ── Init regional/canal/supervisor desde perfil para no-admin ─────────────
+  useEffect(() => {
+    if (!isAdmin) {
+      if (user?.regional) setRegional(user.regional as Regional);
+      if (user?.canal)    setCanal(user.canal);
+      if (isSuperv && user?.full_name) setSupervisor(user.full_name);
+    }
+  }, [isAdmin, isSuperv, user?.regional, user?.canal, user?.full_name]); // eslint-disable-line react-hooks/exhaustive-deps
+
   // ── Canales list ──────────────────────────────────────────────────────────
   const fetchCanales = useCallback(async () => {
-    if (!isAdmin) return;
+    if (!isAdmin && !isGerenteRegional) return;
     const [ay, am] = fechaDesde.split("-");
     try {
       const j = await apiFetch<{ success: boolean; data: Array<{ canal: string }> }>(
         `/dashboard/canales/kpis/?regional=${REGIONAL_KEY[regional]}&anho=${ay}&mes=${parseInt(am)}`
       );
-      if (j.success) { setCanalList(j.data.map(c => c.canal).filter(Boolean)); setCanal(""); setSupervisor(""); }
+      if (j.success) { setCanalList(j.data.map(c => c.canal).filter(Boolean)); if (isAdmin) { setCanal(""); setSupervisor(""); } }
     } catch { setCanalList([]); }
-  }, [isAdmin, apiFetch, regional, fechaDesde]);
+  }, [isAdmin, isGerenteRegional, apiFetch, regional, fechaDesde]);
 
   useEffect(() => { void fetchCanales(); }, [fetchCanales]);
 
   // ── Supervisores list ─────────────────────────────────────────────────────
   const fetchSupList = useCallback(async () => {
-    if (!isAdmin) return;
+    if (isSuperv) return;
     try {
-      let url = `/dashboard/preventas/supervisores/?fecha_desde=${fechaDesde}&fecha_hasta=${fechaHasta}&regional=${REGIONAL_KEY[regional]}`;
+      let url = `/dashboard/preventas/supervisores/?fecha_desde=${fechaDesde}&fecha_hasta=${fechaHasta}`;
+      if (isAdmin) url += `&regional=${REGIONAL_KEY[regional]}`;
       if (canal) url += `&canal=${encodeURIComponent(canal)}`;
       const j = await apiFetch<{ success: boolean; data: string[] }>(url);
-      if (j.success) { setSupList(j.data); setSupervisor(""); }
+      if (j.success) setSupList(j.data);
     } catch { setSupList([]); }
-  }, [isAdmin, apiFetch, regional, canal, fechaDesde, fechaHasta]);
+  }, [isAdmin, isSuperv, apiFetch, regional, canal, fechaDesde, fechaHasta]);
 
   useEffect(() => { void fetchSupList(); }, [fetchSupList]);
 
   // ── Build URL ─────────────────────────────────────────────────────────────
   const buildUrl = useCallback((path: string) => {
     let url = `${path}?fecha_desde=${fechaDesde}&fecha_hasta=${fechaHasta}`;
-    if (isAdmin) {
+    if (isAdmin || isGerenteRegional) {
       url += `&regional=${REGIONAL_KEY[regional]}`;
       if (canal)      url += `&canal=${encodeURIComponent(canal)}`;
       if (supervisor) url += `&supervisor=${encodeURIComponent(supervisor)}`;
     }
     return url;
-  }, [isAdmin, regional, canal, supervisor, fechaDesde, fechaHasta]);
+  }, [isAdmin, isGerenteRegional, regional, canal, supervisor, fechaDesde, fechaHasta]);
 
   // ── Fetch all ─────────────────────────────────────────────────────────────
   const fetchAll = useCallback(async () => {
@@ -381,47 +393,59 @@ export default function DashboardPreventas() {
         </div>
 
         <div className="flex items-end gap-3 flex-wrap">
-          {isAdmin && (
-            <>
-              <div className="flex flex-col gap-1">
-                <label className="text-[10px] uppercase tracking-widest text-slate-400 font-semibold">Regional</label>
-                <div className="flex gap-1.5 flex-wrap">
-                  {REGIONALES.map(r => (
-                    <button key={r} onClick={() => setRegional(r)}
-                      className={`text-xs font-semibold px-3 py-2 rounded-lg border transition-all ${
-                        regional === r
-                          ? "bg-brand-100 text-brand-700 border-brand-200 shadow-sm"
-                          : "bg-white text-slate-500 border-slate-200 hover:border-slate-300"}`}>
-                      {r}
-                    </button>
-                  ))}
-                </div>
+          {/* Regional */}
+          <div className="flex flex-col gap-1">
+            <label className="text-[10px] uppercase tracking-widest text-slate-400 font-semibold">Regional</label>
+            {isAdmin ? (
+              <div className="flex gap-1.5 flex-wrap">
+                {REGIONALES.map(r => (
+                  <button key={r} onClick={() => { setRegional(r); setSupervisor(""); }}
+                    className={`text-xs font-semibold px-3 py-2 rounded-lg border transition-all ${
+                      regional === r
+                        ? "bg-brand-100 text-brand-700 border-brand-200 shadow-sm"
+                        : "bg-white text-slate-500 border-slate-200 hover:border-slate-300"}`}>
+                    {r}
+                  </button>
+                ))}
               </div>
-              <div className="flex flex-col gap-1">
-                <label className="text-[10px] uppercase tracking-widest text-slate-400 font-semibold">Canal</label>
-                <select value={canal} onChange={(e: ChangeEvent<HTMLSelectElement>) => setCanal(e.target.value)}
-                  className="text-sm border border-slate-200 rounded-lg px-3 py-2 bg-white text-slate-700 focus:outline-none focus:ring-2 focus:ring-brand-500 min-w-35">
-                  <option value="">Todos los canales</option>
-                  {canalList.map(c => <option key={c} value={c}>{c}</option>)}
-                </select>
-              </div>
-              <div className="flex flex-col gap-1">
-                <label className="text-[10px] uppercase tracking-widest text-slate-400 font-semibold">Supervisor</label>
-                <select value={supervisor} onChange={(e: ChangeEvent<HTMLSelectElement>) => setSupervisor(e.target.value)}
-                  className="text-sm border border-slate-200 rounded-lg px-3 py-2 bg-white text-slate-700 focus:outline-none focus:ring-2 focus:ring-brand-500 min-w-40">
-                  <option value="">Todos los supervisores</option>
-                  {supList.map(s => <option key={s} value={s}>{s}</option>)}
-                </select>
-              </div>
-            </>
-          )}
+            ) : (
+              <span className="text-sm font-semibold px-3 py-2 rounded-lg bg-brand-50 text-brand-700 border border-brand-200">
+                {regional}
+              </span>
+            )}
+          </div>
 
-          {!isAdmin && user?.regional && (
-            <div className="flex items-center gap-2">
-              <span className="text-xs bg-brand-100 text-brand-700 border border-brand-200 px-3 py-1.5 rounded-lg font-semibold">{user.regional}</span>
-              {user?.canal && <span className="text-xs bg-slate-100 text-slate-700 border border-slate-200 px-3 py-1.5 rounded-lg font-semibold">{user.canal}</span>}
-            </div>
-          )}
+          {/* Canal */}
+          <div className="flex flex-col gap-1">
+            <label className="text-[10px] uppercase tracking-widest text-slate-400 font-semibold">Canal</label>
+            {(isAdmin || isGerenteRegional) ? (
+              <select value={canal} onChange={(e: ChangeEvent<HTMLSelectElement>) => { setCanal(e.target.value); setSupervisor(""); }}
+                className="text-sm border border-slate-200 rounded-lg px-3 py-2 bg-white text-slate-700 focus:outline-none focus:ring-2 focus:ring-brand-500 min-w-35">
+                <option value="">Todos los canales</option>
+                {canalList.map(c => <option key={c} value={c}>{c}</option>)}
+              </select>
+            ) : (
+              <span className="text-sm font-semibold px-3 py-2 rounded-lg bg-slate-50 text-slate-700 border border-slate-200">
+                {canal || "Todos"}
+              </span>
+            )}
+          </div>
+
+          {/* Supervisor */}
+          <div className="flex flex-col gap-1">
+            <label className="text-[10px] uppercase tracking-widest text-slate-400 font-semibold">Supervisor</label>
+            {isSuperv ? (
+              <span className="text-sm font-semibold px-3 py-2 rounded-lg bg-slate-50 text-slate-700 border border-slate-200">
+                {user?.full_name || "—"}
+              </span>
+            ) : (
+              <select value={supervisor} onChange={(e: ChangeEvent<HTMLSelectElement>) => setSupervisor(e.target.value)}
+                className="text-sm border border-slate-200 rounded-lg px-3 py-2 bg-white text-slate-700 focus:outline-none focus:ring-2 focus:ring-brand-500 min-w-40">
+                <option value="">Todos los supervisores</option>
+                {supList.map(s => <option key={s} value={s}>{s}</option>)}
+              </select>
+            )}
+          </div>
 
           <DateRangePicker desde={fechaDesde} hasta={fechaHasta} onChange={setRango} />
 
@@ -459,8 +483,7 @@ export default function DashboardPreventas() {
                 <div className="p-2 rounded-xl bg-brand-50"><ClipboardList size={16} className="text-brand-600" /></div>
                 <p className="text-[10px] font-semibold text-slate-400 uppercase tracking-widest">Monto Total</p>
               </div>
-              <p className="text-3xl font-bold text-brand-700">{fmtAbbrBs(kpis?.total_importe ?? 0)}</p>
-              <p className="text-xs text-slate-400 mt-1">{fmtBs(kpis?.total_importe)}</p>
+              <p className="text-3xl font-bold text-brand-700">{fmtBs(kpis?.total_importe)}</p>
             </div>
           </>
         )}

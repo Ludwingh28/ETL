@@ -49,8 +49,9 @@ urlpatterns = [
     path('dashboard/canales/por-sku/',       views.dashboard_canales_por_sku,       name='canales-por-sku'),
 
     # Dashboard Supervisores
-    path('dashboard/supervisores/vendedores/',     views.dashboard_supervisores_vendedores,     name='supervisores-vendedores'),
-    path('dashboard/supervisores/liquidaciones/',  views.dashboard_supervisores_liquidaciones,  name='supervisores-liquidaciones'),
+    path('dashboard/supervisores/vendedores/',        views.dashboard_supervisores_vendedores,         name='supervisores-vendedores'),
+    path('dashboard/supervisores/liquidaciones/',     views.dashboard_supervisores_liquidaciones,       name='supervisores-liquidaciones'),
+    path('dashboard/supervisores/supervisor-lista/',  views.dashboard_supervisores_supervisor_lista,    name='supervisores-supervisor-lista'),
 
     # Dashboard Preventas
     path('dashboard/preventas/kpis/',              views.dashboard_preventas_kpis,               name='preventas-kpis'),

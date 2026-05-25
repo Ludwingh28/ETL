@@ -24,6 +24,7 @@ interface VendedorRow {
 interface SupervisoresData {
   regional:     string;
   canal:        string;
+  supervisor:   string;
   total_avance: number;
   total_ppto:   number;
   total_pct:    number | null;
@@ -102,7 +103,13 @@ const CAT_CFG: Record<CatKey, CatCfg> = {
   hpc:       { label: "Home & Personal Care",avanceKey: "hpc",       pptoKey: "hpc_ppto",       pctKey: "hpc_pct",       cantKey: "hpc_cant",       color: "text-sky-700",   activeClass: "bg-sky-600 text-white",    barColor: "#0ea5e9", barColorSel: "#0369a1" },
 };
 
-const ADMIN_CARGOS = new Set(["Administrador de Sistema", "Subadministrador de Sistemas"]);
+const ADMIN_CARGOS = new Set([
+  "Administrador de Sistema",
+  "Subadministrador de Sistemas",
+  "Gerente General",
+  "Gerente de Ventas",
+  "Analista de Datos",
+]);
 const isAdminUser = (cargo?: string, is_staff?: boolean) =>
   is_staff === true || ADMIN_CARGOS.has(cargo ?? "");
 
@@ -112,15 +119,18 @@ export default function DashboardSupervisores() {
   const { apiFetch, user } = useAuth();
   const now = new Date();
 
-  const isAdmin  = isAdminUser(user?.cargo, user?.is_staff);
-  const isSuperv = !isAdmin && (user?.cargo?.toLowerCase().includes("supervisor") ?? false);
+  const isAdmin           = isAdminUser(user?.cargo, user?.is_staff);
+  const isGerenteRegional = !isAdmin && user?.cargo === "Gerente Regional";
+  const isSuperv          = !isAdmin && !isGerenteRegional && (user?.cargo?.toLowerCase().includes("supervisor") ?? false);
 
-  // Filtros admin
-  const [regional,  setRegional]  = useState<Regional>("Santa Cruz");
-  const [canal,     setCanal]     = useState<string>("");
-  const [canalList, setCanalList] = useState<string[]>([]);
-  const [anho,      setAnho]      = useState(now.getFullYear());
-  const [mes,       setMes]       = useState(now.getMonth() + 1);
+  // Filtros
+  const [regional,       setRegional]       = useState<Regional>("Santa Cruz");
+  const [canal,          setCanal]          = useState<string>("");
+  const [supervisor,     setSupervisor]     = useState<string>("");
+  const [canalList,      setCanalList]      = useState<string[]>([]);
+  const [supervisorList, setSupervisorList] = useState<string[]>([]);
+  const [anho,           setAnho]           = useState(now.getFullYear());
+  const [mes,            setMes]            = useState(now.getMonth() + 1);
 
   // UI
   const [catKey,  setCatKey]  = useState<CatKey>("total");   // filtro del gráfico
@@ -152,23 +162,48 @@ export default function DashboardSupervisores() {
       .catch(() => undefined);
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
+  // ── Init regional/canal/supervisor desde perfil para no-admin ─────────────
+  useEffect(() => {
+    if (!isAdmin) {
+      if (user?.regional) setRegional(user.regional as Regional);
+      if (user?.canal)    setCanal(user.canal);
+      if (isSuperv && user?.full_name) setSupervisor(user.full_name);
+    }
+  }, [isAdmin, isSuperv, user?.regional, user?.canal, user?.full_name]); // eslint-disable-line react-hooks/exhaustive-deps
+
   // ── Fetch canales (solo admin, depende de regional/año/mes) ───────────────
   const fetchCanales = useCallback(async () => {
-    if (!isAdmin) return;
+    if (!isAdmin && !isGerenteRegional) return;
     try {
       const j = await apiFetch<{ success: boolean; data: Array<{ canal: string }> }>(
         `/dashboard/canales/kpis/?regional=${REGIONAL_KEY[regional]}&anho=${anho}&mes=${mes}`
       );
       if (j.success) {
         setCanalList(j.data.map((c) => c.canal).filter(Boolean));
-        setCanal("");
+        if (isAdmin) setCanal("");
       }
     } catch {
       setCanalList([]);
     }
-  }, [isAdmin, apiFetch, regional, anho, mes]);
+  }, [isAdmin, isGerenteRegional, apiFetch, regional, anho, mes]);
 
   useEffect(() => { void fetchCanales(); }, [fetchCanales]);
+
+  // ── Fetch lista de supervisores (admin y gerente regional) ─────────────────
+  const fetchSupervisores = useCallback(async () => {
+    if (isSuperv) return;
+    try {
+      const qs = `regional=${REGIONAL_KEY[regional]}&anho=${anho}&mes=${mes}${canal ? `&canal=${encodeURIComponent(canal)}` : ""}`;
+      const j = await apiFetch<{ success: boolean; data: string[] }>(
+        `/dashboard/supervisores/supervisor-lista/?${qs}`
+      );
+      if (j.success) setSupervisorList(j.data);
+    } catch {
+      setSupervisorList([]);
+    }
+  }, [apiFetch, regional, canal, anho, mes, isSuperv]);
+
+  useEffect(() => { void fetchSupervisores(); }, [fetchSupervisores]);
 
   // ── Fetch vendedores ───────────────────────────────────────────────────────
   const fetchData = useCallback(async () => {
@@ -178,9 +213,10 @@ export default function DashboardSupervisores() {
     setSearch("");
     try {
       let url = `/dashboard/supervisores/vendedores/?anho=${anho}&mes=${mes}`;
-      if (isAdmin) {
+      if (isAdmin || isGerenteRegional) {
         url += `&regional=${REGIONAL_KEY[regional]}`;
-        if (canal) url += `&canal=${encodeURIComponent(canal)}`;
+        if (canal)      url += `&canal=${encodeURIComponent(canal)}`;
+        if (supervisor) url += `&supervisor=${encodeURIComponent(supervisor)}`;
       }
       const j = await apiFetch<{ success: boolean; error?: string } & SupervisoresData>(url);
       if (!j.success) throw new Error(j.error);
@@ -191,7 +227,7 @@ export default function DashboardSupervisores() {
     } finally {
       setLoading(false);
     }
-  }, [apiFetch, isAdmin, regional, canal, anho, mes]);
+  }, [apiFetch, isAdmin, isGerenteRegional, regional, canal, supervisor, anho, mes]);
 
   useEffect(() => { void fetchData(); }, [fetchData]);
 
@@ -202,9 +238,10 @@ export default function DashboardSupervisores() {
       setLoadingLiq(true);
       try {
         let url = `/dashboard/supervisores/liquidaciones/?anho=${anho}&mes=${mes}`;
-        if (isAdmin) {
+        if (isAdmin || isGerenteRegional) {
           url += `&regional=${REGIONAL_KEY[regional]}`;
-          if (canal) url += `&canal=${encodeURIComponent(canal)}`;
+          if (canal)      url += `&canal=${encodeURIComponent(canal)}`;
+          if (supervisor) url += `&supervisor=${encodeURIComponent(supervisor)}`;
         }
         const j = await apiFetch<{ success: boolean; fechas: string[]; rows: LiqRow[] }>(url);
         if (!cancelled && j.success) setLiqData({ fechas: j.fechas, rows: j.rows });
@@ -217,7 +254,7 @@ export default function DashboardSupervisores() {
     };
     void run();
     return () => { cancelled = true; };
-  }, [apiFetch, isAdmin, regional, canal, anho, mes]);
+  }, [apiFetch, isAdmin, isGerenteRegional, regional, canal, supervisor, anho, mes]);
 
   // ── Filas para el gráfico/tabla detalle (Sección 2) ──────────────────────
   const processedRows = useMemo(() => {
@@ -258,7 +295,7 @@ export default function DashboardSupervisores() {
   const mesesDisponibles = periodos.filter(p => p.anho === anho);
 
   // ── Sin acceso ────────────────────────────────────────────────────────────
-  if (!isAdmin && !isSuperv) {
+  if (!isAdmin && !isGerenteRegional && !isSuperv) {
     return (
       <DashboardLayout>
         <div className="flex flex-col items-center justify-center min-h-[60vh] gap-4">
@@ -286,45 +323,65 @@ export default function DashboardSupervisores() {
         </div>
 
         <div className="flex items-end gap-3 flex-wrap">
-          {isAdmin && (
-            <>
-              <div className="flex flex-col gap-1">
-                <label className="text-[10px] uppercase tracking-widest text-slate-400 font-semibold">Regional</label>
-                <div className="flex gap-1.5 flex-wrap">
-                  {REGIONALES.map((r) => (
-                    <button key={r} onClick={() => setRegional(r)}
-                      className={`text-xs font-semibold px-3 py-2 rounded-lg border transition-all ${
-                        regional === r
-                          ? "bg-brand-100 text-brand-700 border-brand-200 shadow-sm"
-                          : "bg-white text-slate-500 border-slate-200 hover:border-slate-300"
-                      }`}
-                    >{r}</button>
-                  ))}
-                </div>
+          {/* Regional */}
+          <div className="flex flex-col gap-1">
+            <label className="text-[10px] uppercase tracking-widest text-slate-400 font-semibold">Regional</label>
+            {isAdmin ? (
+              <div className="flex gap-1.5 flex-wrap">
+                {REGIONALES.map((r) => (
+                  <button key={r} onClick={() => { setRegional(r); setSupervisor(""); }}
+                    className={`text-xs font-semibold px-3 py-2 rounded-lg border transition-all ${
+                      regional === r
+                        ? "bg-brand-100 text-brand-700 border-brand-200 shadow-sm"
+                        : "bg-white text-slate-500 border-slate-200 hover:border-slate-300"
+                    }`}
+                  >{r}</button>
+                ))}
               </div>
+            ) : (
+              <span className="text-sm font-semibold px-3 py-2 rounded-lg bg-brand-50 text-brand-700 border border-brand-200">
+                {regional}
+              </span>
+            )}
+          </div>
 
-              <div className="flex flex-col gap-1">
-                <label className="text-[10px] uppercase tracking-widest text-slate-400 font-semibold">Canal</label>
-                <select
-                  value={canal}
-                  onChange={(e: ChangeEvent<HTMLSelectElement>) => setCanal(e.target.value)}
-                  className="text-sm border border-slate-200 rounded-lg px-3 py-2 bg-white text-slate-700 focus:outline-none focus:ring-2 focus:ring-brand-500 min-w-35"
-                >
-                  <option value="">Todos los canales</option>
-                  {canalList.map((c) => <option key={c} value={c}>{c}</option>)}
-                </select>
-              </div>
-            </>
-          )}
+          {/* Canal */}
+          <div className="flex flex-col gap-1">
+            <label className="text-[10px] uppercase tracking-widest text-slate-400 font-semibold">Canal</label>
+            {(isAdmin || isGerenteRegional) ? (
+              <select
+                value={canal}
+                onChange={(e: ChangeEvent<HTMLSelectElement>) => { setCanal(e.target.value); setSupervisor(""); }}
+                className="text-sm border border-slate-200 rounded-lg px-3 py-2 bg-white text-slate-700 focus:outline-none focus:ring-2 focus:ring-brand-500 min-w-35"
+              >
+                <option value="">Todos los canales</option>
+                {canalList.map((c) => <option key={c} value={c}>{c}</option>)}
+              </select>
+            ) : (
+              <span className="text-sm font-semibold px-3 py-2 rounded-lg bg-slate-50 text-slate-700 border border-slate-200">
+                {canal || "Todos"}
+              </span>
+            )}
+          </div>
 
-          {isSuperv && (
-            <div className="flex items-center gap-2">
-              <span className="text-xs bg-brand-100 text-brand-700 border border-brand-200 px-3 py-1.5 rounded-lg font-semibold">{user?.regional}</span>
-              {user?.canal && (
-                <span className="text-xs bg-slate-100 text-slate-700 border border-slate-200 px-3 py-1.5 rounded-lg font-semibold">{user.canal}</span>
-              )}
-            </div>
-          )}
+          {/* Supervisor */}
+          <div className="flex flex-col gap-1">
+            <label className="text-[10px] uppercase tracking-widest text-slate-400 font-semibold">Supervisor</label>
+            {isSuperv ? (
+              <span className="text-sm font-semibold px-3 py-2 rounded-lg bg-slate-50 text-slate-700 border border-slate-200">
+                {user?.full_name || "—"}
+              </span>
+            ) : (
+              <select
+                value={supervisor}
+                onChange={(e: ChangeEvent<HTMLSelectElement>) => setSupervisor(e.target.value)}
+                className="text-sm border border-slate-200 rounded-lg px-3 py-2 bg-white text-slate-700 focus:outline-none focus:ring-2 focus:ring-brand-500 min-w-40"
+              >
+                <option value="">Todos los supervisores</option>
+                {supervisorList.map((s) => <option key={s} value={s}>{s}</option>)}
+              </select>
+            )}
+          </div>
 
           <div className="flex flex-col gap-1">
             <label className="text-[10px] uppercase tracking-widest text-slate-400 font-semibold">Gestión</label>

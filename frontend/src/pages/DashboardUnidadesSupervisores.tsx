@@ -134,13 +134,16 @@ export default function DashboardUnidadesSupervisores() {
   const { apiFetch, user } = useAuth();
   const now = new Date();
 
-  const isAdmin  = isAdminUser(user?.cargo, user?.is_staff);
+  const isAdmin           = isAdminUser(user?.cargo, user?.is_staff);
+  const isGerenteRegional = !isAdmin && user?.cargo === "Gerente Regional";
+  const isSuperv          = !isAdmin && !isGerenteRegional && (user?.cargo?.toLowerCase().includes("supervisor") ?? false);
 
-
-  // Filtros (solo admin los ve)
-  const [regional,  setRegional]  = useState<Regional>("Santa Cruz");
-  const [canal,     setCanal]     = useState<string>("");
-  const [canalList, setCanalList] = useState<string[]>([]);
+  // Filtros
+  const [regional,      setRegional]      = useState<Regional>("Santa Cruz");
+  const [canal,         setCanal]         = useState<string>("");
+  const [canalList,     setCanalList]     = useState<string[]>([]);
+  const [supervisor,    setSupervisor]    = useState<string>("");
+  const [supervisorList,setSupervisorList]= useState<string[]>([]);
   const [anho,      setAnho]      = useState(now.getFullYear());
   const [mes,       setMes]       = useState(now.getMonth() + 1);
 
@@ -176,6 +179,14 @@ export default function DashboardUnidadesSupervisores() {
 
   const [periodos, setPeriodos] = useState<Periodo[]>([]);
 
+  // ── Init regional/canal desde perfil para no-admin ───────────────────────
+  useEffect(() => {
+    if (!isAdmin) {
+      if (user?.regional) setRegional(user.regional as Regional);
+      if (user?.canal)    setCanal(user.canal);
+    }
+  }, [isAdmin, user?.regional, user?.canal]);
+
   // ── Fetch periodos ─────────────────────────────────────────────────────────
   useEffect(() => {
     apiFetch<{ success: boolean; data: Periodo[] }>("/dashboard/nacional/periodos/")
@@ -191,25 +202,39 @@ export default function DashboardUnidadesSupervisores() {
 
   // ── Canales ───────────────────────────────────────────────────────────────
   const fetchCanales = useCallback(async () => {
-    if (!isAdmin) return;
+    if (!isAdmin && !isGerenteRegional) return;
     try {
       const j = await apiFetch<{ success: boolean; data: Array<{ canal: string }> }>(
         `/dashboard/canales/kpis/?regional=${REGIONAL_KEY[regional]}&anho=${anho}&mes=${mes}`
       );
-      if (j.success) { setCanalList(j.data.map((c) => c.canal).filter(Boolean)); setCanal(""); }
+      if (j.success) { setCanalList(j.data.map((c) => c.canal).filter(Boolean)); if (isAdmin) setCanal(""); }
     } catch { setCanalList([]); }
-  }, [isAdmin, apiFetch, regional, anho, mes]);
+  }, [isAdmin, isGerenteRegional, apiFetch, regional, anho, mes]);
 
   useEffect(() => { void fetchCanales(); }, [fetchCanales]);
+
+  // ── Supervisores ──────────────────────────────────────────────────────────
+  const fetchSupervisores = useCallback(async () => {
+    if (isSuperv) return;
+    try {
+      let url = `/dashboard/supervisores/supervisor-lista/?regional=${REGIONAL_KEY[regional]}&anho=${anho}&mes=${mes}`;
+      if (canal) url += `&canal=${encodeURIComponent(canal)}`;
+      const j = await apiFetch<{ success: boolean; data: string[] }>(url);
+      if (j.success) setSupervisorList(j.data.filter(Boolean));
+    } catch { setSupervisorList([]); }
+  }, [isSuperv, apiFetch, regional, canal, anho, mes]);
+
+  useEffect(() => { void fetchSupervisores(); }, [fetchSupervisores]);
 
   // ── Vendedores ────────────────────────────────────────────────────────────
   const fetchData = useCallback(async () => {
     setLoading(true); setError(null); setSelVendedor(null); setSkus([]); setVendSearch("");
     try {
       let url = `/dashboard/supervisores/vendedores/?anho=${anho}&mes=${mes}`;
-      if (isAdmin) {
+      if (isAdmin || isGerenteRegional) {
         url += `&regional=${REGIONAL_KEY[regional]}`;
-        if (canal) url += `&canal=${encodeURIComponent(canal)}`;
+        if (canal)      url += `&canal=${encodeURIComponent(canal)}`;
+        if (supervisor) url += `&supervisor=${encodeURIComponent(supervisor)}`;
       }
       const j = await apiFetch<ApiData & { success: boolean }>(url);
       if (j.success) {
@@ -221,7 +246,7 @@ export default function DashboardUnidadesSupervisores() {
       }
     } catch (e) { setError(String(e)); }
     finally { setLoading(false); }
-  }, [apiFetch, isAdmin, regional, canal, anho, mes]);
+  }, [apiFetch, isAdmin, isGerenteRegional, regional, canal, supervisor, anho, mes]);
 
   useEffect(() => { void fetchData(); }, [fetchData]);
 
@@ -322,8 +347,16 @@ export default function DashboardUnidadesSupervisores() {
           </p>
         </div>
 
-        {isAdmin && (
-          <div className="flex items-end gap-3 flex-wrap">
+        <div className="flex items-end gap-3 flex-wrap">
+          {/* Regional — badge para no-admin (los botones quedan en la fila de categoría) */}
+          {!isAdmin && (
+            <div className="flex flex-col gap-1">
+              <label className="text-[10px] uppercase tracking-widest text-slate-400 font-semibold">Regional</label>
+              <span className={`text-xs font-semibold px-3 py-2 rounded-lg border ${REGIONAL_CONFIG[regional]?.badge ?? "bg-slate-100 text-slate-600 border-slate-200"}`}>{regional}</span>
+            </div>
+          )}
+          {/* Canal */}
+          {(isAdmin || isGerenteRegional) ? (
             <div className="flex flex-col gap-1">
               <label className="text-[10px] uppercase tracking-widest text-slate-400 font-semibold">Canal</label>
               <select value={canal} onChange={(e: ChangeEvent<HTMLSelectElement>) => setCanal(e.target.value)}
@@ -332,27 +365,50 @@ export default function DashboardUnidadesSupervisores() {
                 {canalList.map((c) => <option key={c} value={c}>{c}</option>)}
               </select>
             </div>
+          ) : (
             <div className="flex flex-col gap-1">
-              <label className="text-[10px] uppercase tracking-widest text-slate-400 font-semibold">Gestión</label>
-              <select value={anho} onChange={(e: ChangeEvent<HTMLSelectElement>) => setAnho(Number(e.target.value))}
+              <label className="text-[10px] uppercase tracking-widest text-slate-400 font-semibold">Canal</label>
+              <span className="text-xs font-semibold px-3 py-2 rounded-lg border bg-slate-100 text-slate-600 border-slate-200">{canal || "Todos"}</span>
+            </div>
+          )}
+          {/* Supervisor */}
+          {isSuperv ? (
+            <div className="flex flex-col gap-1">
+              <label className="text-[10px] uppercase tracking-widest text-slate-400 font-semibold">Supervisor</label>
+              <span className="text-xs font-semibold px-3 py-2 rounded-lg border bg-slate-100 text-slate-600 border-slate-200">{user?.full_name || user?.username || "—"}</span>
+            </div>
+          ) : (
+            <div className="flex flex-col gap-1">
+              <label className="text-[10px] uppercase tracking-widest text-slate-400 font-semibold">Supervisor</label>
+              <select value={supervisor} onChange={(e: ChangeEvent<HTMLSelectElement>) => setSupervisor(e.target.value)}
                 className="text-sm border border-slate-200 rounded-lg px-3 py-2 bg-white text-slate-700 focus:outline-none focus:ring-2 focus:ring-brand-500 cursor-pointer">
-                {anhos.length > 0 ? anhos.map(a => <option key={a} value={a}>{a}</option>) : [2026, 2025, 2024].map(a => <option key={a} value={a}>{a}</option>)}
+                <option value="">Todos</option>
+                {supervisorList.map((s) => <option key={s} value={s}>{s}</option>)}
               </select>
             </div>
-            <div className="flex flex-col gap-1">
-              <label className="text-[10px] uppercase tracking-widest text-slate-400 font-semibold">Mes</label>
-              <select value={mes} onChange={(e: ChangeEvent<HTMLSelectElement>) => setMes(Number(e.target.value))}
-                className="text-sm border border-slate-200 rounded-lg px-3 py-2 bg-white text-slate-700 focus:outline-none focus:ring-2 focus:ring-brand-500 cursor-pointer">
-                {mesesDisponibles.length > 0 ? mesesDisponibles.map(p => <option key={p.mes_numero} value={p.mes_numero}>{MESES[p.mes_numero]}</option>) : MESES.slice(1).map((n, i) => <option key={i + 1} value={i + 1}>{n}</option>)}
-              </select>
-            </div>
-            <button onClick={fetchData} disabled={loading}
-              className="btn-ghost flex items-center gap-1.5 text-xs disabled:opacity-30">
-              <RefreshCw size={13} className={loading ? "animate-spin" : ""} />
-              Actualizar
-            </button>
+          )}
+          {/* Gestión */}
+          <div className="flex flex-col gap-1">
+            <label className="text-[10px] uppercase tracking-widest text-slate-400 font-semibold">Gestión</label>
+            <select value={anho} onChange={(e: ChangeEvent<HTMLSelectElement>) => setAnho(Number(e.target.value))}
+              className="text-sm border border-slate-200 rounded-lg px-3 py-2 bg-white text-slate-700 focus:outline-none focus:ring-2 focus:ring-brand-500 cursor-pointer">
+              {anhos.length > 0 ? anhos.map(a => <option key={a} value={a}>{a}</option>) : [2026, 2025, 2024].map(a => <option key={a} value={a}>{a}</option>)}
+            </select>
           </div>
-        )}
+          {/* Mes */}
+          <div className="flex flex-col gap-1">
+            <label className="text-[10px] uppercase tracking-widest text-slate-400 font-semibold">Mes</label>
+            <select value={mes} onChange={(e: ChangeEvent<HTMLSelectElement>) => setMes(Number(e.target.value))}
+              className="text-sm border border-slate-200 rounded-lg px-3 py-2 bg-white text-slate-700 focus:outline-none focus:ring-2 focus:ring-brand-500 cursor-pointer">
+              {mesesDisponibles.length > 0 ? mesesDisponibles.map(p => <option key={p.mes_numero} value={p.mes_numero}>{MESES[p.mes_numero]}</option>) : MESES.slice(1).map((n, i) => <option key={i + 1} value={i + 1}>{n}</option>)}
+            </select>
+          </div>
+          <button onClick={fetchData} disabled={loading}
+            className="btn-ghost flex items-center gap-1.5 text-xs disabled:opacity-30">
+            <RefreshCw size={13} className={loading ? "animate-spin" : ""} />
+            Actualizar
+          </button>
+        </div>
       </div>
 
       {/* Error */}
@@ -375,7 +431,7 @@ export default function DashboardUnidadesSupervisores() {
               }`}>{CAT_CFG[k].label}</button>
           ))}
         </div>
-        {isAdmin && (
+        {isAdmin ? (
           <div className="flex items-center gap-1.5 flex-wrap">
             <span className="text-[10px] uppercase tracking-widest text-slate-400 font-semibold mr-1">Regional</span>
             {REGIONALES.map((r) => (
@@ -385,7 +441,7 @@ export default function DashboardUnidadesSupervisores() {
                 }`}>{r}</button>
             ))}
           </div>
-        )}
+        ) : null}
       </div>
 
       {/* ── 60/40: Sub-categorías + Chart 1 ──────────────────────────────── */}

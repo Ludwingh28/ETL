@@ -7,7 +7,7 @@ import {
 import DashboardLayout from '../components/DashboardLayout'
 import { useAuth } from '../context/AuthContext'
 import {
-  CARGOS, REGIONALES, DASHBOARD_GROUPS,
+  CARGOS, REGIONALES, CANALES, CARGOS_CON_CANAL, DASHBOARD_GROUPS,
   ALL_DASHBOARD_IDS, PERMISOS_POR_CARGO,
   type Cargo,
 } from '../constants/adminConstants'
@@ -37,6 +37,7 @@ const INITIAL = {
   email:                 '',
   cargo:                 '' as Cargo | '',
   regional:              '',
+  canal:                 '',
   password:              '',
   confirm_password:      '',
   dashboard_permissions: [] as string[],
@@ -156,6 +157,7 @@ export default function AdminCrearUsuario() {
           email:                 form.email.trim(),
           cargo:                 form.cargo,
           regional:              form.regional,
+          canal:                 form.canal,
           password:              form.password,
           dashboard_permissions: form.dashboard_permissions,
         }),
@@ -348,6 +350,26 @@ export default function AdminCrearUsuario() {
                 {REGIONALES.map(r => <option key={r} value={r}>{r}</option>)}
               </select>
             </div>
+
+            {/* Canal — solo cargos que lo requieren */}
+            {CARGOS_CON_CANAL.has(form.cargo) && (
+              <div className="sm:col-span-2">
+                <label className="block text-sm font-medium text-slate-600 mb-1.5">
+                  Canal asignado
+                </label>
+                <select
+                  value={form.canal}
+                  onChange={e => set('canal', e.target.value)}
+                  className="input-field"
+                >
+                  <option value="">Todos los canales</option>
+                  {CANALES.map(c => <option key={c} value={c}>{c}</option>)}
+                </select>
+                <p className="text-xs text-slate-400 mt-1">
+                  El usuario solo verá datos del canal seleccionado. Deja en blanco para acceso a todos.
+                </p>
+              </div>
+            )}
           </div>
 
           {form.cargo && (

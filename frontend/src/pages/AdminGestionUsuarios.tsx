@@ -9,7 +9,7 @@ import DashboardLayout from '../components/DashboardLayout'
 import { useAuth } from '../context/AuthContext'
 import type { ManagedUser } from '../types'
 import {
-  CARGOS, REGIONALES, DASHBOARD_GROUPS,
+  CARGOS, REGIONALES, CANALES, CARGOS_CON_CANAL, DASHBOARD_GROUPS,
   ALL_DASHBOARD_IDS, PERMISOS_POR_CARGO,
   CARGO_COLOR, type Cargo,
 } from '../constants/adminConstants'
@@ -65,6 +65,7 @@ function EditModal({ user, onClose, onSaved, onToast }: EditModalProps) {
     email:      user.email,
     cargo:      user.cargo as Cargo | '',
     regional:   user.regional,
+    canal:      user.canal ?? '',
     is_active:  user.is_active,
   })
   const [savingDatos, setSavingDatos] = useState(false)
@@ -81,6 +82,7 @@ function EditModal({ user, onClose, onSaved, onToast }: EditModalProps) {
           email:      datos.email,
           cargo:      datos.cargo,
           regional:   datos.regional,
+          canal:      datos.canal,
           is_active:  datos.is_active,
         }),
       })
@@ -279,6 +281,25 @@ function EditModal({ user, onClose, onSaved, onToast }: EditModalProps) {
                   </select>
                 </div>
               </div>
+
+              {/* Canal — visible para cargos que lo requieren */}
+              {CARGOS_CON_CANAL.has(datos.cargo) && (
+                <div>
+                  <label className="block text-sm font-medium text-slate-600 mb-1.5">Canal asignado</label>
+                  <select
+                    value={datos.canal}
+                    onChange={e => setDatos(d => ({ ...d, canal: e.target.value }))}
+                    className="input-field"
+                  >
+                    <option value="">Todos los canales</option>
+                    {CANALES.map(c => <option key={c} value={c}>{c}</option>)}
+                  </select>
+                  <p className="text-xs text-slate-400 mt-1">
+                    El usuario solo verá datos del canal seleccionado. Deja en blanco para todos.
+                  </p>
+                </div>
+              )}
+
               {/* Estado activo */}
               <div className="flex items-center justify-between p-3 rounded-xl bg-slate-50 border border-slate-200">
                 <div>

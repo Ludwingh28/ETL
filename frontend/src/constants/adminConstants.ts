@@ -18,6 +18,13 @@ export const REGIONALES = ['Santa Cruz', 'Cochabamba', 'La Paz', 'Nacional'] as 
 
 export type Regional = (typeof REGIONALES)[number]
 
+export const CANALES = ['DTS', 'WHS', 'HORECA', 'SPM', 'CORP', 'PROV'] as const
+
+export type Canal = (typeof CANALES)[number]
+
+// Cargos que requieren asignación de canal específico
+export const CARGOS_CON_CANAL = new Set<string>(['Supervisor', 'Vendedor', 'Gerente Regional'])
+
 // ── Árbol de dashboards ────────────────────────────────────────────────────────
 
 export interface DashboardItem {

@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo, type ChangeEvent } from "react";
+import { useState, useEffect, useCallback, useMemo, type ChangeEvent } from "react";
 import {
   ResponsiveContainer, BarChart, Bar, XAxis, YAxis,
   CartesianGrid, Tooltip, Cell, Legend,
@@ -21,6 +21,18 @@ type Metrica   = "total" | "cantidad";
 // ─── Constantes / paletas ─────────────────────────────────────────────────────
 
 const REGIONALES = ["Nacional", "Santa Cruz", "Cochabamba", "La Paz"] as const;
+
+const ADMIN_CARGOS = new Set([
+  "Administrador de Sistema", "Subadministrador de Sistemas",
+  "Gerente General", "Gerente de Ventas", "Analista de Datos",
+]);
+
+const REGIONAL_CONFIG: Record<string, { badge: string }> = {
+  Nacional:     { badge: "bg-brand-100 text-brand-700 border-brand-200" },
+  "Santa Cruz": { badge: "bg-emerald-100 text-emerald-700 border-emerald-200" },
+  Cochabamba:   { badge: "bg-violet-100 text-violet-700 border-violet-200" },
+  "La Paz":     { badge: "bg-amber-100 text-amber-700 border-amber-200" },
+};
 const MESES      = ["","Enero","Febrero","Marzo","Abril","Mayo","Junio",
                     "Julio","Agosto","Septiembre","Octubre","Noviembre","Diciembre"];
 
@@ -161,13 +173,19 @@ const Spinner = () => (
 // ─── Page ─────────────────────────────────────────────────────────────────────
 
 export default function DashboardTendenciaEstacional() {
-  const { apiFetch } = useAuth() as AuthContextValue;
+  const { apiFetch, user } = useAuth() as AuthContextValue;
   const now = new Date();
 
+  const isAdmin           = !!(user && (user.is_staff || ADMIN_CARGOS.has(user.cargo ?? "")));
+  const isGerenteRegional = !isAdmin && user?.cargo === "Gerente Regional";
+  const isSuperv          = !isAdmin && !isGerenteRegional && (user?.cargo?.toLowerCase().includes("supervisor") ?? false);
+
   // Filtros principales
-  const [regional,  setRegional]  = useState<string>("Nacional");
-  const [canal,     setCanal]     = useState<string>("Todos");
-  const [canales,   setCanales]   = useState<string[]>([]);
+  const [regional,      setRegional]      = useState<string>("Nacional");
+  const [canal,         setCanal]         = useState<string>("Todos");
+  const [canales,       setCanales]       = useState<string[]>([]);
+  const [supervisor,    setSupervisor]    = useState<string>("");
+  const [supervisorList,setSupervisorList]= useState<string[]>([]);
   const [anho,      setAnho]      = useState<number>(now.getFullYear());
   const [mes,       setMes]       = useState<number>(now.getMonth() + 1);
   const [metrica,   setMetrica]   = useState<Metrica>("total");
@@ -188,12 +206,35 @@ export default function DashboardTendenciaEstacional() {
     : corteModo === "hoy" ? now.getDate()
     : cortePersonalizado;
 
+  // Init regional/canal desde perfil para no-admin
+  useEffect(() => {
+    if (!isAdmin) {
+      if (user?.regional) setRegional(user.regional);
+      if (user?.canal)    setCanal(user.canal);
+    }
+  }, [isAdmin, user?.regional, user?.canal]); // eslint-disable-line react-hooks/exhaustive-deps
+
   // Cargar canales
   useEffect(() => {
     apiFetch<{ success: boolean; data: string[] }>("/dashboard/canales/lista/")
       .then(r => { if (r.success) setCanales(r.data); })
       .catch(() => undefined);
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Cargar supervisores
+  const fetchSupervisores = useCallback(async () => {
+    if (isSuperv) return;
+    const regionalKey = regional.toLowerCase().replace(/ /g, "_");
+    const canalParam  = canal && canal !== "Todos" ? `&canal=${encodeURIComponent(canal)}` : "";
+    try {
+      const j = await apiFetch<{ success: boolean; data: string[] }>(
+        `/dashboard/supervisores/supervisor-lista/?regional=${regionalKey}&anho=${now.getFullYear()}&mes=${now.getMonth() + 1}${canalParam}`
+      );
+      if (j.success) setSupervisorList(j.data.filter(Boolean));
+    } catch { setSupervisorList([]); }
+  }, [isSuperv, apiFetch, regional, canal]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  useEffect(() => { void fetchSupervisores(); }, [fetchSupervisores]);
 
   // Cargar períodos
   useEffect(() => {
@@ -220,6 +261,7 @@ export default function DashboardTendenciaEstacional() {
         modo:      estacional ? "estacional" : "ultimos6",
         dia_corte: String(diaCorte),
       });
+      if (supervisor) qs.set("supervisor", supervisor);
       try {
         const r = await apiFetch<{
           success: boolean; data: PuntoBase[];
@@ -236,7 +278,7 @@ export default function DashboardTendenciaEstacional() {
       }
     };
     void load();
-  }, [regional, canal, anho, mes, estacional, diaCorte]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [regional, canal, supervisor, anho, mes, estacional, diaCorte]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // ── Helpers ───────────────────────────────────────────────────────────────
   const periodLabel = (a: number, m: number) =>
@@ -342,18 +384,46 @@ export default function DashboardTendenciaEstacional() {
         {/* ── Filtros ─────────────────────────────────────────────────────── */}
         <div className="bg-white rounded-xl border border-slate-200 shadow-sm px-5 py-4">
           <div className="flex flex-wrap items-end gap-4">
+            {/* Regional */}
             <div className="flex flex-col gap-1">
               <label className="text-[10px] uppercase tracking-widest text-slate-400 font-semibold">Regional</label>
-              <select value={regional} onChange={(e: ChangeEvent<HTMLSelectElement>) => setRegional(e.target.value)} className={selectCls}>
-                {REGIONALES.map(r => <option key={r}>{r}</option>)}
-              </select>
+              {isAdmin ? (
+                <select value={regional} onChange={(e: ChangeEvent<HTMLSelectElement>) => setRegional(e.target.value)} className={selectCls}>
+                  {REGIONALES.map(r => <option key={r}>{r}</option>)}
+                </select>
+              ) : (
+                <span className={`text-sm font-semibold px-3 py-2 rounded-lg border ${REGIONAL_CONFIG[regional]?.badge ?? "bg-slate-100 text-slate-600 border-slate-200"}`}>
+                  {regional}
+                </span>
+              )}
             </div>
+            {/* Canal */}
             <div className="flex flex-col gap-1">
               <label className="text-[10px] uppercase tracking-widest text-slate-400 font-semibold">Canal</label>
-              <select value={canal} onChange={(e: ChangeEvent<HTMLSelectElement>) => setCanal(e.target.value)} className={selectCls}>
-                <option value="Todos">Todos</option>
-                {canales.map(c => <option key={c} value={c}>{c}</option>)}
-              </select>
+              {(isAdmin || isGerenteRegional) ? (
+                <select value={canal} onChange={(e: ChangeEvent<HTMLSelectElement>) => setCanal(e.target.value)} className={selectCls}>
+                  <option value="Todos">Todos</option>
+                  {canales.map(c => <option key={c} value={c}>{c}</option>)}
+                </select>
+              ) : (
+                <span className="text-sm font-semibold px-3 py-2 rounded-lg border bg-slate-100 text-slate-600 border-slate-200">
+                  {canal && canal !== "Todos" ? canal : "Todos"}
+                </span>
+              )}
+            </div>
+            {/* Supervisor */}
+            <div className="flex flex-col gap-1">
+              <label className="text-[10px] uppercase tracking-widest text-slate-400 font-semibold">Supervisor</label>
+              {isSuperv ? (
+                <span className="text-sm font-semibold px-3 py-2 rounded-lg border bg-slate-100 text-slate-600 border-slate-200">
+                  {user?.full_name || user?.username || "—"}
+                </span>
+              ) : (
+                <select value={supervisor} onChange={(e: ChangeEvent<HTMLSelectElement>) => setSupervisor(e.target.value)} className={selectCls}>
+                  <option value="">Todos</option>
+                  {supervisorList.map(s => <option key={s} value={s}>{s}</option>)}
+                </select>
+              )}
             </div>
             <div className="flex flex-col gap-1">
               <label className="text-[10px] uppercase tracking-widest text-slate-400 font-semibold">Gestión</label>

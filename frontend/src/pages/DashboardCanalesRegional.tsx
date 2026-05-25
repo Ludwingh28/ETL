@@ -265,13 +265,24 @@ function LeyendaLineas({ esPeriodoActual }: { esPeriodoActual: boolean }) {
 // ─── Page ──────────────────────────────────────────────────────────────────────
 
 export default function DashboardCanalesRegional() {
-  const { apiFetch } = useAuth();
+  const { apiFetch, user } = useAuth();
   const now = new Date();
 
-  const [regional, setRegional] = useState<Regional>("Nacional");
+  const ADMIN_CARGOS_C = new Set(["Administrador de Sistema","Subadministrador de Sistemas","Gerente General","Gerente de Ventas","Gerente Regional","Analista de Datos"]);
+  const isAdmin = user?.is_staff === true || ADMIN_CARGOS_C.has(user?.cargo ?? "");
+
+  const [regional, setRegional] = useState<Regional>("Santa Cruz");
   const [anho, setAnho]         = useState(now.getFullYear());
   const [mes, setMes]           = useState(now.getMonth() + 1);
   const [canal, setCanal]       = useState<string | null>(null);
+
+  // Inicializar regional/canal desde el perfil del usuario si no es admin
+  useEffect(() => {
+    if (!isAdmin) {
+      if (user?.regional) setRegional(user.regional as Regional);
+      if (user?.canal)    setCanal(user.canal);
+    }
+  }, [isAdmin, user?.regional, user?.canal]); // eslint-disable-line react-hooks/exhaustive-deps
   const [categoria, setCategoria] = useState<Categoria>("Alimentos");
 
   const [pptoDir, setPptoDir]           = useState<"desc" | "asc">("desc");
@@ -440,21 +451,20 @@ export default function DashboardCanalesRegional() {
           {/* Selector Regional */}
           <div className="flex flex-col gap-1">
             <label className="text-[10px] uppercase tracking-widest text-slate-400 font-semibold">Regional</label>
-            <div className="flex gap-1.5 flex-wrap">
-              {REGIONALES.map((r) => (
-                <button
-                  key={r}
-                  onClick={() => setRegional(r)}
-                  className={`text-xs font-semibold px-3 py-2 rounded-lg border transition-all ${
-                    regional === r
-                      ? `${REGIONAL_CONFIG[r].badge} shadow-sm`
-                      : "bg-white text-slate-500 border-slate-200 hover:border-slate-300"
-                  }`}
-                >
-                  {r}
-                </button>
-              ))}
-            </div>
+            {isAdmin ? (
+              <div className="flex gap-1.5 flex-wrap">
+                {REGIONALES.map((r) => (
+                  <button key={r} onClick={() => setRegional(r)}
+                    className={`text-xs font-semibold px-3 py-2 rounded-lg border transition-all ${
+                      regional === r ? `${REGIONAL_CONFIG[r].badge} shadow-sm` : "bg-white text-slate-500 border-slate-200 hover:border-slate-300"
+                    }`}>{r}</button>
+                ))}
+              </div>
+            ) : (
+              <span className={`text-xs font-semibold px-3 py-2 rounded-lg border ${REGIONAL_CONFIG[regional]?.badge ?? "bg-slate-100 text-slate-700 border-slate-200"}`}>
+                {regional}
+              </span>
+            )}
           </div>
 
           <div className="flex flex-col gap-1">
@@ -481,14 +491,16 @@ export default function DashboardCanalesRegional() {
             </select>
           </div>
 
-          <button
-            onClick={() => setCanal(null)}
-            disabled={canal === null}
-            className="btn-ghost flex items-center gap-1.5 text-xs disabled:opacity-30"
-          >
-            <RefreshCw size={13} />
-            Limpiar selección
-          </button>
+          {isAdmin && (
+            <button
+              onClick={() => setCanal(null)}
+              disabled={canal === null}
+              className="btn-ghost flex items-center gap-1.5 text-xs disabled:opacity-30"
+            >
+              <RefreshCw size={13} />
+              Limpiar selección
+            </button>
+          )}
         </div>
       </div>
 
@@ -501,28 +513,32 @@ export default function DashboardCanalesRegional() {
       )}
 
       {/* ── Hint interactividad ────────────────────────────────────────────── */}
-      <div className="flex items-center gap-2 bg-blue-50 border border-blue-200 text-blue-700 rounded-xl px-4 py-2.5 mb-4 text-xs">
-        <BarChart2 size={14} className="shrink-0" />
-        <span>
-          Haz clic en cualquier card para ver el detalle de ese canal.
-          {canal ? <> Viendo: <strong>{canal}</strong>.</> : " Actualmente mostrando el total."}
-        </span>
-      </div>
+      {isAdmin && (
+        <div className="flex items-center gap-2 bg-blue-50 border border-blue-200 text-blue-700 rounded-xl px-4 py-2.5 mb-4 text-xs">
+          <BarChart2 size={14} className="shrink-0" />
+          <span>
+            Haz clic en cualquier card para ver el detalle de ese canal.
+            {canal ? <> Viendo: <strong>{canal}</strong>.</> : " Actualmente mostrando el total."}
+          </span>
+        </div>
+      )}
 
       {/* ── Card Total ─────────────────────────────────────────────────────── */}
-      <div className="mb-3">
-        {loadingKpis ? (
-          <div className="kpi-card animate-pulse bg-slate-50 h-20" />
-        ) : (
-          <TotalCard
-            regional={regional}
-            avance={avanceActual}
-            objetivo={objActual}
-            selected={canal === null}
-            onClick={() => setCanal(null)}
-          />
-        )}
-      </div>
+      {(isAdmin || !user?.canal) && (
+        <div className="mb-3">
+          {loadingKpis ? (
+            <div className="kpi-card animate-pulse bg-slate-50 h-20" />
+          ) : (
+            <TotalCard
+              regional={regional}
+              avance={avanceActual}
+              objetivo={objActual}
+              selected={canal === null}
+              onClick={() => setCanal(null)}
+            />
+          )}
+        </div>
+      )}
 
       {/* ── Canal cards (grid uniforme) ────────────────────────────────────── */}
       {loadingKpis ? (
@@ -532,20 +548,25 @@ export default function DashboardCanalesRegional() {
           ))}
         </div>
       ) : (
-        kpis && kpis.canales.length > 0 && (
-          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3 mb-6">
-            {kpis.canales.map((c) => (
-              <CanalCard
-                key={c.nombre}
-                nombre={c.nombre}
-                avance={c.avance}
-                objetivo={c.objetivo}
-                selected={canal === c.nombre}
-                onClick={() => setCanal((prev) => (prev === c.nombre ? null : c.nombre))}
-              />
-            ))}
-          </div>
-        )
+        kpis && kpis.canales.length > 0 && (() => {
+          const visibleCanales = isAdmin
+            ? kpis.canales
+            : kpis.canales.filter(c => !user?.canal || c.nombre === user.canal);
+          return (
+            <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3 mb-6">
+              {visibleCanales.map((c) => (
+                <CanalCard
+                  key={c.nombre}
+                  nombre={c.nombre}
+                  avance={c.avance}
+                  objetivo={c.objetivo}
+                  selected={canal === c.nombre}
+                  onClick={isAdmin ? () => setCanal((prev) => (prev === c.nombre ? null : c.nombre)) : () => {}}
+                />
+              ))}
+            </div>
+          );
+        })()
       )}
 
       {/* ── Gráficas 1 + 2 ────────────────────────────────────────────────── */}
