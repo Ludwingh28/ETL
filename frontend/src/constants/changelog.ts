@@ -1,4 +1,4 @@
-export const CURRENT_VERSION = "1.2.2";
+export const CURRENT_VERSION = "1.2.3";
 
 export interface ChangelogVersion {
   version: string;
@@ -12,6 +12,24 @@ export interface ChangelogVersion {
 }
 
 export const CHANGELOG: ChangelogVersion[] = [
+  {
+    version: "1.2.3",
+    date: "Mayo 2026",
+    fixes: [
+      "Preventas: filtro de fecha corregido para columnas timestamp — ahora un solo día muestra datos correctamente",
+      "Gerente Regional: filtros de regional ahora se bloquean correctamente al perfil del usuario en todos los dashboards (Regionales, Canales/Regional, Supervisores, Unidades Supervisores, Información Rutas, Tendencia Estacional, Preventas)",
+      "Dashboard Canales/Regional: rol Gerente Regional incorrectamente tratado como administrador — corregido para bloquear regional y permitir libre selección de canal",
+      "Dashboard Regionales: agregado control de acceso por rol — Gerente Regional solo puede ver su regional asignada",
+      "Supervisores: lista de nombres ahora muestra formato Nombre Apellido en lugar de NOMBRE APELLIDO (INITCAP en backend)",
+      "Rutas: tabla siempre ordenada de mayor a menor cobertura sin importar los filtros activos",
+    ],
+    features: [
+      "Tendencia Estacional: nuevo filtro de supervisor con restricciones por rol (igual que los demás dashboards)",
+      "Dashboard Supervisores: Gerente Regional puede ver y filtrar por canal y supervisor dentro de su regional",
+    ],
+    newDashboardPerms: [],
+    newDashboardNames: {},
+  },
   {
     version: "1.2.2",
     date: "Mayo 2026",

@@ -1132,7 +1132,12 @@ def _ppto_by_regional(anho, mes, ciudad_cond, canal_filter='', params_extra=None
 def dashboard_regionales_kpis(request):
     """KPIs: total regional + canales desglosados. Params: regional, anho, mes."""
     try:
-        regional = request.GET.get('regional', 'santa_cruz').lower().replace(' ', '_')
+        is_admin = _is_admin(request.user)
+        profile  = _get_or_create_profile(request.user)
+        if is_admin:
+            regional = request.GET.get('regional', 'santa_cruz').lower().replace(' ', '_')
+        else:
+            regional = _REGIONAL_NAME_TO_KEY.get(profile.regional, 'santa_cruz')
         anho     = _safe_int(request.GET.get('anho'), datetime.now().year)
         mes      = _safe_int(request.GET.get('mes'),  datetime.now().month)
         if regional not in REGIONALES_VALID:
@@ -1186,7 +1191,12 @@ def dashboard_regionales_tendencia(request):
     """Avance diario acumulado para una regional. Params: regional, anho, mes."""
     try:
         import calendar
-        regional = request.GET.get('regional', 'santa_cruz').lower().replace(' ', '_')
+        is_admin = _is_admin(request.user)
+        profile  = _get_or_create_profile(request.user)
+        if is_admin:
+            regional = request.GET.get('regional', 'santa_cruz').lower().replace(' ', '_')
+        else:
+            regional = _REGIONAL_NAME_TO_KEY.get(profile.regional, 'santa_cruz')
         anho     = _safe_int(request.GET.get('anho'), datetime.now().year)
         mes      = _safe_int(request.GET.get('mes'),  datetime.now().month)
         hoy      = datetime.now().date()
@@ -1264,7 +1274,12 @@ def dashboard_regionales_tendencia(request):
 def dashboard_regionales_por_canal(request):
     """Avance vs presupuesto por canal de una regional. Params: regional, anho, mes."""
     try:
-        regional = request.GET.get('regional', 'santa_cruz').lower().replace(' ', '_')
+        is_admin = _is_admin(request.user)
+        profile  = _get_or_create_profile(request.user)
+        if is_admin:
+            regional = request.GET.get('regional', 'santa_cruz').lower().replace(' ', '_')
+        else:
+            regional = _REGIONAL_NAME_TO_KEY.get(profile.regional, 'santa_cruz')
         anho     = _safe_int(request.GET.get('anho'), datetime.now().year)
         mes      = _safe_int(request.GET.get('mes'),  datetime.now().month)
         if regional not in REGIONALES_VALID:
@@ -1309,7 +1324,12 @@ _CATEGORIA_CASE = """
 def dashboard_regionales_por_categoria(request):
     """Ventas vs presupuesto por categoría consolidada de una regional. Params: regional, anho, mes."""
     try:
-        regional = request.GET.get('regional', 'santa_cruz').lower().replace(' ', '_')
+        is_admin = _is_admin(request.user)
+        profile  = _get_or_create_profile(request.user)
+        if is_admin:
+            regional = request.GET.get('regional', 'santa_cruz').lower().replace(' ', '_')
+        else:
+            regional = _REGIONAL_NAME_TO_KEY.get(profile.regional, 'santa_cruz')
         anho     = _safe_int(request.GET.get('anho'), datetime.now().year)
         mes      = _safe_int(request.GET.get('mes'),  datetime.now().month)
         if regional not in REGIONALES_VALID:
@@ -1382,8 +1402,18 @@ def dashboard_regionales_por_categoria(request):
 def dashboard_canales_kpis(request):
     """KPI cards por canal con filtro opcional. Params: regional, canal, anho, mes."""
     try:
-        regional = request.GET.get('regional', 'santa_cruz').lower().replace(' ', '_')
-        canal    = _safe_str(request.GET.get('canal', ''))
+        is_admin = _is_admin(request.user)
+        profile  = _get_or_create_profile(request.user)
+        cargo    = (profile.cargo or '').strip()
+        if is_admin:
+            regional = request.GET.get('regional', 'santa_cruz').lower().replace(' ', '_')
+            canal    = _safe_str(request.GET.get('canal', ''))
+        elif cargo == 'Gerente Regional':
+            regional = _REGIONAL_NAME_TO_KEY.get(profile.regional, 'santa_cruz')
+            canal    = _safe_str(request.GET.get('canal', ''))
+        else:
+            regional = _REGIONAL_NAME_TO_KEY.get(profile.regional, 'santa_cruz')
+            canal    = (profile.canal or '').strip()
         anho     = _safe_int(request.GET.get('anho'), datetime.now().year)
         mes      = _safe_int(request.GET.get('mes'),  datetime.now().month)
         if regional not in REGIONALES_VALID:
@@ -1429,8 +1459,18 @@ def dashboard_canales_tendencia(request):
     """Tendencia diaria para canal+regional. Params: regional, canal, anho, mes."""
     try:
         import calendar
-        regional = request.GET.get('regional', 'santa_cruz').lower().replace(' ', '_')
-        canal    = _safe_str(request.GET.get('canal', ''))
+        is_admin = _is_admin(request.user)
+        profile  = _get_or_create_profile(request.user)
+        cargo    = (profile.cargo or '').strip()
+        if is_admin:
+            regional = request.GET.get('regional', 'santa_cruz').lower().replace(' ', '_')
+            canal    = _safe_str(request.GET.get('canal', ''))
+        elif cargo == 'Gerente Regional':
+            regional = _REGIONAL_NAME_TO_KEY.get(profile.regional, 'santa_cruz')
+            canal    = _safe_str(request.GET.get('canal', ''))
+        else:
+            regional = _REGIONAL_NAME_TO_KEY.get(profile.regional, 'santa_cruz')
+            canal    = (profile.canal or '').strip()
         anho     = _safe_int(request.GET.get('anho'), datetime.now().year)
         mes      = _safe_int(request.GET.get('mes'),  datetime.now().month)
         hoy      = datetime.now().date()
@@ -1501,8 +1541,18 @@ def dashboard_canales_tendencia(request):
 def dashboard_canales_por_categoria(request):
     """Ventas vs presupuesto por categoría consolidada para canal+regional. Params: regional, canal, anho, mes."""
     try:
-        regional = request.GET.get('regional', 'santa_cruz').lower().replace(' ', '_')
-        canal    = _safe_str(request.GET.get('canal', ''))
+        is_admin = _is_admin(request.user)
+        profile  = _get_or_create_profile(request.user)
+        cargo    = (profile.cargo or '').strip()
+        if is_admin:
+            regional = request.GET.get('regional', 'santa_cruz').lower().replace(' ', '_')
+            canal    = _safe_str(request.GET.get('canal', ''))
+        elif cargo == 'Gerente Regional':
+            regional = _REGIONAL_NAME_TO_KEY.get(profile.regional, 'santa_cruz')
+            canal    = _safe_str(request.GET.get('canal', ''))
+        else:
+            regional = _REGIONAL_NAME_TO_KEY.get(profile.regional, 'santa_cruz')
+            canal    = (profile.canal or '').strip()
         anho     = _safe_int(request.GET.get('anho'), datetime.now().year)
         mes      = _safe_int(request.GET.get('mes'),  datetime.now().month)
         if regional not in REGIONALES_VALID:
@@ -1579,8 +1629,18 @@ def dashboard_canales_por_sku(request):
     Params: regional, canal, categoria, anho, mes, limit
     """
     try:
-        regional  = request.GET.get('regional', 'santa_cruz').lower().replace(' ', '_')
-        canal     = _safe_str(request.GET.get('canal', ''))
+        is_admin = _is_admin(request.user)
+        profile  = _get_or_create_profile(request.user)
+        cargo    = (profile.cargo or '').strip()
+        if is_admin:
+            regional = request.GET.get('regional', 'santa_cruz').lower().replace(' ', '_')
+            canal    = _safe_str(request.GET.get('canal', ''))
+        elif cargo == 'Gerente Regional':
+            regional = _REGIONAL_NAME_TO_KEY.get(profile.regional, 'santa_cruz')
+            canal    = _safe_str(request.GET.get('canal', ''))
+        else:
+            regional = _REGIONAL_NAME_TO_KEY.get(profile.regional, 'santa_cruz')
+            canal    = (profile.canal or '').strip()
         categoria = _safe_str(request.GET.get('categoria', ''))
         anho      = _safe_int(request.GET.get('anho'), datetime.now().year)
         mes       = _safe_int(request.GET.get('mes'),  datetime.now().month)

@@ -257,9 +257,13 @@ const REGIONALES: Regional[] = ["Santa Cruz", "Cochabamba", "La Paz"];
 
 // ─── Page ─────────────────────────────────────────────────────────────────────
 
+const ADMIN_CARGOS_R = new Set(["Administrador de Sistema","Subadministrador de Sistemas","Gerente General","Gerente de Ventas","Analista de Datos"]);
+
 export default function DashboardRegionales() {
-  const { apiFetch } = useAuth();
+  const { apiFetch, user } = useAuth();
   const now = new Date();
+
+  const isAdmin = user?.is_staff === true || ADMIN_CARGOS_R.has(user?.cargo ?? "");
 
   const [regional, setRegional] = useState<Regional>("Santa Cruz");
   const [anho, setAnho] = useState(now.getFullYear());
@@ -272,6 +276,10 @@ export default function DashboardRegionales() {
   const [esPeriodoActual, setEsPeriodoActual] = useState(true);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!isAdmin && user?.regional) setRegional(user.regional as Regional);
+  }, [isAdmin, user?.regional]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     apiFetch<{ success: boolean; data: Periodo[] }>("/dashboard/nacional/periodos/")
@@ -344,19 +352,25 @@ export default function DashboardRegionales() {
           {/* Segmentador Regional */}
           <div className="flex flex-col gap-1">
             <label className="text-[10px] uppercase tracking-widest text-slate-400 font-semibold">Regional</label>
-            <div className="flex gap-1.5">
-              {REGIONALES.map((r) => (
-                <button
-                  key={r}
-                  onClick={() => setRegional(r)}
-                  className={`text-xs font-semibold px-3 py-2 rounded-lg border transition-all ${
-                    regional === r ? `${REGIONAL_CONFIG[r].badge} shadow-sm` : "bg-white text-slate-500 border-slate-200 hover:border-slate-300"
-                  }`}
-                >
-                  {r}
-                </button>
-              ))}
-            </div>
+            {isAdmin ? (
+              <div className="flex gap-1.5">
+                {REGIONALES.map((r) => (
+                  <button
+                    key={r}
+                    onClick={() => setRegional(r)}
+                    className={`text-xs font-semibold px-3 py-2 rounded-lg border transition-all ${
+                      regional === r ? `${REGIONAL_CONFIG[r].badge} shadow-sm` : "bg-white text-slate-500 border-slate-200 hover:border-slate-300"
+                    }`}
+                  >
+                    {r}
+                  </button>
+                ))}
+              </div>
+            ) : (
+              <span className={`text-xs font-semibold px-3 py-2 rounded-lg border ${REGIONAL_CONFIG[regional]?.badge ?? "bg-slate-100 text-slate-700 border-slate-200"}`}>
+                {regional}
+              </span>
+            )}
           </div>
 
           <div className="flex flex-col gap-1">

@@ -268,8 +268,9 @@ export default function DashboardCanalesRegional() {
   const { apiFetch, user } = useAuth();
   const now = new Date();
 
-  const ADMIN_CARGOS_C = new Set(["Administrador de Sistema","Subadministrador de Sistemas","Gerente General","Gerente de Ventas","Gerente Regional","Analista de Datos"]);
+  const ADMIN_CARGOS_C = new Set(["Administrador de Sistema","Subadministrador de Sistemas","Gerente General","Gerente de Ventas","Analista de Datos"]);
   const isAdmin = user?.is_staff === true || ADMIN_CARGOS_C.has(user?.cargo ?? "");
+  const isGerenteRegional = !isAdmin && user?.cargo === "Gerente Regional";
 
   const [regional, setRegional] = useState<Regional>("Santa Cruz");
   const [anho, setAnho]         = useState(now.getFullYear());
@@ -280,9 +281,9 @@ export default function DashboardCanalesRegional() {
   useEffect(() => {
     if (!isAdmin) {
       if (user?.regional) setRegional(user.regional as Regional);
-      if (user?.canal)    setCanal(user.canal);
+      if (!isGerenteRegional && user?.canal) setCanal(user.canal);
     }
-  }, [isAdmin, user?.regional, user?.canal]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [isAdmin, isGerenteRegional, user?.regional, user?.canal]); // eslint-disable-line react-hooks/exhaustive-deps
   const [categoria, setCategoria] = useState<Categoria>("Alimentos");
 
   const [pptoDir, setPptoDir]           = useState<"desc" | "asc">("desc");
@@ -491,7 +492,7 @@ export default function DashboardCanalesRegional() {
             </select>
           </div>
 
-          {isAdmin && (
+          {(isAdmin || isGerenteRegional) && (
             <button
               onClick={() => setCanal(null)}
               disabled={canal === null}
@@ -513,7 +514,7 @@ export default function DashboardCanalesRegional() {
       )}
 
       {/* ── Hint interactividad ────────────────────────────────────────────── */}
-      {isAdmin && (
+      {(isAdmin || isGerenteRegional) && (
         <div className="flex items-center gap-2 bg-blue-50 border border-blue-200 text-blue-700 rounded-xl px-4 py-2.5 mb-4 text-xs">
           <BarChart2 size={14} className="shrink-0" />
           <span>
@@ -524,7 +525,7 @@ export default function DashboardCanalesRegional() {
       )}
 
       {/* ── Card Total ─────────────────────────────────────────────────────── */}
-      {(isAdmin || !user?.canal) && (
+      {(isAdmin || isGerenteRegional || !user?.canal) && (
         <div className="mb-3">
           {loadingKpis ? (
             <div className="kpi-card animate-pulse bg-slate-50 h-20" />
@@ -549,7 +550,7 @@ export default function DashboardCanalesRegional() {
         </div>
       ) : (
         kpis && kpis.canales.length > 0 && (() => {
-          const visibleCanales = isAdmin
+          const visibleCanales = (isAdmin || isGerenteRegional)
             ? kpis.canales
             : kpis.canales.filter(c => !user?.canal || c.nombre === user.canal);
           return (
@@ -561,7 +562,7 @@ export default function DashboardCanalesRegional() {
                   avance={c.avance}
                   objetivo={c.objetivo}
                   selected={canal === c.nombre}
-                  onClick={isAdmin ? () => setCanal((prev) => (prev === c.nombre ? null : c.nombre)) : () => {}}
+                  onClick={(isAdmin || isGerenteRegional) ? () => setCanal((prev) => (prev === c.nombre ? null : c.nombre)) : () => {}}
                 />
               ))}
             </div>

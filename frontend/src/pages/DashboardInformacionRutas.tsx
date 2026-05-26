@@ -392,10 +392,11 @@ export default function DashboardInformacionRutas() {
     venta_neta: s.venta_neta,
   }));
 
-  const coberturaMedia = useMemo(() => {
-    const con = rutas.filter(r => r.pct_cobertura != null);
-    if (!con.length) return null;
-    return con.reduce((s, r) => s + (r.pct_cobertura ?? 0), 0) / con.length;
+  const coberturaGlobal = useMemo(() => {
+    const totalClientes      = rutas.reduce((s, r) => s + r.total_clientes, 0);
+    const clientesConVenta   = rutas.reduce((s, r) => s + r.clientes_con_compra, 0);
+    if (!totalClientes) return null;
+    return (clientesConVenta / totalClientes) * 100;
   }, [rutas]);
 
 
@@ -509,8 +510,8 @@ export default function DashboardInformacionRutas() {
             <p className="text-2xl font-bold text-slate-800 mt-1">{fmtN(rutasSinVendedor)}</p>
           </div>
           <div className="card">
-            <p className="text-[11px] text-slate-500 font-medium uppercase tracking-wide">Cobertura promedio</p>
-            <p className={`text-2xl font-bold mt-1 ${pctColor(coberturaMedia)}`}>{fmtPct(coberturaMedia)}</p>
+            <p className="text-[11px] text-slate-500 font-medium uppercase tracking-wide">Cobertura global</p>
+            <p className={`text-2xl font-bold mt-1 ${pctColor(coberturaGlobal)}`}>{fmtPct(coberturaGlobal)}</p>
           </div>
         </div>
       )}
