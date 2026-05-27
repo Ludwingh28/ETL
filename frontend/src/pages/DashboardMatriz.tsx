@@ -1,8 +1,12 @@
 // ─── Imports ─────────────────────────────────────────────────────────────────
-import { useState, useMemo, type ComponentType } from "react";
-import { LayoutGrid, RefreshCw, Table2, FileDown, FileSpreadsheet } from "lucide-react";
+import { useState, useMemo, useEffect, useCallback, type ComponentType } from "react";
+import { LayoutGrid, RefreshCw, Table2, FileDown, FileSpreadsheet, AlertCircle, Loader2 } from "lucide-react";
 import * as XLSX from "xlsx";
 import DashboardLayout from "../components/DashboardLayout";
+import { useAuth } from "../context/AuthContext";
+
+const API_BASE =
+  import.meta.env.MODE === "production" ? "\\sistemabi\\api" : "http://localhost:8000/api";
 
 // react-pivottable (CJS) ─ necesita resolución manual del .default
 import _PivotUIRaw from "react-pivottable/PivotTableUI";
@@ -28,20 +32,35 @@ const PlotlyDist = (_PlotlyDistRaw as any).default ?? _PlotlyDistRaw;
 const defaultAggregators = (((_UtilitiesRaw as any).default ?? _UtilitiesRaw) as any).aggregators as Record<string, unknown>;
 /* eslint-enable @typescript-eslint/no-explicit-any */
 
-// Crear componente Plot con la build ligera de plotly
 const Plot = createPlotlyComp(PlotlyDist);
 const PlotlyRenderers = createPlotlyRend(Plot);
+
+// ─── Roles ────────────────────────────────────────────────────────────────────
+
+const ADMIN_CARGOS = new Set(["Gerente General", "Gerente de Ventas", "Admin"]);
+
+const REGIONAL_OPTIONS = [
+  { label: "Nacional", value: "nacional" },
+  { label: "Santa Cruz", value: "santa_cruz" },
+  { label: "Cochabamba", value: "cochabamba" },
+  { label: "La Paz", value: "la_paz" },
+];
+
+const REGIONAL_NAME_TO_KEY: Record<string, string> = {
+  "Santa Cruz": "santa_cruz",
+  Cochabamba: "cochabamba",
+  "La Paz": "la_paz",
+  Nacional: "nacional",
+};
 
 // ─── Traducciones al español ──────────────────────────────────────────────────
 
 const RENDERER_ES: Record<string, string> = {
-  // Tabla
   Table: "Tabla",
   "Table Heatmap": "Tabla — Mapa de calor",
   "Table Col Heatmap": "Tabla — Calor por columna",
   "Table Row Heatmap": "Tabla — Calor por fila",
   "Exportable TSV": "Exportar TSV",
-  // Gráficas Plotly
   "Grouped Column Chart": "Barras agrupadas",
   "Stacked Column Chart": "Barras apiladas",
   "Grouped Bar Chart": "Barras horiz. agrupadas",
@@ -76,161 +95,15 @@ const AGGREGATOR_ES: Record<string, string> = {
   "Count as Fraction of Columns": "% por columna (conteo)",
 };
 
-// Construir objetos con claves en español
-const esRenderers = Object.fromEntries(Object.entries({ ...RawTableRenderers, ...PlotlyRenderers }).map(([k, v]) => [RENDERER_ES[k] ?? k, v]));
+const esRenderers = Object.fromEntries(
+  Object.entries({ ...RawTableRenderers, ...PlotlyRenderers }).map(([k, v]) => [RENDERER_ES[k] ?? k, v])
+);
 
-const esAggregators = Object.fromEntries(Object.entries(defaultAggregators).map(([k, v]) => [AGGREGATOR_ES[k] ?? k, v]));
+const esAggregators = Object.fromEntries(
+  Object.entries(defaultAggregators).map(([k, v]) => [AGGREGATOR_ES[k] ?? k, v])
+);
 
-// ─── Tipos ────────────────────────────────────────────────────────────────────
-
-interface DataRow {
-  Regional: string;
-  Canal: string;
-  Categoría: string;
-  SKU: string;
-  Descripción: string;
-  Mes: string;
-  Avance: number;
-  Objetivo: number;
-  GAP: number;
-  "%Cumplimiento": number;
-}
-
-// ─── Datos base ───────────────────────────────────────────────────────────────
-
-const REGIONAL_CANALES: Record<string, { nombre: string; avance: number; objetivo: number }[]> = {
-  "Santa Cruz": [
-    { nombre: "DTS", avance: 1_200_000, objetivo: 1_400_000 },
-    { nombre: "WHS", avance: 680_000, objetivo: 800_000 },
-    { nombre: "HORECA", avance: 420_000, objetivo: 500_000 },
-    { nombre: "SPM", avance: 350_000, objetivo: 400_000 },
-    { nombre: "CORP", avance: 280_000, objetivo: 320_000 },
-    { nombre: "ECOM", avance: 150_000, objetivo: 180_000 },
-    { nombre: "WHS-LICORES", avance: 420_000, objetivo: 400_000 },
-    { nombre: "PROV", avance: 620_150, objetivo: 700_000 },
-  ],
-  Cochabamba: [
-    { nombre: "CODIS", avance: 480_000, objetivo: 550_000 },
-    { nombre: "DTS", avance: 620_000, objetivo: 720_000 },
-    { nombre: "WHS", avance: 380_000, objetivo: 450_000 },
-    { nombre: "HORECA", avance: 250_000, objetivo: 300_000 },
-    { nombre: "SPM", avance: 180_000, objetivo: 220_000 },
-    { nombre: "CORP", avance: 130_000, objetivo: 160_000 },
-    { nombre: "WHS-LICORES", avance: 130_090, objetivo: 120_000 },
-    { nombre: "PROV", avance: 210_000, objetivo: 250_000 },
-  ],
-  "La Paz": [
-    { nombre: "DTS-LP", avance: 520_000, objetivo: 650_000 },
-    { nombre: "WHS-LP", avance: 320_000, objetivo: 400_000 },
-    { nombre: "DTS-EA", avance: 280_000, objetivo: 350_000 },
-    { nombre: "WHS-EA", avance: 200_000, objetivo: 250_000 },
-    { nombre: "HORECA", avance: 180_000, objetivo: 220_000 },
-    { nombre: "SPM", avance: 140_000, objetivo: 180_000 },
-    { nombre: "WHS-LICORES", avance: 120_080, objetivo: 110_000 },
-    { nombre: "PROV", avance: 190_000, objetivo: 240_000 },
-  ],
-};
-
-const DIST_CAT: Record<string, Record<string, number>> = {
-  DTS: { Alimentos: 0.4, Apego: 0.28, Licores: 0.18, "Home & Personal Care": 0.14 },
-  "DTS-LP": { Alimentos: 0.42, Apego: 0.25, Licores: 0.18, "Home & Personal Care": 0.15 },
-  "DTS-EA": { Alimentos: 0.38, Apego: 0.27, Licores: 0.2, "Home & Personal Care": 0.15 },
-  WHS: { Alimentos: 0.35, Apego: 0.3, Licores: 0.15, "Home & Personal Care": 0.2 },
-  "WHS-LP": { Alimentos: 0.36, Apego: 0.29, Licores: 0.16, "Home & Personal Care": 0.19 },
-  "WHS-EA": { Alimentos: 0.34, Apego: 0.31, Licores: 0.15, "Home & Personal Care": 0.2 },
-  "WHS-LICORES": { Alimentos: 0.02, Apego: 0.02, Licores: 0.92, "Home & Personal Care": 0.04 },
-  HORECA: { Alimentos: 0.3, Apego: 0.1, Licores: 0.45, "Home & Personal Care": 0.15 },
-  SPM: { Alimentos: 0.38, Apego: 0.25, Licores: 0.12, "Home & Personal Care": 0.25 },
-  CORP: { Alimentos: 0.45, Apego: 0.2, Licores: 0.1, "Home & Personal Care": 0.25 },
-  ECOM: { Alimentos: 0.3, Apego: 0.35, Licores: 0.1, "Home & Personal Care": 0.25 },
-  CODIS: { Alimentos: 0.42, Apego: 0.25, Licores: 0.15, "Home & Personal Care": 0.18 },
-  PROV: { Alimentos: 0.44, Apego: 0.22, Licores: 0.16, "Home & Personal Care": 0.18 },
-};
-
-const SKUS_CAT: Record<string, { sku: string; descripcion: string; peso: number }[]> = {
-  Alimentos: [
-    { sku: "ALI-001", descripcion: "Arroz Doña Rosa 5kg", peso: 0.22 },
-    { sku: "ALI-002", descripcion: "Aceite Fino 1L", peso: 0.18 },
-    { sku: "ALI-003", descripcion: "Azúcar Guabirá 1kg", peso: 0.16 },
-    { sku: "ALI-004", descripcion: "Harina Oriental 1kg", peso: 0.2 },
-    { sku: "ALI-005", descripcion: "Fideos Don Vitorio 400g", peso: 0.12 },
-    { sku: "ALI-006", descripcion: "Leche Pil Entera 1L", peso: 0.12 },
-  ],
-  Apego: [
-    { sku: "APE-001", descripcion: "Pañal Huggies M x30", peso: 0.28 },
-    { sku: "APE-002", descripcion: "Pañal Pampers G x24", peso: 0.24 },
-    { sku: "APE-003", descripcion: "Leche NAN 1 400g", peso: 0.18 },
-    { sku: "APE-004", descripcion: "Leche Enfamil 400g", peso: 0.16 },
-    { sku: "APE-005", descripcion: "Cereal Nestlé 360g", peso: 0.14 },
-  ],
-  Licores: [
-    { sku: "LIC-001", descripcion: "Cerveza Paceña 620ml", peso: 0.26 },
-    { sku: "LIC-002", descripcion: "Cerveza Huari 620ml", peso: 0.22 },
-    { sku: "LIC-003", descripcion: "Cerveza Taquiña 620ml", peso: 0.18 },
-    { sku: "LIC-004", descripcion: "Singani Casa Real 750ml", peso: 0.16 },
-    { sku: "LIC-005", descripcion: "Ron Millonario 750ml", peso: 0.1 },
-    { sku: "LIC-006", descripcion: "Vino Kohlberg Blanco 750ml", peso: 0.08 },
-  ],
-  "Home & Personal Care": [
-    { sku: "HPC-001", descripcion: "Detergente Ace 1kg", peso: 0.22 },
-    { sku: "HPC-002", descripcion: "Jabón Rexona 125g x3", peso: 0.18 },
-    { sku: "HPC-003", descripcion: "Papel Higiénico Elite x4", peso: 0.16 },
-    { sku: "HPC-004", descripcion: "Shampoo H&S 400ml", peso: 0.24 },
-    { sku: "HPC-005", descripcion: "Lejía Sapolio 1L", peso: 0.2 },
-  ],
-};
-
-const MESES_CONFIG = [
-  { mes: "Enero 2026", pctAvance: 0.3, pctObj: 0.333 },
-  { mes: "Febrero 2026", pctAvance: 0.32, pctObj: 0.333 },
-  { mes: "Marzo 2026", pctAvance: 0.38, pctObj: 0.333 },
-];
-
-// ─── Generador determinista ───────────────────────────────────────────────────
-
-function hashFactor(seed: string, min: number, max: number): number {
-  let h = 0;
-  for (let i = 0; i < seed.length; i++) h = (Math.imul(31, h) + seed.charCodeAt(i)) | 0;
-  const frac = ((h < 0 ? -h : h) % 1000) / 1000;
-  return min + frac * (max - min);
-}
-
-function generateData(): DataRow[] {
-  const rows: DataRow[] = [];
-  for (const [regional, canales] of Object.entries(REGIONAL_CANALES)) {
-    for (const canal of canales) {
-      const dist = DIST_CAT[canal.nombre] ?? DIST_CAT["DTS"];
-      for (const [cat, catPct] of Object.entries(dist)) {
-        const catAv = canal.avance * catPct;
-        const catObj = canal.objetivo * catPct;
-        for (const s of SKUS_CAT[cat] ?? []) {
-          for (const { mes, pctAvance, pctObj } of MESES_CONFIG) {
-            const vf = hashFactor(`${regional}|${canal.nombre}|${cat}|${s.sku}|${mes}`, 0.88, 1.15);
-            const obj = Math.round(catObj * pctObj * s.peso);
-            const av = Math.round(catAv * pctAvance * s.peso * vf);
-            rows.push({
-              Regional: regional,
-              Canal: canal.nombre,
-              Categoría: cat,
-              SKU: s.sku,
-              Descripción: s.descripcion,
-              Mes: mes,
-              Avance: av,
-              Objetivo: obj,
-              GAP: av - obj,
-              "%Cumplimiento": obj > 0 ? parseFloat(((av / obj) * 100).toFixed(1)) : 0,
-            });
-          }
-        }
-      }
-    }
-  }
-  return rows;
-}
-
-const MOCK_DATA: DataRow[] = generateData();
-
-// ─── Presets (con nombres en español que coinciden con esRenderers/esAggregators) ──
+// ─── Presets ──────────────────────────────────────────────────────────────────
 
 interface Preset {
   id: string;
@@ -243,31 +116,97 @@ interface Preset {
 }
 
 const PRESETS: Preset[] = [
-  { id: "reg-canal-cat", label: "Regional × Canal / Categoría", rows: ["Regional", "Canal"], cols: ["Categoría"], vals: ["Avance"], aggregatorName: "Suma entera", rendererName: "Tabla" },
-
-  { id: "reg-mes", label: "Regional / Mes", rows: ["Regional"], cols: ["Mes"], vals: ["Avance"], aggregatorName: "Suma entera", rendererName: "Tabla — Mapa de calor" },
-
-  { id: "canal-sku", label: "Canal × SKU / Mes", rows: ["Canal", "SKU"], cols: ["Mes"], vals: ["Avance"], aggregatorName: "Suma entera", rendererName: "Tabla" },
-
-  { id: "cat-reg", label: "Categoría × Regional", rows: ["Categoría"], cols: ["Regional", "Mes"], vals: ["Avance"], aggregatorName: "Suma entera", rendererName: "Tabla — Calor por columna" },
-
-  { id: "cumpl", label: "% Cumplimiento", rows: ["Regional", "Canal"], cols: ["Categoría"], vals: ["%Cumplimiento"], aggregatorName: "Promedio", rendererName: "Tabla — Mapa de calor" },
-
-  { id: "gap", label: "GAP por Canal", rows: ["Regional", "Canal"], cols: ["Mes"], vals: ["GAP"], aggregatorName: "Suma entera", rendererName: "Tabla — Calor por fila" },
-
-  { id: "bar-cat", label: "Barras por Categoría", rows: ["Categoría"], cols: [], vals: ["Avance"], aggregatorName: "Suma entera", rendererName: "Barras agrupadas" },
-
-  { id: "linea-mes", label: "Tendencia Mensual", rows: ["Regional"], cols: ["Mes"], vals: ["Avance"], aggregatorName: "Suma entera", rendererName: "Líneas" },
+  {
+    id: "reg-canal-cat",
+    label: "Regional × Canal / Categoría",
+    rows: ["Regional", "Canal"],
+    cols: ["Categoría"],
+    vals: ["Bs Vendidos"],
+    aggregatorName: "Suma entera",
+    rendererName: "Tabla",
+  },
+  {
+    id: "vend-sku",
+    label: "Vendedor × SKU",
+    rows: ["Vendedor", "SKU"],
+    cols: ["Categoría"],
+    vals: ["Bs Vendidos"],
+    aggregatorName: "Suma entera",
+    rendererName: "Tabla",
+  },
+  {
+    id: "ruta-cat",
+    label: "Ruta × Categoría",
+    rows: ["Ruta"],
+    cols: ["Categoría"],
+    vals: ["Bs Vendidos"],
+    aggregatorName: "Suma entera",
+    rendererName: "Tabla — Calor por columna",
+  },
+  {
+    id: "sup-vend",
+    label: "Supervisor × Vendedor",
+    rows: ["Supervisor", "Vendedor"],
+    cols: ["Categoría"],
+    vals: ["Bs Vendidos"],
+    aggregatorName: "Suma entera",
+    rendererName: "Tabla",
+  },
+  {
+    id: "ppto",
+    label: "Presupuesto vs Ventas",
+    rows: ["Regional", "Canal"],
+    cols: [],
+    vals: ["Bs Vendidos"],
+    aggregatorName: "Suma entera",
+    rendererName: "Tabla",
+  },
+  {
+    id: "gap",
+    label: "GAP por Canal",
+    rows: ["Regional", "Canal"],
+    cols: ["Categoría"],
+    vals: ["GAP"],
+    aggregatorName: "Suma entera",
+    rendererName: "Tabla — Calor por fila",
+  },
+  {
+    id: "uds",
+    label: "Unidades por SKU",
+    rows: ["Categoría", "SKU"],
+    cols: [],
+    vals: ["Unidades"],
+    aggregatorName: "Suma entera",
+    rendererName: "Tabla",
+  },
+  {
+    id: "licores",
+    label: "Cajas 9L (Licores)",
+    rows: ["Vendedor"],
+    cols: [],
+    vals: ["Cajas 9L"],
+    aggregatorName: "Suma",
+    rendererName: "Tabla",
+  },
+  {
+    id: "bar-cat",
+    label: "Barras por Categoría",
+    rows: ["Categoría"],
+    cols: [],
+    vals: ["Bs Vendidos"],
+    aggregatorName: "Suma entera",
+    rendererName: "Barras agrupadas",
+  },
 ];
 
-const DEFAULT = PRESETS[0];
+const DEFAULT_PRESET = PRESETS[0];
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
-function buildState(preset: Preset): PivotTableUIProps {
-  const pivotData = MOCK_DATA as unknown as PivotTableUIProps["data"];
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function buildState(preset: Preset, data: Record<string, unknown>[]): PivotTableUIProps {
   return {
-    data: pivotData,
+    data: data as unknown as PivotTableUIProps["data"],
     renderers: esRenderers as PivotTableUIProps["renderers"],
     aggregators: esAggregators as PivotTableUIProps["aggregators"],
     rows: preset.rows,
@@ -278,7 +217,6 @@ function buildState(preset: Preset): PivotTableUIProps {
     onChange: () => undefined,
     unusedOrientationCutoff: Infinity,
     menuLimit: 500,
-    hiddenAttributes: ["Descripción"],
   };
 }
 
@@ -295,7 +233,7 @@ function downloadTable(format: "csv" | "xlsx") {
   } else {
     const ws = wb.Sheets[wb.SheetNames[0]];
     const csv = XLSX.utils.sheet_to_csv(ws);
-    const blob = new Blob(["\uFEFF" + csv], { type: "text/csv;charset=utf-8;" });
+    const blob = new Blob(["﻿" + csv], { type: "text/csv;charset=utf-8;" });
     const url = URL.createObjectURL(blob);
     const a = Object.assign(document.createElement("a"), { href: url, download: `${name}.csv` });
     document.body.appendChild(a);
@@ -305,17 +243,82 @@ function downloadTable(format: "csv" | "xlsx") {
   }
 }
 
+const CURRENT_YEAR = new Date().getFullYear();
+const CURRENT_MONTH = new Date().getMonth() + 1;
+
+const YEARS = [CURRENT_YEAR - 1, CURRENT_YEAR];
+const MONTHS = [
+  { v: 1, l: "Enero" }, { v: 2, l: "Febrero" }, { v: 3, l: "Marzo" },
+  { v: 4, l: "Abril" }, { v: 5, l: "Mayo" },    { v: 6, l: "Junio" },
+  { v: 7, l: "Julio" }, { v: 8, l: "Agosto" },  { v: 9, l: "Septiembre" },
+  { v: 10, l: "Octubre" }, { v: 11, l: "Noviembre" }, { v: 12, l: "Diciembre" },
+];
+
 // ─── Página ───────────────────────────────────────────────────────────────────
 
 export default function DashboardMatriz() {
-  const [activeId, setActiveId] = useState(DEFAULT.id);
-  const [pivotState, setPivotState] = useState<PivotTableUIProps>(() => buildState(DEFAULT));
-  const totalRows = useMemo(() => MOCK_DATA.length, []);
+  const { token, user } = useAuth();
+
+  const isAdmin = ADMIN_CARGOS.has(user?.cargo ?? "");
+  const isGerenteRegional = !isAdmin && user?.cargo === "Gerente Regional";
+
+  // Filters
+  const [anho, setAnho] = useState(CURRENT_YEAR);
+  const [mes, setMes] = useState(CURRENT_MONTH);
+  const [regional, setRegional] = useState("nacional");
+  const [canal, setCanal] = useState("");
+
+  // Lock regional for non-admin
+  useEffect(() => {
+    if (!isAdmin) {
+      const key = REGIONAL_NAME_TO_KEY[user?.regional ?? ""] ?? "santa_cruz";
+      setRegional(key);
+    }
+  }, [isAdmin, user?.regional]);
+
+  // Data
+  const [data, setData] = useState<Record<string, unknown>[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const fetchData = useCallback(async () => {
+    setLoading(true);
+    setError(null);
+    try {
+      const params = new URLSearchParams({ anho: String(anho), mes: String(mes) });
+      if (isAdmin) params.set("regional", regional);
+      if (canal) params.set("canal", canal);
+
+      const res = await fetch(`${API_BASE}/dashboard/matriz/datos/?${params}`, {
+        headers: { Authorization: `Token ${token}` },
+      });
+      const json = await res.json();
+      if (!json.success) throw new Error(json.error ?? "Error desconocido");
+      setData(json.data ?? []);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Error al cargar datos");
+    } finally {
+      setLoading(false);
+    }
+  }, [token, anho, mes, regional, canal, isAdmin]);
+
+  useEffect(() => { fetchData(); }, [fetchData]);
+
+  // Pivot state
+  const [activeId, setActiveId] = useState(DEFAULT_PRESET.id);
+  const [pivotState, setPivotState] = useState<PivotTableUIProps>(() => buildState(DEFAULT_PRESET, []));
+
+  useEffect(() => {
+    const preset = PRESETS.find((p) => p.id === activeId) ?? DEFAULT_PRESET;
+    setPivotState(buildState(preset, data));
+  }, [data, activeId]);
 
   function applyPreset(p: Preset) {
     setActiveId(p.id);
-    setPivotState(buildState(p));
+    setPivotState(buildState(p, data));
   }
+
+  const totalRows = useMemo(() => data.length, [data]);
 
   return (
     <DashboardLayout>
@@ -328,8 +331,12 @@ export default function DashboardMatriz() {
           <div>
             <h1 className="text-2xl font-bold text-slate-800">Dashboard Matriz</h1>
             <p className="text-slate-500 text-sm mt-0.5">
-              Pivot table interactiva ·<span className="font-semibold text-slate-600"> {totalRows.toLocaleString()} filas</span>
-              <span className="ml-2 text-[10px] bg-amber-100 text-amber-700 px-2 py-0.5 rounded-full font-semibold uppercase tracking-wide">Demo</span>
+              Pivot table interactiva ·{" "}
+              {loading ? (
+                <span className="text-slate-400">cargando...</span>
+              ) : (
+                <span className="font-semibold text-slate-600">{totalRows.toLocaleString()} filas</span>
+              )}
             </p>
           </div>
         </div>
@@ -345,19 +352,103 @@ export default function DashboardMatriz() {
             Excel
           </button>
           <div className="w-px h-5 bg-slate-200" />
-          <button onClick={() => applyPreset(DEFAULT)} className="btn-ghost flex items-center gap-1.5 text-sm">
+          <button onClick={() => applyPreset(DEFAULT_PRESET)} className="btn-ghost flex items-center gap-1.5 text-sm">
             <RefreshCw size={14} />
             Restablecer
           </button>
+          <button onClick={fetchData} disabled={loading} className="btn-ghost flex items-center gap-1.5 text-sm" title="Recargar datos">
+            <RefreshCw size={14} className={loading ? "animate-spin" : ""} />
+          </button>
         </div>
       </div>
+
+      {/* ── Filtros ───────────────────────────────────────────────────────── */}
+      <div className="card mb-4 py-4">
+        <div className="flex flex-wrap items-end gap-4">
+          {/* Año */}
+          <div className="flex flex-col gap-1">
+            <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Gestión</label>
+            <div className="flex gap-1">
+              {YEARS.map((y) => (
+                <button
+                  key={y}
+                  onClick={() => setAnho(y)}
+                  className={`text-xs font-semibold px-3 py-1.5 rounded-lg border transition-all ${
+                    anho === y ? "bg-brand-500 text-white border-brand-500" : "bg-white text-slate-600 border-slate-200 hover:border-brand-300"
+                  }`}
+                >
+                  {y}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          {/* Mes */}
+          <div className="flex flex-col gap-1">
+            <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Mes</label>
+            <select
+              value={mes}
+              onChange={(e) => setMes(Number(e.target.value))}
+              className="text-sm border border-slate-200 rounded-lg px-3 py-1.5 bg-white text-slate-700 focus:outline-none focus:ring-2 focus:ring-brand-300"
+            >
+              {MONTHS.map((m) => (
+                <option key={m.v} value={m.v}>{m.l}</option>
+              ))}
+            </select>
+          </div>
+
+          {/* Regional */}
+          <div className="flex flex-col gap-1">
+            <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Regional</label>
+            {isAdmin ? (
+              <select
+                value={regional}
+                onChange={(e) => setRegional(e.target.value)}
+                className="text-sm border border-slate-200 rounded-lg px-3 py-1.5 bg-white text-slate-700 focus:outline-none focus:ring-2 focus:ring-brand-300"
+              >
+                {REGIONAL_OPTIONS.map((r) => (
+                  <option key={r.value} value={r.value}>{r.label}</option>
+                ))}
+              </select>
+            ) : (
+              <span className="text-sm font-semibold text-brand-700 bg-brand-50 border border-brand-200 px-3 py-1.5 rounded-lg">
+                {user?.regional ?? "—"}
+              </span>
+            )}
+          </div>
+
+          {/* Canal (libre para admin y gerente regional) */}
+          {(isAdmin || isGerenteRegional) && (
+            <div className="flex flex-col gap-1">
+              <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Canal</label>
+              <input
+                type="text"
+                value={canal}
+                onChange={(e) => setCanal(e.target.value.toUpperCase())}
+                placeholder="Todos los canales"
+                className="text-sm border border-slate-200 rounded-lg px-3 py-1.5 bg-white text-slate-700 focus:outline-none focus:ring-2 focus:ring-brand-300 w-44"
+              />
+            </div>
+          )}
+        </div>
+      </div>
+
+      {/* ── Error ─────────────────────────────────────────────────────────── */}
+      {error && (
+        <div className="mb-4 flex items-center gap-2 text-red-700 bg-red-50 border border-red-200 rounded-xl px-4 py-3 text-sm">
+          <AlertCircle size={16} />
+          {error}
+        </div>
+      )}
 
       {/* ── Presets ───────────────────────────────────────────────────────── */}
       <div className="card mb-4 py-4">
         <div className="flex items-center gap-2 mb-3">
           <LayoutGrid size={13} className="text-slate-400" />
           <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Vistas rápidas</span>
-          {activeId === "custom" && <span className="ml-auto text-[10px] bg-slate-100 text-slate-500 px-2 py-0.5 rounded-full font-semibold">Vista personalizada</span>}
+          {activeId === "custom" && (
+            <span className="ml-auto text-[10px] bg-slate-100 text-slate-500 px-2 py-0.5 rounded-full font-semibold">Vista personalizada</span>
+          )}
         </div>
         <div className="flex flex-wrap gap-2">
           {PRESETS.map((p) => (
@@ -365,7 +456,9 @@ export default function DashboardMatriz() {
               key={p.id}
               onClick={() => applyPreset(p)}
               className={`text-xs font-semibold px-3 py-1.5 rounded-lg border transition-all ${
-                activeId === p.id ? "bg-brand-500 text-white border-brand-500 shadow-sm" : "bg-white text-slate-600 border-slate-200 hover:border-brand-300 hover:text-brand-600"
+                activeId === p.id
+                  ? "bg-brand-500 text-white border-brand-500 shadow-sm"
+                  : "bg-white text-slate-600 border-slate-200 hover:border-brand-300 hover:text-brand-600"
               }`}
             >
               {p.label}
@@ -376,24 +469,35 @@ export default function DashboardMatriz() {
 
       {/* ── Pivot Table ───────────────────────────────────────────────────── */}
       <div className="card overflow-x-auto">
-        <PivotTableUI
-          {...pivotState}
-          onChange={(s: PivotTableUIProps) => {
-            setActiveId("custom");
-            setPivotState(s);
-          }}
-        />
+        {loading ? (
+          <div className="flex items-center justify-center py-20 gap-3 text-slate-500">
+            <Loader2 size={22} className="animate-spin text-brand-500" />
+            <span className="text-sm">Cargando datos del servidor…</span>
+          </div>
+        ) : data.length === 0 && !error ? (
+          <div className="flex items-center justify-center py-20 text-slate-400 text-sm">
+            Sin datos para el período seleccionado
+          </div>
+        ) : (
+          <PivotTableUI
+            {...pivotState}
+            onChange={(s: PivotTableUIProps) => {
+              setActiveId("custom");
+              setPivotState(s);
+            }}
+          />
+        )}
       </div>
 
       {/* ── Leyenda ───────────────────────────────────────────────────────── */}
       <div className="mt-4 grid grid-cols-1 sm:grid-cols-3 gap-3 text-xs">
         <div className="bg-white border border-slate-200 rounded-xl px-4 py-3">
           <p className="font-semibold text-slate-600 mb-1">Dimensiones</p>
-          <p className="text-slate-400">Regional · Canal · Categoría · SKU · Mes</p>
+          <p className="text-slate-400">Regional · Canal · Supervisor · Vendedor · Ruta · Categoría · SKU · Período</p>
         </div>
         <div className="bg-white border border-slate-200 rounded-xl px-4 py-3">
           <p className="font-semibold text-slate-600 mb-1">Medidas</p>
-          <p className="text-slate-400">Avance · Objetivo · GAP · %Cumplimiento</p>
+          <p className="text-slate-400">Bs Vendidos · Unidades · Cajas 9L · Presupuesto · Proyectado Cierre · GAP · Desviación %</p>
         </div>
         <div className="bg-white border border-slate-200 rounded-xl px-4 py-3">
           <p className="font-semibold text-slate-600 mb-1">Descarga</p>

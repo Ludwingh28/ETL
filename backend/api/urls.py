@@ -77,11 +77,16 @@ urlpatterns = [
     path('dashboard/informacion-rutas/',            views.dashboard_informacion_rutas,            name='informacion-rutas'),
     path('dashboard/informacion-rutas/detalle/',    views.dashboard_informacion_rutas_detalle,    name='informacion-rutas-detalle'),
     path('dashboard/informacion-rutas/categorias/', views.dashboard_informacion_rutas_categorias, name='informacion-rutas-categorias'),
-    path('dashboard/informacion-rutas/skus/',       views.dashboard_informacion_rutas_skus,       name='informacion-rutas-skus'),
+    path('dashboard/informacion-rutas/skus/',            views.dashboard_informacion_rutas_skus,            name='informacion-rutas-skus'),
+    path('dashboard/informacion-rutas/clientes/',        views.dashboard_informacion_rutas_clientes,        name='informacion-rutas-clientes'),
+    path('dashboard/informacion-rutas/cliente-detalle/', views.dashboard_informacion_rutas_cliente_detalle, name='informacion-rutas-cliente-detalle'),
 
     # Dashboard Tendencia Estacional
     path('dashboard/tendencia-estacional/', views.dashboard_tendencia_estacional, name='tendencia-estacional'),
     path('dashboard/canales/lista/',        views.dashboard_canales_lista,         name='canales-lista'),
+
+    # Tabla Matriz
+    path('dashboard/matriz/datos/',          views.dashboard_matriz_datos,          name='matriz-datos'),
 
     # Exportaciones XLSX
     path('exportar/ventas-combo-armado/',    views.exportar_ventas_combo_armado,    name='exportar-ventas-combo-armado'),

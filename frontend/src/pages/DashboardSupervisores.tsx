@@ -637,6 +637,24 @@ export default function DashboardSupervisores() {
                     );
                   })}
                 </tbody>
+                <tfoot className="sticky bottom-0 z-20">
+                  <tr className="border-t-2 border-slate-200 bg-slate-50">
+                    <td className="sticky left-0 z-30 bg-slate-50 py-2 pr-4 font-bold text-slate-700 shadow-[1px_0_0_0_#e2e8f0]">
+                      Total día
+                    </td>
+                    {liqData.fechas.map((f) => {
+                      const dayTotal = sortedRows.reduce((s, row) => s + (row.ventas[f] ?? 0), 0);
+                      return (
+                        <td key={f} className={`py-2 px-1 text-center tabular-nums font-bold ${dayTotal > 0 ? "text-slate-700" : "text-slate-300"}`}>
+                          {dayTotal > 0 ? fmtN(dayTotal) : "·"}
+                        </td>
+                      );
+                    })}
+                    <td className="sticky right-0 z-30 bg-slate-50 py-2 pl-3 pr-2 text-right tabular-nums font-bold text-brand-700 shadow-[-1px_0_0_0_#e2e8f0]">
+                      {fmtN(sortedRows.reduce((s, row) => s + liqData.fechas.reduce((ss, f) => ss + (row.ventas[f] ?? 0), 0), 0))}
+                    </td>
+                  </tr>
+                </tfoot>
               </table>
             </div>
           );

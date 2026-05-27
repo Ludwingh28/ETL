@@ -46,6 +46,20 @@ interface SkuRow {
   pct_cobertura:   number;
 }
 
+interface ClienteSemanaFlat {
+  codigo_cliente: string;
+  nombre_cliente: string;
+  semana:         number | null;
+  bs:             number;
+  pedidos:        number;
+}
+
+interface ClienteDetalleRow {
+  sku:      string;
+  bs:       number;
+  unidades: number;
+}
+
 type Regional = "Nacional" | "Santa Cruz" | "Cochabamba" | "La Paz";
 
 // ─── Constantes ───────────────────────────────────────────────────────────────
@@ -82,13 +96,10 @@ const catColor = (cat: string) => CAT_COLORS[cat] ?? "#64748b";
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
 const now = new Date();
-const NUM  = new Intl.NumberFormat("es-BO", { maximumFractionDigits: 0 });
+const NUM    = new Intl.NumberFormat("es-BO", { maximumFractionDigits: 0 });
+const BS_FMT = new Intl.NumberFormat("es-BO", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 const fmtN   = (n: number) => NUM.format(n);
-const fmtBs  = (n: number) => {
-  if (n >= 1_000_000) return `Bs ${(n / 1_000_000).toFixed(2)}M`;
-  if (n >= 1_000)     return `Bs ${(n / 1_000).toFixed(1)}K`;
-  return `Bs ${n.toFixed(0)}`;
-};
+const fmtBs  = (n: number) => `Bs ${BS_FMT.format(n)}`;
 const fmtPct = (n: number | null) => n != null ? `${n.toFixed(1)}%` : "—";
 
 function pctColor(n: number | null) {
@@ -227,6 +238,14 @@ export default function DashboardInformacionRutas() {
   const [loadingCat,        setLoadingCat]        = useState(false);
   const [loadingSku,        setLoadingSku]        = useState(false);
 
+  // Tabla de clientes semanales
+  const [clientesFlat,       setClientesFlat]       = useState<ClienteSemanaFlat[]>([]);
+  const [loadingClientes,    setLoadingClientes]    = useState(false);
+  const [selectedCliente,    setSelectedCliente]    = useState<{ codigo: string; nombre: string } | null>(null);
+  const [selectedClienteSem, setSelectedClienteSem] = useState<number | null>(null);
+  const [clienteDetalle,     setClienteDetalle]     = useState<ClienteDetalleRow[]>([]);
+  const [loadingCliDet,      setLoadingCliDet]      = useState(false);
+
   const [searchQuery,    setSearchQuery]    = useState("");
   const [metricaDetalle, setMetricaDetalle] = useState<"bs" | "pedidos">("bs");
   const [downloading,    setDownloading]    = useState(false);
@@ -319,6 +338,41 @@ export default function DashboardInformacionRutas() {
     void load();
   }, [selectedRuta, selectedCategoria, anho, mes, canal, marca]); // eslint-disable-line react-hooks/exhaustive-deps
 
+  // Cargar clientes semanales al seleccionar ruta
+  useEffect(() => {
+    if (!selectedRuta) { setClientesFlat([]); setSelectedCliente(null); setSelectedClienteSem(null); setClienteDetalle([]); return; }
+    const load = async () => {
+      setLoadingClientes(true); setSelectedCliente(null); setSelectedClienteSem(null); setClienteDetalle([]);
+      const r = await apiFetch<{ success: boolean; data: ClienteSemanaFlat[] }>(
+        `/dashboard/informacion-rutas/clientes/?ruta=${encodeURIComponent(selectedRuta.ruta)}&canal=${encodeURIComponent(canal === "Todos" ? "" : canal)}&marca=${encodeURIComponent(marca)}&anho=${anho}&mes=${mes}`
+      ).catch(() => null);
+      if (r?.success) setClientesFlat(r.data ?? []);
+      setLoadingClientes(false);
+    };
+    void load();
+  }, [selectedRuta, anho, mes, canal, marca]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Cargar detalle SKU al seleccionar cliente (y opcionalmente semana)
+  useEffect(() => {
+    if (!selectedRuta || !selectedCliente) { setClienteDetalle([]); return; }
+    const load = async () => {
+      setLoadingCliDet(true);
+      const qs = new URLSearchParams({
+        ruta: selectedRuta.ruta,
+        codigo_cliente: selectedCliente.codigo,
+        anho: String(anho),
+        mes:  String(mes),
+      });
+      if (selectedClienteSem !== null) qs.set('semana', String(selectedClienteSem));
+      const r = await apiFetch<{ success: boolean; data: ClienteDetalleRow[] }>(
+        `/dashboard/informacion-rutas/cliente-detalle/?${qs}`
+      ).catch(() => null);
+      if (r?.success) setClienteDetalle(r.data ?? []);
+      setLoadingCliDet(false);
+    };
+    void load();
+  }, [selectedRuta, selectedCliente, selectedClienteSem, anho, mes]); // eslint-disable-line react-hooks/exhaustive-deps
+
   const anhos = [now.getFullYear(), now.getFullYear() - 1, now.getFullYear() - 2];
 
   const rutasSinVendedor = useMemo(() => rutas.filter(r => !r.vendedor).length, [rutas]);
@@ -371,11 +425,18 @@ export default function DashboardInformacionRutas() {
     }
   };
 
-  // Datos semanales: siempre 4 semanas, vacías si no hay datos
+  // Semanas del mes según la misma fórmula del backend: CEIL(dia / 7)
+  const semanasDelMes = useMemo(() => {
+    const diasMes = new Date(anho, mes, 0).getDate();
+    return Math.ceil(diasMes / 7);
+  }, [anho, mes]);
+
+  // Datos semanales: todas las semanas del mes; sin datos → 0
   const semanaData = useMemo(() => {
     const bySem = new Map(detalle.map(d => [d.semana, d]));
-    return [1, 2, 3, 4].map(sem => {
-      const d = bySem.get(sem);
+    return Array.from({ length: semanasDelMes }, (_, i) => {
+      const sem = i + 1;
+      const d   = bySem.get(sem);
       return {
         semana:     sem,
         pedidos:    d?.pedidos    ?? 0,
@@ -383,9 +444,9 @@ export default function DashboardInformacionRutas() {
         hasDatos:   !!d,
       };
     });
-  }, [detalle]);
+  }, [detalle, semanasDelMes]);
 
-  // Gráfico de línea semanal (Sem 1..4)
+  // Gráfico de línea semanal
   const chartData = semanaData.map(s => ({
     semana:     s.semana,
     pedidos:    s.pedidos,
@@ -640,8 +701,8 @@ export default function DashboardInformacionRutas() {
                     <XAxis
                       dataKey="semana"
                       type="number"
-                      domain={[1, 4]}
-                      ticks={[1, 2, 3, 4]}
+                      domain={[1, semanasDelMes]}
+                      ticks={Array.from({ length: semanasDelMes }, (_, i) => i + 1)}
                       tickFormatter={v => `Sem ${v}`}
                       tick={{ fontSize: 11, fill: "#64748b" }}
                     />
@@ -676,8 +737,8 @@ export default function DashboardInformacionRutas() {
                   <thead>
                     <tr className="text-slate-400">
                       <th className="text-left py-2 pr-6 font-semibold w-24"></th>
-                      {[1,2,3,4].map(sem => (
-                        <th key={sem} className="text-right py-2 px-4 font-semibold text-slate-600">Sem {sem}</th>
+                      {semanaData.map(s => (
+                        <th key={s.semana} className="text-right py-2 px-4 font-semibold text-slate-600">Sem {s.semana}</th>
                       ))}
                     </tr>
                   </thead>
@@ -848,6 +909,202 @@ export default function DashboardInformacionRutas() {
 
         </div>
       )}
+
+      {/* ── Clientes: tabla semanal + detalle SKU ────────────────────────────── */}
+      {selectedRuta && (() => {
+        const clienteMap = new Map<string, { nombre: string; semanas: Map<number, { bs: number; pedidos: number }> }>();
+        const semanasSet = new Set<number>();
+        for (const row of clientesFlat) {
+          if (!clienteMap.has(row.codigo_cliente)) {
+            clienteMap.set(row.codigo_cliente, { nombre: row.nombre_cliente, semanas: new Map() });
+          }
+          if (row.semana !== null) {
+            semanasSet.add(row.semana);
+            clienteMap.get(row.codigo_cliente)!.semanas.set(row.semana, { bs: row.bs, pedidos: row.pedidos });
+          }
+        }
+        const semanas  = Array.from(semanasSet).sort((a, b) => a - b);
+        const clientes = Array.from(clienteMap.entries()).sort((a, b) => a[1].nombre.localeCompare(b[1].nombre));
+
+        return (
+          <div className="flex flex-col lg:flex-row gap-4 mt-4 items-stretch">
+
+            {/* ── Card 1: tabla semanal ────────────────────────────────────── */}
+            <div className="card flex-1 min-w-0">
+              <div className="flex flex-wrap items-center justify-between gap-3 mb-3">
+                <div>
+                  <h2 className="font-semibold text-slate-700">
+                    Clientes — <span className="text-brand-600">{selectedRuta.ruta}</span>
+                  </h2>
+                  <p className="text-[11px] text-slate-400 mt-0.5">
+                    Clic en nombre → todo el mes · Clic en celda → esa semana
+                  </p>
+                </div>
+                {selectedCliente && (
+                  <button
+                    onClick={() => { setSelectedCliente(null); setSelectedClienteSem(null); setClienteDetalle([]); }}
+                    className="text-xs text-slate-400 hover:text-slate-600 underline"
+                  >
+                    Limpiar
+                  </button>
+                )}
+              </div>
+
+              {loadingClientes ? (
+                <div className="space-y-1.5">{Array.from({ length: 5 }).map((_, i) => <div key={i} className="h-7 bg-slate-50 animate-pulse rounded" />)}</div>
+              ) : clientes.length === 0 ? (
+                <div className="text-center text-slate-400 text-sm py-8">Sin clientes en la ruta para este período</div>
+              ) : (
+                <div className="overflow-x-auto overflow-y-auto scrollbar-thin scrollbar-thumb-slate-200 scrollbar-track-transparent" style={{ maxHeight: 380 }}>
+                  <table className="text-xs border-collapse" style={{ minWidth: `${Math.max(400, semanas.length * 100 + 300)}px` }}>
+                    <thead className="sticky top-0 z-20">
+                      <tr>
+                        <th className="sticky left-0 z-30 bg-white text-left py-2 pr-4 font-semibold text-slate-600 shadow-[1px_0_0_0_#f1f5f9] min-w-64 border-b border-slate-100">
+                          Cliente
+                        </th>
+                        {semanas.map(s => (
+                          <th key={s} className="bg-white py-2 px-3 font-semibold text-center text-slate-400 min-w-24 border-b border-slate-100">
+                            Sem {s}
+                          </th>
+                        ))}
+                        <th className="sticky right-0 z-30 bg-white py-2 pl-3 pr-2 font-semibold text-right text-slate-600 shadow-[-1px_0_0_0_#f1f5f9] min-w-24 border-b border-slate-100">
+                          Total mes
+                        </th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {clientes.map(([codigo, { nombre, semanas: semMap }]) => {
+                        const totalMes     = Array.from(semMap.values()).reduce((s, v) => s + v.bs, 0);
+                        const isSelCliente = selectedCliente?.codigo === codigo;
+                        return (
+                          <tr key={codigo} className={`border-b border-slate-50 transition-colors ${isSelCliente ? "bg-brand-50" : "hover:bg-slate-50"}`}>
+                            <td
+                              className={`sticky left-0 z-10 py-2 pr-4 shadow-[1px_0_0_0_#f1f5f9] cursor-pointer ${isSelCliente ? "bg-brand-50" : "bg-white hover:bg-slate-50"}`}
+                              onClick={() => {
+                                if (isSelCliente && selectedClienteSem === null) {
+                                  setSelectedCliente(null); setClienteDetalle([]);
+                                } else {
+                                  setSelectedCliente({ codigo, nombre });
+                                  setSelectedClienteSem(null);
+                                }
+                              }}
+                            >
+                              <div className="flex items-center gap-2">
+                                <span className={`shrink-0 text-[10px] font-mono font-semibold px-1.5 py-0.5 rounded ${isSelCliente ? "bg-brand-100 text-brand-600" : "bg-slate-100 text-slate-500"}`}>
+                                  {codigo}
+                                </span>
+                                <span className={`font-semibold leading-snug ${isSelCliente ? "text-brand-700" : "text-slate-700"}`}>
+                                  {nombre}
+                                </span>
+                              </div>
+                            </td>
+                            {semanas.map(s => {
+                              const v         = semMap.get(s);
+                              const isSelCell = isSelCliente && selectedClienteSem === s;
+                              return (
+                                <td
+                                  key={s}
+                                  className={`py-1.5 px-3 text-center tabular-nums cursor-pointer rounded transition-colors ${
+                                    isSelCell ? "bg-brand-500 text-white font-bold"
+                                    : v        ? "text-slate-700 hover:bg-brand-50 hover:text-brand-700"
+                                    :            "text-slate-200"
+                                  }`}
+                                  onClick={() => {
+                                    if (!v) return;
+                                    if (isSelCell) { setSelectedClienteSem(null); }
+                                    else { setSelectedCliente({ codigo, nombre }); setSelectedClienteSem(s); }
+                                  }}
+                                >
+                                  {v ? fmtBs(v.bs) : "·"}
+                                </td>
+                              );
+                            })}
+                            <td className="sticky right-0 z-10 bg-white py-1.5 pl-3 pr-2 text-right tabular-nums font-bold text-slate-800 shadow-[-1px_0_0_0_#f1f5f9]">
+                              {fmtBs(totalMes)}
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                    <tfoot className="sticky bottom-0 z-20">
+                      <tr className="border-t-2 border-slate-200 bg-slate-50">
+                        <td className="sticky left-0 z-30 bg-slate-50 py-2 pr-4 font-bold text-slate-700 shadow-[1px_0_0_0_#e2e8f0]">
+                          Total semana
+                        </td>
+                        {semanas.map(s => {
+                          const tot = clientes.reduce((acc, [, { semanas: sm }]) => acc + (sm.get(s)?.bs ?? 0), 0);
+                          return (
+                            <td key={s} className={`py-2 px-3 text-center tabular-nums font-bold ${tot > 0 ? "text-slate-700" : "text-slate-300"}`}>
+                              {tot > 0 ? fmtBs(tot) : "·"}
+                            </td>
+                          );
+                        })}
+                        <td className="sticky right-0 z-30 bg-slate-50 py-2 pl-3 pr-2 text-right tabular-nums font-bold text-brand-700 shadow-[-1px_0_0_0_#e2e8f0]">
+                          {fmtBs(clientes.reduce((acc, [, { semanas: sm }]) => acc + Array.from(sm.values()).reduce((s, v) => s + v.bs, 0), 0))}
+                        </td>
+                      </tr>
+                    </tfoot>
+                  </table>
+                </div>
+              )}
+            </div>
+
+            {/* ── Card 2: detalle SKU ──────────────────────────────────────── */}
+            <div className="card lg:w-80 shrink-0">
+              {!selectedCliente ? (
+                <div className="h-full flex items-center justify-center text-slate-400 text-sm py-16 text-center px-4">
+                  Seleccioná un cliente para ver el detalle de SKUs
+                </div>
+              ) : (
+                <>
+                  <div className="mb-3">
+                    <h2 className="font-semibold text-slate-700 text-sm">
+                      SKUs — <span className="text-brand-600">{selectedCliente.nombre}</span>
+                    </h2>
+                    <p className="text-[11px] text-slate-400 mt-0.5">
+                      {selectedClienteSem !== null ? `Semana ${selectedClienteSem}` : "Todo el mes"}
+                    </p>
+                  </div>
+                  {loadingCliDet ? (
+                    <div className="space-y-1.5">{Array.from({ length: 4 }).map((_, i) => <div key={i} className="h-6 bg-slate-50 animate-pulse rounded" />)}</div>
+                  ) : clienteDetalle.length === 0 ? (
+                    <p className="text-slate-400 text-xs text-center py-8">Sin detalle disponible</p>
+                  ) : (
+                    <div className="overflow-y-auto" style={{ maxHeight: 340 }}>
+                      <table className="text-xs w-full">
+                        <thead className="sticky top-0 bg-white">
+                          <tr className="border-b border-slate-100">
+                            <th className="text-left py-1.5 pr-4 font-semibold text-slate-500 uppercase tracking-wide text-[10px]">SKU</th>
+                            <th className="text-right py-1.5 px-3 font-semibold text-slate-500 uppercase tracking-wide text-[10px]">Uds</th>
+                            <th className="text-right py-1.5 pl-3 font-semibold text-slate-500 uppercase tracking-wide text-[10px]">Bs</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {clienteDetalle.map((d, i) => (
+                            <tr key={i} className="border-b border-slate-50 hover:bg-slate-50">
+                              <td className="py-1.5 pr-4 text-slate-700">{d.sku}</td>
+                              <td className="py-1.5 px-3 text-right tabular-nums text-slate-600">{fmtN(d.unidades)}</td>
+                              <td className="py-1.5 pl-3 text-right tabular-nums font-semibold text-slate-800">{fmtBs(d.bs)}</td>
+                            </tr>
+                          ))}
+                        </tbody>
+                        <tfoot className="sticky bottom-0 bg-white">
+                          <tr className="border-t-2 border-slate-200">
+                            <td className="py-2 pr-4 font-bold text-slate-600">Total</td>
+                            <td className="py-2 px-3 text-right tabular-nums font-bold text-slate-700">{fmtN(clienteDetalle.reduce((s, d) => s + d.unidades, 0))}</td>
+                            <td className="py-2 pl-3 text-right tabular-nums font-bold text-brand-700">{fmtBs(clienteDetalle.reduce((s, d) => s + d.bs, 0))}</td>
+                          </tr>
+                        </tfoot>
+                      </table>
+                    </div>
+                  )}
+                </>
+              )}
+            </div>
+
+          </div>
+        );
+      })()}
 
     </DashboardLayout>
   );

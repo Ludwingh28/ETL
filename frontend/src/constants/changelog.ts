@@ -1,4 +1,4 @@
-export const CURRENT_VERSION = "1.2.3";
+export const CURRENT_VERSION = "1.2.4";
 
 export interface ChangelogVersion {
   version: string;
@@ -12,6 +12,26 @@ export interface ChangelogVersion {
 }
 
 export const CHANGELOG: ChangelogVersion[] = [
+  {
+    version: "1.2.4",
+    date: "Mayo 2026",
+    fixes: [
+      "Preventas: solo se muestran vendedores registrados en el DW — se eliminan usuarios del sistema que aparecían incorrectamente",
+      "Preventas: valores de monto ya no se redondean, se muestran con 2 decimales reales",
+      "Información Rutas: valores de venta (Bs) ya no se redondean en ninguna tabla ni gráfico — se muestran con 2 decimales reales",
+    ],
+    features: [
+      "Dashboard Supervisores: fila «Total día» al pie de la tabla de liquidaciones con la suma de ventas de cada columna de fecha",
+      "Dashboard Matriz: datos reales desde el DW reemplazando los datos de demostración — filtros con control de acceso por rol (regional bloqueado para no-administradores)",
+      "Información Rutas: gráfico y tabla de tendencia semanal ahora muestran dinámicamente cuántas semanas tiene el mes (4 o 5) con ceros para semanas sin datos",
+      "Información Rutas: nueva tabla de clientes con compras semanales por cliente — clic en nombre muestra todo el mes, clic en celda muestra esa semana",
+      "Información Rutas: tabla de clientes ahora incluye todos los clientes de la ruta, no solo los que compraron en el período",
+      "Información Rutas: panel lateral de detalle de SKUs por cliente (unidades y Bs) al seleccionar un cliente o una semana específica",
+      "Información Rutas: código de cliente mostrado como badge junto al nombre para mejor legibilidad en la tabla",
+    ],
+    newDashboardPerms: [],
+    newDashboardNames: {},
+  },
   {
     version: "1.2.3",
     date: "Mayo 2026",
