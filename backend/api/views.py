@@ -81,11 +81,11 @@ _PERMISOS_POR_CARGO: dict[str, list[str]] = {
     'Gerente General':    ['nacional', 'regionales', 'canales', 'supervisores', 'preventas-realizadas',
                            'avances-ventas', 'unidades-vendidas', 'unidades-supervisores',
                            'informacion-rutas', 'tendencia-estacional', 'ticket-promedio',
-                           'margen-bruto', 'matriz', 'descargas',
+                           'ficha-sku', 'margen-bruto', 'matriz', 'descargas',
                            'pepsico', 'softys', 'dmujer', 'apego', 'colher'],
     'Gerente de Ventas':  ['nacional', 'regionales', 'canales', 'supervisores', 'unidades-vendidas',
                            'unidades-supervisores', 'informacion-rutas', 'tendencia-estacional',
-                           'ticket-promedio', 'margen-bruto'],
+                           'ticket-promedio', 'ficha-sku', 'margen-bruto'],
     'Gerente Regional':   ['regionales', 'canales', 'supervisores', 'preventas-realizadas',
                            'avances-ventas', 'unidades-vendidas', 'unidades-supervisores',
                            'informacion-rutas', 'tendencia-estacional'],
@@ -96,7 +96,7 @@ _PERMISOS_POR_CARGO: dict[str, list[str]] = {
     'Analista de Datos':  ['nacional', 'regionales', 'canales', 'supervisores', 'preventas-realizadas',
                            'avances-ventas', 'unidades-vendidas', 'unidades-supervisores',
                            'informacion-rutas', 'tendencia-estacional', 'ticket-promedio',
-                           'margen-bruto', 'matriz', 'descargas'],
+                           'ficha-sku', 'margen-bruto', 'matriz', 'descargas'],
 }
 
 
@@ -4067,3 +4067,549 @@ def dashboard_tendencia_estacional(request):
 
     except Exception as e:
         return JsonResponse({'success': False, 'error': str(e)}, status=500)
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+#  DASHBOARD FICHA DE SKU
+# ─────────────────────────────────────────────────────────────────────────────
+
+_TRIM_MESES = {
+    '1': (1,  3),
+    '2': (4,  6),
+    '3': (7,  9),
+    '4': (10, 12),
+}
+
+_CAT_LINEA_FICHA = {
+    'Alimentos':            'ALIMENTOS',
+    'Apego':                'APEGO',
+    'Licores':              'BEBIDAS ALC',
+    'Home & Personal Care': 'HOME Y PERSONAL CARE',
+}
+
+
+@api_view(['GET'])
+@authentication_classes([ExpiringTokenAuthentication])
+@permission_classes([IsAuthenticated])
+@_require_perm('ficha-sku')
+def dashboard_ficha_sku_buscar(request):
+    """
+    Búsqueda de productos por texto (nombre o código).
+    Params: q, categoria
+    """
+    q         = _safe_str(request.GET.get('q', ''), 100).strip()
+    categoria = _safe_str(request.GET.get('categoria', ''), 50)
+
+    if len(q) < 2:
+        return JsonResponse({'success': True, 'data': []})
+
+    params = [f'%{q.upper()}%', f'%{q.upper()}%']
+    cat_cond = ""
+    if categoria in _CAT_LINEA_FICHA:
+        cat_cond = "AND dp.linea = %s"
+        params.append(_CAT_LINEA_FICHA[categoria])
+    elif categoria == 'Sin Clasificar':
+        cat_cond = "AND (dp.linea IS NULL OR dp.linea = 'SIN LINEA')"
+
+    sql = f"""
+        SELECT DISTINCT
+            dp.producto_codigo_erp                      AS codigo,
+            INITCAP(dp.producto_nombre)                 AS nombre,
+            COALESCE(dp.linea, 'SIN LINEA')             AS linea,
+            COALESCE(dp.proveedor, '')                  AS marca,
+            COALESCE(dp.u_L, 0)                         AS ul
+        FROM dw.dim_producto dp
+        WHERE dp.es_producto_actual = true
+          AND (UPPER(dp.producto_nombre) LIKE %s
+               OR UPPER(dp.producto_codigo_erp) LIKE %s)
+          {cat_cond}
+        ORDER BY INITCAP(dp.producto_nombre)
+        LIMIT 25
+    """
+    try:
+        _, rows = _run_dw_query(sql, params)
+        data = [
+            {
+                'codigo': r['codigo'],
+                'nombre': r['nombre'],
+                'linea':  r['linea'],
+                'marca':  r['marca'],
+                'ul':     float(r['ul'] or 0),
+            }
+            for r in rows
+        ]
+        return JsonResponse({'success': True, 'data': data})
+    except Exception as e:
+        return JsonResponse({'success': False, 'error': str(e)}, status=500)
+
+
+@api_view(['GET'])
+@authentication_classes([ExpiringTokenAuthentication])
+@permission_classes([IsAuthenticated])
+@_require_perm('ficha-sku')
+def dashboard_ficha_sku_ventas(request):
+    """
+    Ventas diarias de un SKU en un trimestre.
+    Params: codigo, anho, trimestre (1-4), regional, canal
+    """
+    codigo      = _safe_str(request.GET.get('codigo', ''), 50)
+    anho        = _safe_int(request.GET.get('anho'), datetime.now().year)
+    trimestre   = request.GET.get('trimestre', '2')
+    regional_key = request.GET.get('regional', 'santa_cruz').lower().replace(' ', '_')
+    canal       = _safe_str(request.GET.get('canal', ''), 30)
+
+    if not codigo:
+        return JsonResponse({'success': False, 'error': 'Parámetro codigo requerido'}, status=400)
+    if regional_key not in REGIONALES_VALID:
+        return JsonResponse({'success': False, 'error': 'Regional inválida'}, status=400)
+
+    mes_desde, mes_hasta = _TRIM_MESES.get(trimestre, (4, 6))
+    ciudad_cond = _regional_filter(regional_key, campo='dv.ciudad')
+    canal_cond  = "AND dv.canal_rrhh = %s" if canal else ""
+    params      = [anho, mes_desde, mes_hasta, codigo] + ([canal] if canal else [])
+
+    sql = f"""
+        SELECT
+            df.fecha_completa::TEXT                                          AS fecha,
+            COALESCE(SUM(fv.cantidad), 0)                                    AS unidades,
+            COALESCE(SUM(fv.venta_neta), 0)                                  AS bs,
+            COALESCE(SUM(
+                CASE WHEN dp.linea = 'BEBIDAS ALC'
+                THEN fv.cantidad::NUMERIC * COALESCE(dp.u_L, 0) / 9000.0
+                ELSE fv.cantidad::NUMERIC END
+            ), 0)                                                             AS vol,
+            MAX(CASE WHEN dp.linea = 'BEBIDAS ALC' THEN 1 ELSE 0 END)       AS es_licor
+        FROM dw.fact_ventas       fv
+        JOIN dw.dim_fecha         df  ON df.fecha_sk    = fv.fecha_sk
+        JOIN dw.dim_vendedor      dv  ON dv.vendedor_sk = fv.vendedor_sk
+        JOIN dw.dim_producto      dp  ON dp.producto_sk = fv.producto_sk
+        WHERE df.anho = %s
+          AND df.mes_numero BETWEEN %s AND %s
+          AND dp.producto_codigo_erp = %s
+          AND ({ciudad_cond}) {canal_cond}
+        GROUP BY df.fecha_completa
+        ORDER BY df.fecha_completa
+    """
+    try:
+        _, rows = _run_dw_query(sql, params)
+        es_licor = any(r.get('es_licor') for r in rows)
+        data = [
+            {
+                'fecha':    r['fecha'],
+                'unidades': float(r['unidades']),
+                'bs':       float(r['bs']),
+                'vol':      float(r['vol']),
+            }
+            for r in rows
+        ]
+        return JsonResponse({'success': True, 'data': data, 'es_licor': es_licor})
+    except Exception as e:
+        return JsonResponse({'success': False, 'error': str(e)}, status=500)
+
+
+@api_view(['GET'])
+@authentication_classes([ExpiringTokenAuthentication])
+@permission_classes([IsAuthenticated])
+@_require_perm('ficha-sku')
+def dashboard_ficha_sku_precios(request):
+    """
+    Historial de precios de un SKU desde fact_precio_producto.
+    Params: codigo
+    """
+    codigo = _safe_str(request.GET.get('codigo', ''), 50)
+    if not codigo:
+        return JsonResponse({'success': False, 'error': 'Parámetro codigo requerido'}, status=400)
+
+    sql = """
+        SELECT
+            lp.lista_nombre                         AS lista,
+            fp.precio_venta                         AS precio,
+            fp.precio_con_ice                       AS precio_ice,
+            fp.fecha_desde_precio::TEXT             AS fecha_desde,
+            fp.fecha_hasta_precio::TEXT             AS fecha_hasta,
+            fp.es_precio_actual                     AS es_actual
+        FROM dw.fact_precio_producto fp
+        JOIN dw.dim_lista_precios    lp  ON lp.lista_precios_sk = fp.lista_precios_sk
+        JOIN dw.dim_producto         dp  ON dp.producto_sk      = fp.producto_sk
+        WHERE dp.producto_codigo_erp = %s
+        ORDER BY fp.fecha_desde_precio, lp.lista_nombre
+    """
+    try:
+        _, rows = _run_dw_query(sql, [codigo])
+        data = [
+            {
+                'lista':      r['lista'],
+                'precio':     float(r['precio']),
+                'precio_ice': float(r['precio_ice']) if r.get('precio_ice') is not None else None,
+                'fecha_desde':r['fecha_desde'],
+                'fecha_hasta':r['fecha_hasta'],
+                'es_actual':  r['es_actual'],
+            }
+            for r in rows
+        ]
+        return JsonResponse({'success': True, 'data': data})
+    except Exception as e:
+        return JsonResponse({'success': False, 'error': str(e)})
+
+
+# ─── Distribución de Rutas ────────────────────────────────────────────────────
+
+@api_view(['GET'])
+@authentication_classes([ExpiringTokenAuthentication])
+@permission_classes([IsAuthenticated])
+@_require_perm('distribucion-rutas')
+def dashboard_rutas_opciones(request):
+    """Supervisores y días disponibles, filtrados por canal y/o regional."""
+    canal        = _safe_str(request.GET.get('canal', ''), 30).strip()
+    regional_key = _safe_str(request.GET.get('regional', ''), 20).lower().replace(' ', '_')
+    conds  = ["dv.es_vendedor_actual = true", "dv.supervisor IS NOT NULL", "TRIM(dv.supervisor) <> ''"]
+    params = []
+    if canal:
+        conds.append('dv.canal_rrhh = %s')
+        params.append(canal)
+    if regional_key and regional_key in REGIONALES_VALID and regional_key != 'nacional':
+        ciudad_cond = _regional_filter(regional_key, campo='dv.ciudad')
+        conds.append(f'({ciudad_cond})')
+    where = 'WHERE ' + ' AND '.join(conds)
+    sql_sups = f"""
+        SELECT DISTINCT INITCAP(dv.supervisor) AS supervisor
+        FROM dw.dim_vendedor dv
+        {where}
+        ORDER BY supervisor
+    """
+    sql_dias = """
+        SELECT DISTINCT dp.dia
+        FROM dual.dim_planificacion dp
+        WHERE dp.es_actual = true
+          AND dp.dia IS NOT NULL AND TRIM(dp.dia) <> ''
+        ORDER BY dp.dia
+    """
+    try:
+        _, sup_rows  = _run_dw_query(sql_sups, params)
+        _, dia_rows  = _run_dw_query(sql_dias, [])
+        return JsonResponse({
+            'success':     True,
+            'supervisores': [r['supervisor'] for r in sup_rows],
+            'dias':         [r['dia'] for r in dia_rows],
+        })
+    except Exception as e:
+        return JsonResponse({'success': False, 'error': str(e)}, status=500)
+
+
+@api_view(['GET'])
+@authentication_classes([ExpiringTokenAuthentication])
+@permission_classes([IsAuthenticated])
+@_require_perm('distribucion-rutas')
+def dashboard_rutas_buscar(request):
+    """
+    Búsqueda dinámica de rutas filtradas por supervisor, canal, día y texto.
+    Params: q, canal, supervisor, dia
+    """
+    q            = _safe_str(request.GET.get('q', ''),            100).strip()
+    regional_key = _safe_str(request.GET.get('regional', ''),     20).lower().replace(' ', '_')
+    canal        = _safe_str(request.GET.get('canal', ''),         30).strip()
+    supervisor   = _safe_str(request.GET.get('supervisor', ''),   100).strip()
+    dia          = _safe_str(request.GET.get('dia', ''),           20).strip()
+    vendedor     = _safe_str(request.GET.get('vendedor', ''),     100).strip()
+
+    conds  = ['dp.es_actual = true']
+    params = []
+
+    if regional_key and regional_key in REGIONALES_VALID and regional_key != 'nacional':
+        ciudad_cond = _regional_filter(regional_key, campo='dv.ciudad')
+        conds.append(f'({ciudad_cond})')
+    if canal:
+        conds.append('dv.canal_rrhh = %s')
+        params.append(canal)
+    if supervisor:
+        conds.append('dv.supervisor ILIKE %s')
+        params.append(supervisor)
+    if dia:
+        conds.append('dp.dia = %s')
+        params.append(dia)
+    if vendedor:
+        conds.append('dp.vendedor ILIKE %s')
+        params.append(f'%{vendedor}%')
+    if q:
+        conds.append('UPPER(dp.ruta) LIKE %s')
+        params.append(f'%{q.upper()}%')
+
+    where = 'WHERE ' + ' AND '.join(conds)
+
+    sql = f"""
+        SELECT DISTINCT ON (dp.ruta)
+            dp.ruta,
+            INITCAP(dp.vendedor)     AS vendedor,
+            dv.canal_rrhh            AS canal,
+            INITCAP(dv.supervisor)   AS supervisor
+        FROM dual.dim_planificacion dp
+        JOIN dw.dim_vendedor dv
+            ON  dv.vendedor_codigo_erp = SPLIT_PART(dp.codigo_erp, '.', 1)
+            AND dv.es_vendedor_actual  = true
+        {where}
+        ORDER BY dp.ruta
+        LIMIT 60
+    """
+    try:
+        _, rows = _run_dw_query(sql, params)
+        data = [
+            {
+                'ruta':       r['ruta'],
+                'vendedor':   r['vendedor']   or '',
+                'canal':      r['canal']      or '',
+                'supervisor': r['supervisor'] or '',
+            }
+            for r in rows
+        ]
+        return JsonResponse({'success': True, 'data': data})
+    except Exception as e:
+        return JsonResponse({'success': False, 'error': str(e)}, status=500)
+
+
+@api_view(['GET'])
+@authentication_classes([ExpiringTokenAuthentication])
+@permission_classes([IsAuthenticated])
+@_require_perm('distribucion-rutas')
+def dashboard_rutas_info(request):
+    """
+    Polígono (coordenadas en secuencia) + estadísticas de una ruta.
+    Params: ruta
+    """
+    ruta = _safe_str(request.GET.get('ruta', ''), 100).strip()
+    if not ruta:
+        return JsonResponse({'success': False, 'error': 'Parámetro ruta requerido'}, status=400)
+
+    try:
+        # Tomar solo la versión más reciente; id_zona se repite por sucursal
+        sql_poly = """
+            SELECT dzp.latitud, dzp.longitud
+            FROM dual.dim_zona_posicion dzp
+            JOIN (
+                SELECT id_ruta::integer AS id_zona_int, sucursal_origen
+                FROM dual.dim_ruta
+                WHERE nombre = %s
+                  AND es_ruta_actual = true
+                ORDER BY version_ruta DESC NULLS LAST
+                LIMIT 1
+            ) dr ON dr.id_zona_int = dzp.id_zona
+                AND dr.sucursal_origen = dzp.sucursal_origen
+            ORDER BY dzp.secuencia
+        """
+        _, poly_rows = _run_dw_query(sql_poly, [ruta])
+        pts = [{'lat': float(r['latitud']), 'lng': float(r['longitud'])} for r in poly_rows]
+        polygons = [pts] if len(pts) >= 3 else []
+
+        # Clientes activos en la ruta
+        sql_cli = """
+            SELECT COUNT(*) AS total
+            FROM dual.dim_cliente_dual
+            WHERE ruta = %s AND es_actual = true
+        """
+        _, cli_rows = _run_dw_query(sql_cli, [ruta])
+        clientes = int(cli_rows[0]['total']) if cli_rows else 0
+
+        # Vendedor y datos de la ruta (desde dim_planificacion)
+        sql_vend = """
+            SELECT
+                INITCAP(dp.vendedor)   AS vendedor,
+                dp.dia,
+                dv.canal_rrhh          AS canal,
+                INITCAP(dv.supervisor) AS supervisor
+            FROM dual.dim_planificacion dp
+            JOIN dw.dim_vendedor dv
+                ON  dv.vendedor_codigo_erp = SPLIT_PART(dp.codigo_erp, '.', 1)
+                AND dv.es_vendedor_actual  = true
+            WHERE dp.ruta = %s AND dp.es_actual = true
+            LIMIT 1
+        """
+        _, vend_rows = _run_dw_query(sql_vend, [ruta])
+        vi = vend_rows[0] if vend_rows else {}
+
+        vendedor_full = vi.get('vendedor', '') or ''
+        parts = vendedor_full.strip().split()
+        if len(parts) >= 4:
+            vendedor_corto = f"{parts[0]} {parts[2]}"
+        elif len(parts) >= 2:
+            vendedor_corto = f"{parts[0]} {parts[-1]}"
+        else:
+            vendedor_corto = vendedor_full
+
+        # Detectar columnas de coordenadas y clasificación
+        sql_cols = """
+            SELECT column_name
+            FROM information_schema.columns
+            WHERE table_schema = 'dual' AND table_name = 'dim_cliente_dual'
+            ORDER BY ordinal_position
+        """
+        _, col_rows    = _run_dw_query(sql_cols, [])
+        cols_disp      = [r['column_name'] for r in col_rows]
+        lat_col        = next((c for c in cols_disp if 'lat'   in c.lower()), None)
+        lng_col        = next((c for c in cols_disp if 'lon'   in c.lower() or 'lng' in c.lower()), None)
+        cls_col        = next((c for c in cols_disp if any(x in c.lower() for x in ['clasif','tipo_cli','segmento','actividad'])), 'canal')
+
+        # Ubicaciones + datos de clientes
+        clientes_geo = []
+        if lat_col and lng_col:
+            try:
+                sql_geo = f"""
+                    SELECT {lat_col}           AS lat,
+                           {lng_col}           AS lng,
+                           COALESCE(nombre_compania, '')    AS nombre,
+                           COALESCE(codigo_cliente::text, '') AS codigo,
+                           COALESCE({cls_col}::text, '')    AS clasificacion
+                    FROM dual.dim_cliente_dual
+                    WHERE ruta = %s AND es_actual = true
+                      AND {lat_col} IS NOT NULL AND {lng_col} IS NOT NULL
+                """
+                _, geo_rows  = _run_dw_query(sql_geo, [ruta])
+                clientes_geo = [
+                    {'lat': float(r['lat']), 'lng': float(r['lng']),
+                     'nombre': r['nombre'] or '', 'codigo': r['codigo'] or '',
+                     'clasificacion': r['clasificacion'] or ''}
+                    for r in geo_rows
+                ]
+            except Exception:
+                clientes_geo = []
+
+        return JsonResponse({
+            'success':        True,
+            'polygons':       polygons,
+            'clientes':       clientes,
+            'vendedor':       vendedor_full,
+            'vendedorCorto':  vendedor_corto,
+            'dia':            vi.get('dia',         '') or '',
+            'canal':          vi.get('canal',       '') or '',
+            'supervisor':     vi.get('supervisor',  '') or '',
+            'clientesGeo':    clientes_geo,
+        })
+    except Exception as e:
+        return JsonResponse({'success': False, 'error': str(e)})
+
+
+@api_view(['GET'])
+@authentication_classes([ExpiringTokenAuthentication])
+@permission_classes([IsAuthenticated])
+@_require_perm('distribucion-rutas')
+def dashboard_rutas_todos_poligonos(request):
+    """Polígonos de todas las rutas que coinciden con los filtros."""
+    regional_key = _safe_str(request.GET.get('regional', ''), 20).lower().replace(' ', '_')
+    canal        = _safe_str(request.GET.get('canal', ''), 30).strip()
+    supervisor   = _safe_str(request.GET.get('supervisor', ''), 100).strip()
+    dia          = _safe_str(request.GET.get('dia', ''), 20).strip()
+    vendedor     = _safe_str(request.GET.get('vendedor', ''), 100).strip()
+
+    if not (canal or supervisor or vendedor or (regional_key and regional_key != 'nacional')):
+        return JsonResponse({'success': False, 'error': 'Se requiere canal, supervisor, vendedor o regional'})
+
+    conds  = ['dp.es_actual = true']
+    params = []
+    if regional_key and regional_key in REGIONALES_VALID and regional_key != 'nacional':
+        ciudad_cond = _regional_filter(regional_key, campo='dv.ciudad')
+        conds.append(f'({ciudad_cond})')
+    if canal:
+        conds.append('dv.canal_rrhh = %s')
+        params.append(canal)
+    if supervisor:
+        conds.append('dv.supervisor ILIKE %s')
+        params.append(supervisor)
+    if dia:
+        conds.append('dp.dia = %s')
+        params.append(dia)
+    if vendedor:
+        conds.append('dp.vendedor ILIKE %s')
+        params.append(vendedor)
+
+    where = 'WHERE ' + ' AND '.join(conds)
+
+    sql = f"""
+        WITH rutas_filtradas AS (
+            SELECT DISTINCT ON (dp.ruta)
+                dp.ruta,
+                INITCAP(dp.vendedor) AS vendedor_full
+            FROM dual.dim_planificacion dp
+            JOIN dw.dim_vendedor dv
+                ON  dv.vendedor_codigo_erp = SPLIT_PART(dp.codigo_erp, '.', 1)
+                AND dv.es_vendedor_actual  = true
+            {where}
+            ORDER BY dp.ruta
+            LIMIT 150
+        ),
+        ruta_zona AS (
+            SELECT DISTINCT ON (dr.nombre)
+                dr.nombre,
+                dr.id_ruta::integer AS zona_id,
+                dr.sucursal_origen
+            FROM dual.dim_ruta dr
+            WHERE dr.es_ruta_actual = true
+              AND dr.nombre IN (SELECT ruta FROM rutas_filtradas)
+            ORDER BY dr.nombre, dr.version_ruta DESC NULLS LAST
+        )
+        SELECT rz.nombre   AS ruta,
+               rf.vendedor_full,
+               dzp.latitud,
+               dzp.longitud
+        FROM ruta_zona rz
+        JOIN rutas_filtradas rf ON rf.ruta = rz.nombre
+        JOIN dual.dim_zona_posicion dzp
+            ON  dzp.id_zona         = rz.zona_id
+            AND dzp.sucursal_origen = rz.sucursal_origen
+        ORDER BY rz.nombre, dzp.secuencia
+    """
+    try:
+        _, rows = _run_dw_query(sql, params)
+        rutas: dict = {}
+        for r in rows:
+            nm = r['ruta']
+            if nm not in rutas:
+                parts = (r['vendedor_full'] or '').strip().split()
+                if len(parts) >= 4:
+                    short = f"{parts[0]} {parts[2]}"
+                elif len(parts) >= 2:
+                    short = f"{parts[0]} {parts[-1]}"
+                else:
+                    short = r['vendedor_full'] or ''
+                rutas[nm] = {'ruta': nm, 'vendedor': short, 'polygon': []}
+            rutas[nm]['polygon'].append({'lat': float(r['latitud']), 'lng': float(r['longitud'])})
+
+        # Ubicaciones + datos de clientes para todas las rutas
+        clientes_geo = []
+        ruta_names   = list(rutas.keys())
+        if ruta_names:
+            try:
+                sql_cols2 = """
+                    SELECT column_name FROM information_schema.columns
+                    WHERE table_schema = 'dual' AND table_name = 'dim_cliente_dual'
+                    ORDER BY ordinal_position
+                """
+                _, col_rows2  = _run_dw_query(sql_cols2, [])
+                cols2         = [r['column_name'] for r in col_rows2]
+                lat2          = next((c for c in cols2 if 'lat' in c.lower()), None)
+                lng2          = next((c for c in cols2 if 'lon' in c.lower() or 'lng' in c.lower()), None)
+                cls2          = next((c for c in cols2 if any(x in c.lower() for x in ['clasif','tipo_cli','segmento','actividad'])), 'canal')
+                if lat2 and lng2:
+                    placeholders = ','.join(['%s'] * len(ruta_names))
+                    sql_cli = f"""
+                        SELECT {lat2}                               AS lat,
+                               {lng2}                               AS lng,
+                               COALESCE(nombre_compania, '')        AS nombre,
+                               COALESCE(codigo_cliente::text, '')   AS codigo,
+                               COALESCE({cls2}::text, '')           AS clasificacion
+                        FROM dual.dim_cliente_dual
+                        WHERE ruta IN ({placeholders})
+                          AND es_actual = true
+                          AND {lat2} IS NOT NULL AND {lng2} IS NOT NULL
+                        LIMIT 3000
+                    """
+                    _, cli_rows  = _run_dw_query(sql_cli, ruta_names)
+                    clientes_geo = [
+                        {'lat': float(r['lat']), 'lng': float(r['lng']),
+                         'nombre': r['nombre'] or '', 'codigo': r['codigo'] or '',
+                         'clasificacion': r['clasificacion'] or ''}
+                        for r in cli_rows
+                    ]
+            except Exception:
+                clientes_geo = []
+
+        return JsonResponse({'success': True, 'rutas': list(rutas.values()), 'clientesGeo': clientes_geo})
+    except Exception as e:
+        return JsonResponse({'success': False, 'error': str(e)})

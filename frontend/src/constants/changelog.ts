@@ -1,4 +1,4 @@
-export const CURRENT_VERSION = "1.2.4";
+export const CURRENT_VERSION = "1.2.5";
 
 export interface ChangelogVersion {
   version: string;
@@ -12,6 +12,38 @@ export interface ChangelogVersion {
 }
 
 export const CHANGELOG: ChangelogVersion[] = [
+  {
+    version: "1.2.5",
+    date: "Mayo 2026",
+    fixes: [
+      "Distribución de Rutas: corregido error de columna inexistente al unir dim_ruta con dim_zona_posicion (id_ruta es varchar, id_zona es integer — se aplica cast ::integer)",
+      "Distribución de Rutas: polígonos ya no se dibujan como estrella/asterisco — se filtra por version_ruta DESC y sucursal_origen para obtener la zona correcta",
+      "Distribución de Rutas: filtro de supervisor ahora usa ILIKE — antes solo funcionaba para el primer supervisor de la lista",
+      "Distribución de Rutas: filtro de día corregido — la BD almacena '1-Lu','2-Ma',… no 'LUNES','SABADO'",
+      "Distribución de Rutas: rutas ya no aparecen duplicadas (una por día) — se usa DISTINCT ON (ruta) para deduplicar",
+      "Distribución de Rutas: gestión mostraba años desde 2022 — ahora solo muestra los 2 años más recientes",
+      "Distribución de Rutas: puntos de clientes no se renderizaban por condición de carrera entre efectos del mapa — unificados en un solo efecto",
+    ],
+    features: [
+      "Nuevo dashboard «Ficha de SKU»: búsqueda de producto por código o nombre con filtro de categoría, muestra gráfico de ventas diarias (unidades o volumen) por trimestre/regional/canal y tabla de precios por lista",
+      "Nuevo dashboard «Distribución de Rutas»: mapa interactivo con polígonos de cobertura por ruta usando MapLibre GL",
+      "Distribución de Rutas: filtros condicionales — supervisor y día se cargan desde la BD según la regional y canal seleccionados",
+      "Distribución de Rutas: selector de ruta y selector de vendedor como combobox con búsqueda interna y resultados filtrados",
+      "Distribución de Rutas: filtros de gestión y mes con meses dinámicos (solo hasta el mes actual para el año en curso)",
+      "Distribución de Rutas: nombre del vendedor (1 nombre + 1 apellido) mostrado sobre el polígono en el mapa",
+      "Distribución de Rutas: checkbox «Ver todas las rutas» — dibuja todos los polígonos del canal, supervisor, vendedor o regional seleccionados",
+      "Distribución de Rutas: puntos rojos de ubicación de clientes en el mapa para ruta individual y modo «ver todas»",
+      "Distribución de Rutas: clic en punto de cliente muestra popup con nombre, código y clasificación",
+      "Distribución de Rutas: chips de filtro por clasificación de cliente — filtra los puntos del mapa en tiempo real con conteo por tipo",
+      "Canal DTS-NOC agregado al catálogo del sistema (administración de usuarios, permisos y filtros de todos los dashboards)",
+      "Permisos actualizados: «Ficha de SKU» disponible para Gerente de Ventas y Analista de Datos; «Distribución de Rutas» disponible para Gerente de Ventas, Gerente Regional y Supervisor",
+    ],
+    newDashboardPerms: ["ficha-sku", "distribucion-rutas"],
+    newDashboardNames: {
+      "ficha-sku":          "Ficha de SKU",
+      "distribucion-rutas": "Distribución de Rutas",
+    },
+  },
   {
     version: "1.2.4",
     date: "Mayo 2026",

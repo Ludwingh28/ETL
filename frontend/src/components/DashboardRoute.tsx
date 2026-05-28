@@ -16,6 +16,8 @@ const PERM_TO_ROUTE: Record<string, string> = {
   'unidades-supervisores': '/dashboard/unidades-supervisores',
   'informacion-rutas':     '/dashboard/informacion-rutas',
   'ticket-promedio':       '/dashboard/ticket-promedio',
+  'ficha-sku':             '/dashboard/ficha-sku',
+  'distribucion-rutas':    '/dashboard/distribucion-rutas',
   'lista-precios':         '/dashboard/lista-precios',
   'inventario-almacen':    '/dashboard/inventario-almacen',
   'fechas-vencimiento':    '/dashboard/fechas-vencimiento',

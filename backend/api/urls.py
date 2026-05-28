@@ -88,6 +88,17 @@ urlpatterns = [
     # Tabla Matriz
     path('dashboard/matriz/datos/',          views.dashboard_matriz_datos,          name='matriz-datos'),
 
+    # Dashboard Ficha de SKU
+    path('dashboard/ficha-sku/buscar/',  views.dashboard_ficha_sku_buscar,  name='ficha-sku-buscar'),
+    path('dashboard/ficha-sku/ventas/',  views.dashboard_ficha_sku_ventas,  name='ficha-sku-ventas'),
+    path('dashboard/ficha-sku/precios/', views.dashboard_ficha_sku_precios, name='ficha-sku-precios'),
+
+    # Dashboard Distribución de Rutas
+    path('dashboard/distribucion-rutas/opciones/',         views.dashboard_rutas_opciones,        name='rutas-opciones'),
+    path('dashboard/distribucion-rutas/buscar/',           views.dashboard_rutas_buscar,           name='rutas-buscar'),
+    path('dashboard/distribucion-rutas/info/',             views.dashboard_rutas_info,             name='rutas-info'),
+    path('dashboard/distribucion-rutas/todos-poligonos/',  views.dashboard_rutas_todos_poligonos,  name='rutas-todos-poligonos'),
+
     # Exportaciones XLSX
     path('exportar/ventas-combo-armado/',    views.exportar_ventas_combo_armado,    name='exportar-ventas-combo-armado'),
     path('exportar/clientes-sin-compra/',    views.exportar_clientes_sin_compra,    name='exportar-clientes-sin-compra'),

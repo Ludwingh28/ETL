@@ -20,6 +20,8 @@ import AdminCambiarContrasena from "./pages/AdminCambiarContrasena";
 import AdminRoute from "./components/AdminRoute";
 import DashboardProveedor from "./pages/DashboardProveedor";
 import DashboardTendenciaEstacional from "./pages/DashboardTendenciaEstacional";
+import DashboardFichaSku from "./pages/DashboardFichaSku";
+import DashboardDistribucionRutas from "./pages/DashboardDistribucionRutas";
 import DashboardPreventas from "./pages/DashboardPreventas";
 import DescargaArchivos from "./pages/DescargaArchivos";
 import DownloadToast from "./components/DownloadToast";
@@ -78,6 +80,12 @@ export default function App() {
           />
 
           {/* ── Varios ──────────────────────────────────────────────────────── */}
+          <Route path="/dashboard/ficha-sku"
+            element={<Dash perm="ficha-sku"><DashboardFichaSku /></Dash>}
+          />
+          <Route path="/dashboard/distribucion-rutas"
+            element={<Dash perm="distribucion-rutas"><DashboardDistribucionRutas /></Dash>}
+          />
           <Route path="/dashboard/lista-precios"
             element={<Dash perm="lista-precios"><DashboardEnConstruccion titulo="Lista de Precios" grupo="Varios" /></Dash>}
           />

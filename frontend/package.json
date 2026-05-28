@@ -14,6 +14,7 @@
     "@types/react-pivottable": "0.11.6",
     "@types/react-plotly.js": "2.6.4",
     "lucide-react": "1.0.0-rc.1",
+    "maplibre-gl": "5.24.0",
     "plotly.js-dist-min": "3.4.0",
     "react": "^19.2.4",
     "react-dom": "^19.2.4",

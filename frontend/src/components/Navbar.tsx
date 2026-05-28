@@ -29,6 +29,7 @@ import {
   Milk,
   SoapDispenserDroplet,
   Download,
+  BarChart2,
   type LucideIcon,
 } from "lucide-react";
 import { useAuth } from "../context/AuthContext";
@@ -82,9 +83,11 @@ const NAV_GROUPS: NavGroup[] = [
   {
     label: "Varios",
     items: [
-      { to: "/dashboard/lista-precios", icon: List, label: "Lista de Precios", perm: "lista-precios" },
-      { to: "/dashboard/inventario-almacen", icon: Archive, label: "Inventario por Almacén", perm: "inventario-almacen" },
-      { to: "/dashboard/fechas-vencimiento", icon: CalendarX, label: "Fechas de Vencimiento", perm: "fechas-vencimiento" },
+      { to: "/dashboard/ficha-sku",           icon: BarChart2,  label: "Ficha de SKU",           perm: "ficha-sku"           },
+      { to: "/dashboard/distribucion-rutas",  icon: MapPin,     label: "Distribución de Rutas",  perm: "distribucion-rutas"  },
+      { to: "/dashboard/lista-precios",       icon: List,       label: "Lista de Precios",        perm: "lista-precios"       },
+      { to: "/dashboard/inventario-almacen",  icon: Archive,    label: "Inventario por Almacén",  perm: "inventario-almacen"  },
+      { to: "/dashboard/fechas-vencimiento",  icon: CalendarX,  label: "Fechas de Vencimiento",   perm: "fechas-vencimiento"  },
     ],
   },
   {
