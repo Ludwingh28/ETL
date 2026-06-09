@@ -76,7 +76,8 @@ DATABASES = {
         'PASSWORD':     os.getenv('DB_PASSWORD', ''),
         'HOST':         os.getenv('DB_HOST', 'localhost'),
         'PORT':         os.getenv('DB_PORT', '5432'),
-        'CONN_MAX_AGE': 120,   # reutilizar conexiones hasta 2 min
+        'CONN_MAX_AGE': 300,          # reutilizar conexiones hasta 5 min
+        'CONN_HEALTH_CHECKS': True,   # verificar conexión antes de reutilizar
         'OPTIONS': {
             'client_encoding': 'UTF8',
             'options': '-c search_path=dw,public,staging',
@@ -156,5 +157,58 @@ CORS_EXPOSE_HEADERS = ['Content-Length', 'Content-Disposition', 'X-File-Size']
 
 # ─── Seguridad HTTP ───────────────────────────────────────────────────────────
 SECURE_CONTENT_TYPE_NOSNIFF = True
-SECURE_BROWSER_XSS_FILTER   = True
+SECURE_BROWSER_XSS_FILTER   = True   # X-XSS-Protection: legacy, respaldado por CSP
 X_FRAME_OPTIONS              = 'DENY'
+
+# Cookies — siempre HttpOnly; Secure y SameSite=Lax solo en producción (HTTPS)
+SESSION_COOKIE_HTTPONLY  = True
+SESSION_COOKIE_SAMESITE  = 'Lax'
+SESSION_COOKIE_SECURE    = not DEBUG   # True en prod (HTTPS), False en dev (HTTP)
+
+CSRF_COOKIE_HTTPONLY     = True
+CSRF_COOKIE_SAMESITE     = 'Lax'
+CSRF_COOKIE_SECURE       = not DEBUG
+
+# HSTS — solo activar cuando el servidor termina TLS (prod)
+if not DEBUG:
+    SECURE_HSTS_SECONDS           = 31536000   # 1 año
+    SECURE_HSTS_INCLUDE_SUBDOMAINS = True
+    SECURE_HSTS_PRELOAD           = False       # activar tras verificar que no hay HTTP subdomains
+    SECURE_SSL_REDIRECT           = True        # redirige HTTP → HTTPS
+
+# ─── Logging ──────────────────────────────────────────────────────────────────
+LOGGING = {
+    'version': 1,
+    'disable_existing_loggers': False,
+    'formatters': {
+        'standard': {
+            'format': '{asctime} {levelname} {name} {message}',
+            'style': '{',
+        },
+    },
+    'handlers': {
+        'console': {
+            'class': 'logging.StreamHandler',
+            'formatter': 'standard',
+        },
+        'file': {
+            'class': 'logging.handlers.RotatingFileHandler',
+            'filename': BASE_DIR / 'logs' / 'cruzimex.log',
+            'maxBytes': 5 * 1024 * 1024,   # 5 MB
+            'backupCount': 3,
+            'formatter': 'standard',
+        },
+    },
+    'loggers': {
+        'api': {                            # logger de views.py y middleware
+            'handlers': ['console', 'file'],
+            'level': 'WARNING',
+            'propagate': False,
+        },
+        'django.request': {                # errores HTTP del framework
+            'handlers': ['file'],
+            'level': 'ERROR',
+            'propagate': False,
+        },
+    },
+}

@@ -12,6 +12,7 @@ from .authentication import ExpiringTokenAuthentication
 from rest_framework import status
 from datetime import date, datetime
 import decimal
+import logging
 import re as _re
 import io
 import openpyxl
@@ -19,6 +20,8 @@ from openpyxl.styles import Font
 from functools import wraps
 
 from .models import UserProfile
+
+logger = logging.getLogger(__name__)
 
 
 
@@ -35,13 +38,22 @@ def _safe_int(val, default):
         return int(default)
 
 
-_SAFE_STR_RE = _re.compile(r"[^\w\s\-\.&]", flags=_re.UNICODE)
+_SAFE_STR_RE = _re.compile(r"[^\w \-\.&]", flags=_re.UNICODE)
 
 def _safe_str(val, max_len=100):
     """Limpia y trunca un string de entrada; elimina caracteres no esperados."""
     if val is None:
         return ''
     return _SAFE_STR_RE.sub('', str(val).strip())[:max_len]
+
+
+def _validate_anho_mes(anho, mes=None):
+    """Retorna JsonResponse 400 si los parámetros de período están fuera de rango, None si son válidos."""
+    if anho < 2020 or anho > 2100:
+        return JsonResponse({'success': False, 'error': 'Año fuera de rango'}, status=400)
+    if mes is not None and (mes < 1 or mes > 12):
+        return JsonResponse({'success': False, 'error': 'Mes fuera de rango (1-12)'}, status=400)
+    return None
 
 
 # ─────────────────────────────────────────
@@ -55,19 +67,27 @@ _LOCKOUT_SECONDS = getattr(django_settings, 'LOGIN_LOCKOUT_SECONDS', 900)
 def _login_key(username, ip):
     return 'login_fail:' + str(username)[:50] + ':' + str(ip)[:45]
 
+def _login_key_user(username):
+    # Clave independiente de IP — previene bypass rotando X-Forwarded-For
+    return 'login_fail_u:' + str(username)[:50]
+
 
 def _is_locked_out(username, ip):
-    return cache.get(_login_key(username, ip), 0) >= _MAX_ATTEMPTS
+    # Bloquea si el contador por (usuario+IP) O por usuario-solo alcanza el límite
+    return (
+        cache.get(_login_key(username, ip), 0) >= _MAX_ATTEMPTS
+        or cache.get(_login_key_user(username), 0) >= _MAX_ATTEMPTS
+    )
 
 
 def _record_failed_login(username, ip):
-    key = _login_key(username, ip)
-    attempts = cache.get(key, 0) + 1
-    cache.set(key, attempts, _LOCKOUT_SECONDS)
+    for key in (_login_key(username, ip), _login_key_user(username)):
+        cache.set(key, cache.get(key, 0) + 1, _LOCKOUT_SECONDS)
 
 
 def _clear_failed_logins(username, ip):
     cache.delete(_login_key(username, ip))
+    cache.delete(_login_key_user(username))
 
 
 # ─────────────────────────────────────────
@@ -109,6 +129,8 @@ def _has_dashboard_perm(user, perm_id):
             return True
         return perm_id in (user.profile.dashboard_permissions or [])
     except Exception:
+        logger.exception("Error verificando permiso user=%s perm=%s",
+                         getattr(user, 'username', '?'), perm_id)
         return False
 
 
@@ -118,6 +140,8 @@ def _require_perm(perm_id):
         @wraps(func)
         def wrapper(request, *args, **kwargs):
             if not _has_dashboard_perm(request.user, perm_id):
+                logger.warning("ACCESS_DENIED user=%s perm=%s path=%s",
+                               getattr(request.user, 'username', '?'), perm_id, request.path)
                 return JsonResponse(
                     {'success': False, 'error': 'Sin acceso a este dashboard'},
                     status=403
@@ -133,6 +157,8 @@ def _require_any_perm(*perm_ids):
         @wraps(func)
         def wrapper(request, *args, **kwargs):
             if not any(_has_dashboard_perm(request.user, p) for p in perm_ids):
+                logger.warning("ACCESS_DENIED user=%s perms=%s path=%s",
+                               getattr(request.user, 'username', '?'), perm_ids, request.path)
                 return JsonResponse(
                     {'success': False, 'error': 'Sin acceso a este dashboard'},
                     status=403
@@ -163,6 +189,7 @@ def login(request):
         )
 
     if _is_locked_out(username, ip):
+        logger.warning("AUTH_LOCKOUT user=%s ip=%s", username, ip)
         return JsonResponse(
             {'success': False, 'error': 'Cuenta bloqueada temporalmente. Intentá en 15 minutos.'},
             status=status.HTTP_429_TOO_MANY_REQUESTS
@@ -171,12 +198,14 @@ def login(request):
     user = authenticate(username=username, password=password)
     if not user:
         _record_failed_login(username, ip)
+        logger.warning("AUTH_FAIL user=%s ip=%s", username, ip)
         return JsonResponse(
             {'success': False, 'error': 'Credenciales inválidas'},
             status=status.HTTP_401_UNAUTHORIZED
         )
 
     _clear_failed_logins(username, ip)
+    logger.warning("AUTH_OK user=%s ip=%s", username, ip)
     Token.objects.filter(user=user).delete()
     token = Token.objects.create(user=user)
     groups = list(user.groups.values_list('name', flat=True))
@@ -202,8 +231,9 @@ def logout(request):
     try:
         request.user.auth_token.delete()
         return JsonResponse({'success': True, 'message': 'Sesión cerrada'})
-    except Exception as e:
-        return JsonResponse({'success': False, 'error': str(e)}, status=500)
+    except Exception:
+        logger.exception("Error interno")
+        return JsonResponse({'success': False, 'error': 'Error interno del servidor'}, status=500)
 
 
 @api_view(['GET'])
@@ -265,11 +295,23 @@ _ADMIN_CARGOS_FULL = frozenset([
 ])
 
 def _is_admin(user):
-    """True si el usuario tiene permisos de administración (puede ver todos los filtros)."""
+    """True si el usuario puede ver todos los filtros (regionales, canales)."""
     if user.is_staff or user.is_superuser:
         return True
     try:
         return user.profile.cargo in _ADMIN_CARGOS_FULL
+    except UserProfile.DoesNotExist:
+        return False
+
+
+def _is_user_manager(user):
+    """True si el usuario puede gestionar cuentas (crear, editar, resetear contraseñas).
+    Restringido a administradores de sistema — excluye GG/GV/Analista que solo tienen
+    acceso ampliado a filtros."""
+    if user.is_superuser:
+        return True
+    try:
+        return user.profile.cargo in _ADMIN_CARGOS
     except UserProfile.DoesNotExist:
         return False
 
@@ -309,6 +351,7 @@ def _run_dw_query(sql, params=None):
 @api_view(['GET'])
 @authentication_classes([ExpiringTokenAuthentication])
 @permission_classes([IsAuthenticated])
+@_require_perm('nacional')
 def dashboard_ventas_kpis(request):
     """KPIs principales: total ventas, cantidad pedidos, ticket promedio del mes actual."""
     try:
@@ -324,13 +367,15 @@ def dashboard_ventas_kpis(request):
         """
         _, rows = _run_dw_query(sql)
         return JsonResponse({'success': True, 'data': rows[0] if rows else {}})
-    except Exception as e:
-        return JsonResponse({'success': False, 'error': str(e)}, status=500)
+    except Exception:
+        logger.exception("Error interno")
+        return JsonResponse({'success': False, 'error': 'Error interno del servidor'}, status=500)
 
 
 @api_view(['GET'])
 @authentication_classes([ExpiringTokenAuthentication])
 @permission_classes([IsAuthenticated])
+@_require_perm('nacional')
 def dashboard_ventas_por_mes(request):
     """Ventas netas agrupadas por mes (últimos 12 meses)."""
     try:
@@ -349,13 +394,15 @@ def dashboard_ventas_por_mes(request):
         """
         _, rows = _run_dw_query(sql)
         return JsonResponse({'success': True, 'data': rows})
-    except Exception as e:
-        return JsonResponse({'success': False, 'error': str(e)}, status=500)
+    except Exception:
+        logger.exception("Error interno")
+        return JsonResponse({'success': False, 'error': 'Error interno del servidor'}, status=500)
 
 
 @api_view(['GET'])
 @authentication_classes([ExpiringTokenAuthentication])
 @permission_classes([IsAuthenticated])
+@_require_perm('nacional')
 def dashboard_ventas_por_canal(request):
     """Ventas netas por canal de vendedor (mes actual)."""
     try:
@@ -375,8 +422,9 @@ def dashboard_ventas_por_canal(request):
         """
         _, rows = _run_dw_query(sql)
         return JsonResponse({'success': True, 'data': rows})
-    except Exception as e:
-        return JsonResponse({'success': False, 'error': str(e)}, status=500)
+    except Exception:
+        logger.exception("Error interno")
+        return JsonResponse({'success': False, 'error': 'Error interno del servidor'}, status=500)
 
 
 # ─────────────────────────────────────────
@@ -386,6 +434,7 @@ def dashboard_ventas_por_canal(request):
 @api_view(['GET'])
 @authentication_classes([ExpiringTokenAuthentication])
 @permission_classes([IsAuthenticated])
+@_require_perm('nacional')
 def dashboard_vendedores_ranking(request):
     """Ranking de vendedores por venta neta del mes actual."""
     try:
@@ -409,8 +458,9 @@ def dashboard_vendedores_ranking(request):
         """
         _, rows = _run_dw_query(sql, [limit])
         return JsonResponse({'success': True, 'data': rows})
-    except Exception as e:
-        return JsonResponse({'success': False, 'error': str(e)}, status=500)
+    except Exception:
+        logger.exception("Error interno")
+        return JsonResponse({'success': False, 'error': 'Error interno del servidor'}, status=500)
 
 
 # ─────────────────────────────────────────
@@ -420,6 +470,7 @@ def dashboard_vendedores_ranking(request):
 @api_view(['GET'])
 @authentication_classes([ExpiringTokenAuthentication])
 @permission_classes([IsAuthenticated])
+@_require_perm('nacional')
 def dashboard_productos_top(request):
     """Top productos por venta neta del mes actual."""
     try:
@@ -442,13 +493,15 @@ def dashboard_productos_top(request):
         """
         _, rows = _run_dw_query(sql, [limit])
         return JsonResponse({'success': True, 'data': rows})
-    except Exception as e:
-        return JsonResponse({'success': False, 'error': str(e)}, status=500)
+    except Exception:
+        logger.exception("Error interno")
+        return JsonResponse({'success': False, 'error': 'Error interno del servidor'}, status=500)
 
 
 @api_view(['GET'])
 @authentication_classes([ExpiringTokenAuthentication])
 @permission_classes([IsAuthenticated])
+@_require_perm('nacional')
 def dashboard_productos_por_grupo(request):
     """Ventas por grupo de producto del mes actual."""
     try:
@@ -468,8 +521,9 @@ def dashboard_productos_por_grupo(request):
         """
         _, rows = _run_dw_query(sql)
         return JsonResponse({'success': True, 'data': rows})
-    except Exception as e:
-        return JsonResponse({'success': False, 'error': str(e)}, status=500)
+    except Exception:
+        logger.exception("Error interno")
+        return JsonResponse({'success': False, 'error': 'Error interno del servidor'}, status=500)
 
 
 # ─────────────────────────────────────────
@@ -517,8 +571,9 @@ def dashboard_nacional_periodos(request):
         _, rows = _run_dw_query(sql)
         cache.set('periodos_disponibles', rows, 600)  # cache 10 min
         return JsonResponse({'success': True, 'data': rows})
-    except Exception as e:
-        return JsonResponse({'success': False, 'error': str(e)}, status=500)
+    except Exception:
+        logger.exception("Error interno")
+        return JsonResponse({'success': False, 'error': 'Error interno del servidor'}, status=500)
 
 
 @api_view(['GET'])
@@ -530,6 +585,8 @@ def dashboard_nacional_kpis(request):
     try:
         anho = _safe_int(request.GET.get('anho'), datetime.now().year)
         mes  = _safe_int(request.GET.get('mes'),  datetime.now().month)
+        err  = _validate_anho_mes(anho, mes)
+        if err: return err
 
         scz  = _ciudad_case('dv.ciudad', 'santa_cruz')
         cbba = _ciudad_case('dv.ciudad', 'cochabamba')
@@ -573,8 +630,9 @@ def dashboard_nacional_kpis(request):
 
         data['presupuesto'] = presupuestos
         return JsonResponse({'success': True, 'data': data})
-    except Exception as e:
-        return JsonResponse({'success': False, 'error': str(e)}, status=500)
+    except Exception:
+        logger.exception("Error interno")
+        return JsonResponse({'success': False, 'error': 'Error interno del servidor'}, status=500)
 
 
 @api_view(['GET'])
@@ -587,6 +645,8 @@ def dashboard_nacional_tendencia(request):
         import calendar
         anho = _safe_int(request.GET.get('anho'), datetime.now().year)
         mes  = _safe_int(request.GET.get('mes'),  datetime.now().month)
+        err  = _validate_anho_mes(anho, mes)
+        if err: return err
         hoy  = datetime.now().date()
 
         sql_avance = """
@@ -645,8 +705,9 @@ def dashboard_nacional_tendencia(request):
             'es_periodo_actual': es_periodo_actual,
             'presupuesto_mes': presupuesto_mes,
         })
-    except Exception as e:
-        return JsonResponse({'success': False, 'error': str(e)}, status=500)
+    except Exception:
+        logger.exception("Error interno")
+        return JsonResponse({'success': False, 'error': 'Error interno del servidor'}, status=500)
 
 
 @api_view(['GET'])
@@ -709,8 +770,9 @@ def dashboard_nacional_por_regional(request):
 
         principales = [r for r in rows if r['regional'] in ('Santa Cruz', 'Cochabamba', 'La Paz')]
         return JsonResponse({'success': True, 'data': principales})
-    except Exception as e:
-        return JsonResponse({'success': False, 'error': str(e)}, status=500)
+    except Exception:
+        logger.exception("Error interno")
+        return JsonResponse({'success': False, 'error': 'Error interno del servidor'}, status=500)
 
 
 @api_view(["GET"])
@@ -789,8 +851,9 @@ def dashboard_nacional_por_canal(request):
         result.sort(key=lambda r: r['avance'], reverse=True)
 
         return JsonResponse({"success": True, "data": result})
-    except Exception as e:
-        return JsonResponse({"success": False, "error": str(e)}, status=500)
+    except Exception:
+        logger.exception("Error interno")
+        return JsonResponse({"success": False, "error": "Error interno del servidor"}, status=500)
 
 
 # ─────────────────────────────────────────
@@ -841,7 +904,7 @@ ADMIN_CARGOS = {'Administrador de Sistema', 'Subadministrador de Sistemas'}
 @permission_classes([IsAuthenticated])
 def admin_list_users(request):
     """Lista todos los usuarios del sistema (excluye superusuarios)."""
-    if not _is_admin(request.user):
+    if not _is_user_manager(request.user):
         return JsonResponse({'success': False, 'error': 'Sin permisos'}, status=403)
 
     users = (
@@ -857,7 +920,7 @@ def admin_list_users(request):
 @permission_classes([IsAuthenticated])
 def admin_create_user(request):
     """Crea un nuevo usuario con su perfil."""
-    if not _is_admin(request.user):
+    if not _is_user_manager(request.user):
         return JsonResponse({'success': False, 'error': 'Sin permisos'}, status=403)
 
     data                  = request.data
@@ -898,6 +961,7 @@ def admin_create_user(request):
         canal                 = canal,
         dashboard_permissions = dashboard_permissions,
     )
+    logger.warning("ADMIN_CREATE_USER actor=%s new_user=%s cargo=%s", request.user.username, username, cargo)
     return JsonResponse({'success': True, 'user': _serialize_user(new_user)}, status=201)
 
 
@@ -906,8 +970,11 @@ def admin_create_user(request):
 @permission_classes([IsAuthenticated])
 def admin_update_user(request, user_id):
     """Actualiza datos básicos + cargo/regional de un usuario."""
-    if not _is_admin(request.user):
+    if not _is_user_manager(request.user):
         return JsonResponse({'success': False, 'error': 'Sin permisos'}, status=403)
+
+    if request.user.pk == user_id:
+        return JsonResponse({'success': False, 'error': 'No puedes modificar tu propia cuenta'}, status=403)
 
     try:
         target = User.objects.get(pk=user_id, is_superuser=False)
@@ -958,8 +1025,11 @@ def admin_update_user(request, user_id):
 @permission_classes([IsAuthenticated])
 def admin_update_permissions(request, user_id):
     """Actualiza los permisos de dashboards de un usuario."""
-    if not _is_admin(request.user):
+    if not _is_user_manager(request.user):
         return JsonResponse({'success': False, 'error': 'Sin permisos'}, status=403)
+
+    if request.user.pk == user_id:
+        return JsonResponse({'success': False, 'error': 'No puedes modificar tu propia cuenta'}, status=403)
 
     try:
         target = User.objects.get(pk=user_id, is_superuser=False)
@@ -973,6 +1043,7 @@ def admin_update_permissions(request, user_id):
     profile = _get_or_create_profile(target)
     profile.dashboard_permissions = perms
     profile.save()
+    logger.warning("ADMIN_UPDATE_PERMS actor=%s target=%s perms=%s", request.user.username, target.username, perms)
 
     return JsonResponse({'success': True, 'user': _serialize_user(target)})
 
@@ -982,8 +1053,11 @@ def admin_update_permissions(request, user_id):
 @permission_classes([IsAuthenticated])
 def admin_set_password(request, user_id):
     """Establece nueva contraseña para cualquier usuario (sin requerir la actual)."""
-    if not _is_admin(request.user):
+    if not _is_user_manager(request.user):
         return JsonResponse({'success': False, 'error': 'Sin permisos'}, status=403)
+
+    if request.user.pk == user_id:
+        return JsonResponse({'success': False, 'error': 'Usa /auth/change-password/ para cambiar tu propia contraseña'}, status=403)
 
     try:
         target = User.objects.get(pk=user_id, is_superuser=False)
@@ -1001,7 +1075,7 @@ def admin_set_password(request, user_id):
     target.save()
     # Invalida sesiones activas del usuario afectado
     Token.objects.filter(user=target).delete()
-
+    logger.warning("ADMIN_SET_PASSWORD actor=%s target=%s", request.user.username, target.username)
     return JsonResponse({'success': True, 'message': 'Contraseña actualizada correctamente'})
 
 
@@ -1018,6 +1092,8 @@ def dashboard_nacional_por_categoria(request):
     try:
         anho = _safe_int(request.GET.get('anho'), datetime.now().year)
         mes  = _safe_int(request.GET.get('mes'),  datetime.now().month)
+        err  = _validate_anho_mes(anho, mes)
+        if err: return err
 
         sql = """
             SELECT
@@ -1083,8 +1159,9 @@ def dashboard_nacional_por_categoria(request):
         result.sort(key=lambda r: r['venta_neta'], reverse=True)
 
         return JsonResponse({'success': True, 'data': result})
-    except Exception as e:
-        return JsonResponse({'success': False, 'error': str(e)}, status=500)
+    except Exception:
+        logger.exception("Error interno")
+        return JsonResponse({'success': False, 'error': 'Error interno del servidor'}, status=500)
 
 
 # ─────────────────────────────────────────
@@ -1095,7 +1172,9 @@ REGIONALES_VALID = {'santa_cruz', 'cochabamba', 'la_paz', 'nacional'}
 
 
 def _regional_filter(regional_key, campo='dv.ciudad'):
-    if regional_key == 'nacional':
+    if not regional_key or regional_key == 'nacional':
+        return '1=1'
+    if regional_key not in CIUDADES:
         return '1=1'
     return _ciudad_case(campo, regional_key)
 
@@ -1140,6 +1219,8 @@ def dashboard_regionales_kpis(request):
             regional = _REGIONAL_NAME_TO_KEY.get(profile.regional, 'santa_cruz')
         anho     = _safe_int(request.GET.get('anho'), datetime.now().year)
         mes      = _safe_int(request.GET.get('mes'),  datetime.now().month)
+        err      = _validate_anho_mes(anho, mes)
+        if err: return err
         if regional not in REGIONALES_VALID:
             return JsonResponse({'success': False, 'error': 'Regional inválida'}, status=400)
 
@@ -1179,8 +1260,9 @@ def dashboard_regionales_kpis(request):
             'canales':        canales,
             'fecha_corte':    fecha_corte,
         }})
-    except Exception as e:
-        return JsonResponse({'success': False, 'error': str(e)}, status=500)
+    except Exception:
+        logger.exception("Error interno")
+        return JsonResponse({'success': False, 'error': 'Error interno del servidor'}, status=500)
 
 
 @api_view(['GET'])
@@ -1263,8 +1345,9 @@ def dashboard_regionales_tendencia(request):
         return JsonResponse({'success': True, 'data': result,
                              'presupuesto_mes': presupuesto_mes,
                              'es_periodo_actual': es_periodo_actual})
-    except Exception as e:
-        return JsonResponse({'success': False, 'error': str(e)}, status=500)
+    except Exception:
+        logger.exception("Error interno")
+        return JsonResponse({'success': False, 'error': 'Error interno del servidor'}, status=500)
 
 
 @api_view(['GET'])
@@ -1302,8 +1385,9 @@ def dashboard_regionales_por_canal(request):
             row['presupuesto'] = ppto
             row['porcentaje']  = round(row['avance'] / ppto * 100, 1) if ppto > 0 else None
         return JsonResponse({'success': True, 'data': rows})
-    except Exception as e:
-        return JsonResponse({'success': False, 'error': str(e)}, status=500)
+    except Exception:
+        logger.exception("Error interno")
+        return JsonResponse({'success': False, 'error': 'Error interno del servidor'}, status=500)
 
 
 _CATEGORIA_CASE = """
@@ -1332,6 +1416,8 @@ def dashboard_regionales_por_categoria(request):
             regional = _REGIONAL_NAME_TO_KEY.get(profile.regional, 'santa_cruz')
         anho     = _safe_int(request.GET.get('anho'), datetime.now().year)
         mes      = _safe_int(request.GET.get('mes'),  datetime.now().month)
+        err      = _validate_anho_mes(anho, mes)
+        if err: return err
         if regional not in REGIONALES_VALID:
             return JsonResponse({'success': False, 'error': 'Regional inválida'}, status=400)
 
@@ -1387,8 +1473,9 @@ def dashboard_regionales_por_categoria(request):
             })
 
         return JsonResponse({'success': True, 'data': result})
-    except Exception as e:
-        return JsonResponse({'success': False, 'error': str(e)}, status=500)
+    except Exception:
+        logger.exception("Error interno")
+        return JsonResponse({'success': False, 'error': 'Error interno del servidor'}, status=500)
 
 
 # ─────────────────────────────────────────
@@ -1416,6 +1503,8 @@ def dashboard_canales_kpis(request):
             canal    = (profile.canal or '').strip()
         anho     = _safe_int(request.GET.get('anho'), datetime.now().year)
         mes      = _safe_int(request.GET.get('mes'),  datetime.now().month)
+        err      = _validate_anho_mes(anho, mes)
+        if err: return err
         if regional not in REGIONALES_VALID:
             return JsonResponse({'success': False, 'error': 'Regional inválida'}, status=400)
 
@@ -1447,8 +1536,9 @@ def dashboard_canales_kpis(request):
             result.append({**row, 'presupuesto': ppto,
                            'porcentaje': round(row['avance'] / ppto * 100, 1) if ppto > 0 else None})
         return JsonResponse({'success': True, 'data': result})
-    except Exception as e:
-        return JsonResponse({'success': False, 'error': str(e)}, status=500)
+    except Exception:
+        logger.exception("Error interno")
+        return JsonResponse({'success': False, 'error': 'Error interno del servidor'}, status=500)
 
 
 @api_view(['GET'])
@@ -1530,8 +1620,9 @@ def dashboard_canales_tendencia(request):
         return JsonResponse({'success': True, 'data': result,
                              'presupuesto_mes': presupuesto_mes,
                              'es_periodo_actual': es_periodo_actual})
-    except Exception as e:
-        return JsonResponse({'success': False, 'error': str(e)}, status=500)
+    except Exception:
+        logger.exception("Error interno")
+        return JsonResponse({'success': False, 'error': 'Error interno del servidor'}, status=500)
 
 
 @api_view(['GET'])
@@ -1615,8 +1706,9 @@ def dashboard_canales_por_categoria(request):
                 'porcentaje': round(av / ppto * 100, 1) if ppto > 0 else None,
             })
         return JsonResponse({'success': True, 'data': result})
-    except Exception as e:
-        return JsonResponse({'success': False, 'error': str(e)}, status=500)
+    except Exception:
+        logger.exception("Error interno")
+        return JsonResponse({'success': False, 'error': 'Error interno del servidor'}, status=500)
 
 
 @api_view(['GET'])
@@ -1644,6 +1736,8 @@ def dashboard_canales_por_sku(request):
         categoria = _safe_str(request.GET.get('categoria', ''))
         anho      = _safe_int(request.GET.get('anho'), datetime.now().year)
         mes       = _safe_int(request.GET.get('mes'),  datetime.now().month)
+        err       = _validate_anho_mes(anho, mes)
+        if err: return err
         limit     = min(_safe_int(request.GET.get('limit'), 500), 1000)
         if regional not in REGIONALES_VALID:
             return JsonResponse({'success': False, 'error': 'Regional inválida'}, status=400)
@@ -1720,8 +1814,9 @@ def dashboard_canales_por_sku(request):
                 'porcentaje_uds': round(cant / ppto_uds * 100, 1) if ppto_uds > 0 else None,
             })
         return JsonResponse({'success': True, 'data': result})
-    except Exception as e:
-        return JsonResponse({'success': False, 'error': str(e)}, status=500)
+    except Exception:
+        logger.exception("Error interno")
+        return JsonResponse({'success': False, 'error': 'Error interno del servidor'}, status=500)
 
 
 # ─────────────────────────────────────────
@@ -1776,6 +1871,8 @@ def dashboard_supervisores_vendedores(request):
 
         anho = _safe_int(request.GET.get('anho'), datetime.now().year)
         mes  = _safe_int(request.GET.get('mes'),  datetime.now().month)
+        err  = _validate_anho_mes(anho, mes)
+        if err: return err
 
         if regional_key not in REGIONALES_VALID:
             return JsonResponse({'success': False, 'error': 'Regional inválida'}, status=400)
@@ -1906,8 +2003,9 @@ def dashboard_supervisores_vendedores(request):
             'fecha_corte':  fecha_corte,
             'vendedores':   result,
         })
-    except Exception as e:
-        return JsonResponse({'success': False, 'error': str(e)}, status=500)
+    except Exception:
+        logger.exception("Error interno")
+        return JsonResponse({'success': False, 'error': 'Error interno del servidor'}, status=500)
 
 
 @api_view(['GET'])
@@ -1942,6 +2040,8 @@ def dashboard_supervisores_liquidaciones(request):
 
         anho = _safe_int(request.GET.get('anho'), datetime.now().year)
         mes  = _safe_int(request.GET.get('mes'),  datetime.now().month)
+        err  = _validate_anho_mes(anho, mes)
+        if err: return err
 
         if regional_key not in REGIONALES_VALID:
             return JsonResponse({'success': False, 'error': 'Regional inválida'}, status=400)
@@ -1981,8 +2081,9 @@ def dashboard_supervisores_liquidaciones(request):
 
         fechas = sorted(fechas_set)
         return JsonResponse({'success': True, 'fechas': fechas, 'rows': list(vendedores.values())})
-    except Exception as e:
-        return JsonResponse({'success': False, 'error': str(e)}, status=500)
+    except Exception:
+        logger.exception("Error interno")
+        return JsonResponse({'success': False, 'error': 'Error interno del servidor'}, status=500)
 
 
 @api_view(['GET'])
@@ -2008,6 +2109,8 @@ def dashboard_supervisores_supervisor_lista(request):
 
         anho = _safe_int(request.GET.get('anho'), datetime.now().year)
         mes  = _safe_int(request.GET.get('mes'),  datetime.now().month)
+        err  = _validate_anho_mes(anho, mes)
+        if err: return err
 
         if regional_key not in REGIONALES_VALID:
             return JsonResponse({'success': False, 'error': 'Regional inválida'}, status=400)
@@ -2028,8 +2131,9 @@ def dashboard_supervisores_supervisor_lista(request):
         """
         _, rows = _run_dw_query(sql, params)
         return JsonResponse({'success': True, 'data': [r['supervisor'] for r in rows]})
-    except Exception as e:
-        return JsonResponse({'success': False, 'error': str(e)}, status=500)
+    except Exception:
+        logger.exception("Error interno")
+        return JsonResponse({'success': False, 'error': 'Error interno del servidor'}, status=500)
 
 
 # ─────────────────────────────────────────
@@ -2091,7 +2195,8 @@ def dashboard_preventas_kpis(request):
         sql = f"""
             SELECT
                 COUNT(DISTINCT dp.nro_transaccion)                             AS total_pedidos,
-                ROUND(COALESCE(SUM(dp.importe_total), 0)::NUMERIC, 2)          AS total_importe
+                ROUND(COALESCE(SUM(dp.importe_total), 0)::NUMERIC, 2)          AS total_importe,
+                MAX(dp.fecha_actualizacion)                                     AS ultima_actualizacion
             FROM dual.dim_preventa dp
             JOIN dw.dim_vendedor dv ON dv.vendedor_codigo_erp = dp.codigo_usuario
                 AND dv.es_vendedor_actual = TRUE
@@ -2100,13 +2205,22 @@ def dashboard_preventas_kpis(request):
         """
         _, rows = _run_dw_query(sql, params)
         row = rows[0] if rows else {}
+        ua  = row.get('ultima_actualizacion')
+        if ua is not None and hasattr(ua, 'isoformat'):
+            ua_str = ua.isoformat()
+        elif ua is not None:
+            ua_str = str(ua)
+        else:
+            ua_str = None
         return JsonResponse({
-            'success':        True,
-            'total_pedidos':  row.get('total_pedidos', 0),
-            'total_importe':  float(row.get('total_importe', 0) or 0),
+            'success':               True,
+            'total_pedidos':         row.get('total_pedidos', 0),
+            'total_importe':         float(row.get('total_importe', 0) or 0),
+            'ultima_actualizacion':  ua_str,
         })
-    except Exception as e:
-        return JsonResponse({'success': False, 'error': str(e)}, status=500)
+    except Exception:
+        logger.exception("Error interno")
+        return JsonResponse({'success': False, 'error': 'Error interno del servidor'}, status=500)
 
 
 @api_view(['GET'])
@@ -2175,8 +2289,9 @@ def dashboard_preventas_por_canal(request):
             for r in rows
         ]
         return JsonResponse({'success': True, 'data': data, 'agrupado_por': agrupado_por_val})
-    except Exception as e:
-        return JsonResponse({'success': False, 'error': str(e)}, status=500)
+    except Exception:
+        logger.exception("Error interno")
+        return JsonResponse({'success': False, 'error': 'Error interno del servidor'}, status=500)
 
 
 @api_view(['GET'])
@@ -2287,8 +2402,9 @@ def dashboard_preventas_por_vendedor(request):
             for r in rows
         ]
         return JsonResponse({'success': True, 'data': data})
-    except Exception as e:
-        return JsonResponse({'success': False, 'error': str(e)}, status=500)
+    except Exception:
+        logger.exception("Error interno")
+        return JsonResponse({'success': False, 'error': 'Error interno del servidor'}, status=500)
 
 
 @api_view(['GET'])
@@ -2304,7 +2420,7 @@ def dashboard_preventas_top_faltantes(request):
             canal        = _safe_str(request.GET.get('canal', ''))
         else:
             regional_key = _REGIONAL_NAME_TO_KEY.get(profile.regional, 'santa_cruz')
-            canal        = profile.canal.strip()
+            canal        = (profile.canal or '').strip()
         fecha_desde, fecha_hasta = _preventas_fecha_rango(request)
         supervisor = _safe_str(request.GET.get('supervisor', ''))
         if regional_key not in REGIONALES_VALID:
@@ -2348,8 +2464,9 @@ def dashboard_preventas_top_faltantes(request):
             for r in rows
         ]
         return JsonResponse({'success': True, 'data': data})
-    except Exception as e:
-        return JsonResponse({'success': False, 'error': str(e)}, status=500)
+    except Exception:
+        logger.exception("Error interno")
+        return JsonResponse({'success': False, 'error': 'Error interno del servidor'}, status=500)
 
 
 @api_view(['GET'])
@@ -2365,7 +2482,7 @@ def dashboard_preventas_supervisores_lista(request):
             canal        = _safe_str(request.GET.get('canal', ''))
         else:
             regional_key = _REGIONAL_NAME_TO_KEY.get(profile.regional, 'santa_cruz')
-            canal        = profile.canal.strip()
+            canal        = (profile.canal or '').strip()
         fecha_desde, fecha_hasta = _preventas_fecha_rango(request)
         if regional_key not in REGIONALES_VALID:
             return JsonResponse({'success': False, 'error': 'Regional inválida'}, status=400)
@@ -2384,8 +2501,9 @@ def dashboard_preventas_supervisores_lista(request):
         """
         _, rows = _run_dw_query(sql, params)
         return JsonResponse({'success': True, 'data': [r['supervisor'] for r in rows]})
-    except Exception as e:
-        return JsonResponse({'success': False, 'error': str(e)}, status=500)
+    except Exception:
+        logger.exception("Error interno")
+        return JsonResponse({'success': False, 'error': 'Error interno del servidor'}, status=500)
 
 
 # ─────────────────────────────────────────
@@ -2484,8 +2602,9 @@ def dashboard_unidades_kpis(request):
             'total_pct':        round(total_vn / total_ppto * 100, 1) if total_ppto > 0 else None,
             'fecha_corte':      fecha_corte,
         })
-    except Exception as e:
-        return JsonResponse({'success': False, 'error': str(e)}, status=500)
+    except Exception:
+        logger.exception("Error interno")
+        return JsonResponse({'success': False, 'error': 'Error interno del servidor'}, status=500)
 
 
 @api_view(['GET'])
@@ -2569,8 +2688,9 @@ def dashboard_unidades_por_subgrupo(request):
                 'porcentaje_uds': round(cant / ppto_uds * 100, 1) if ppto_uds > 0 else None,
             })
         return JsonResponse({'success': True, 'data': result})
-    except Exception as e:
-        return JsonResponse({'success': False, 'error': str(e)}, status=500)
+    except Exception:
+        logger.exception("Error interno")
+        return JsonResponse({'success': False, 'error': 'Error interno del servidor'}, status=500)
 
 
 @api_view(['GET'])
@@ -2589,6 +2709,8 @@ def dashboard_unidades_por_sku(request):
         subgrupo  = _safe_str(request.GET.get('subgrupo', ''))
         anho      = _safe_int(request.GET.get('anho'), datetime.now().year)
         mes       = _safe_int(request.GET.get('mes'),  datetime.now().month)
+        err       = _validate_anho_mes(anho, mes)
+        if err: return err
         limit     = min(_safe_int(request.GET.get('limit'), 500), 1000)
         if regional not in REGIONALES_VALID:
             return JsonResponse({'success': False, 'error': 'Regional inválida'}, status=400)
@@ -2659,8 +2781,9 @@ def dashboard_unidades_por_sku(request):
                 'porcentaje_uds':  round(cant / ppto_uds * 100, 1) if ppto_uds > 0 else None,
             })
         return JsonResponse({'success': True, 'data': result})
-    except Exception as e:
-        return JsonResponse({'success': False, 'error': str(e)}, status=500)
+    except Exception:
+        logger.exception("Error interno")
+        return JsonResponse({'success': False, 'error': 'Error interno del servidor'}, status=500)
 
 
 @api_view(['GET'])
@@ -2756,8 +2879,9 @@ def dashboard_unidades_vendedor_sku(request):
                 'porcentaje_uds':  round(cant / ppto_uds * 100, 1) if ppto_uds > 0 else None,
             })
         return JsonResponse({'success': True, 'data': result})
-    except Exception as e:
-        return JsonResponse({'success': False, 'error': str(e)}, status=500)
+    except Exception:
+        logger.exception("Error interno")
+        return JsonResponse({'success': False, 'error': 'Error interno del servidor'}, status=500)
 
 
 @api_view(['GET'])
@@ -2814,8 +2938,9 @@ def dashboard_unidades_por_vendedor(request):
             for r in rows
         ]
         return JsonResponse({'success': True, 'data': result})
-    except Exception as e:
-        return JsonResponse({'success': False, 'error': str(e)}, status=500)
+    except Exception:
+        logger.exception("Error interno")
+        return JsonResponse({'success': False, 'error': 'Error interno del servidor'}, status=500)
 
 
 # ─────────────────────────────────────────
@@ -2848,22 +2973,26 @@ def dashboard_proveedor_kpis(request):
         proveedor = _safe_str(request.GET.get('proveedor', ''), 50).upper()
         anho      = _safe_int(request.GET.get('anho'), datetime.now().year)
         mes       = _safe_int(request.GET.get('mes'),  datetime.now().month)
+        err       = _validate_anho_mes(anho, mes)
+        if err: return err
 
         if not proveedor:
             return JsonResponse({'success': False, 'error': 'Parámetro proveedor requerido'}, status=400)
         if not _check_proveedor_perm(request, proveedor):
             return JsonResponse({'success': False, 'error': 'Sin acceso a este dashboard'}, status=403)
 
-        sql_total = """
+        prov_filter = "(UPPER(dp.proveedor) = %s OR UPPER(dp.cat_comercial) = %s)"
+
+        sql_total = f"""
             SELECT COALESCE(SUM(fv.total), 0)              AS total,
                    COUNT(DISTINCT fv.numero_venta)         AS pedidos,
                    COUNT(DISTINCT fv.cliente_sk)           AS clientes
             FROM dw.fact_ventas fv
             JOIN dw.dim_producto dp ON dp.producto_sk = fv.producto_sk
             JOIN dw.dim_fecha    df ON df.fecha_sk    = fv.fecha_sk
-            WHERE df.anho = %s AND df.mes_numero = %s AND dp.proveedor = %s
+            WHERE df.anho = %s AND df.mes_numero = %s AND {prov_filter}
         """
-        _, rows_total = _run_dw_query(sql_total, [anho, mes, proveedor])
+        _, rows_total = _run_dw_query(sql_total, [anho, mes, proveedor, proveedor])
 
         scz  = _ciudad_case('dv.ciudad', 'santa_cruz')
         cbba = _ciudad_case('dv.ciudad', 'cochabamba')
@@ -2881,10 +3010,10 @@ def dashboard_proveedor_kpis(request):
             JOIN dw.dim_producto dp ON dp.producto_sk = fv.producto_sk
             JOIN dw.dim_fecha    df ON df.fecha_sk    = fv.fecha_sk
             JOIN dw.dim_vendedor dv ON dv.vendedor_sk = fv.vendedor_sk
-            WHERE df.anho = %s AND df.mes_numero = %s AND dp.proveedor = %s
+            WHERE df.anho = %s AND df.mes_numero = %s AND {prov_filter}
             GROUP BY regional ORDER BY total DESC
         """
-        _, rows_reg = _run_dw_query(sql_reg, [anho, mes, proveedor])
+        _, rows_reg = _run_dw_query(sql_reg, [anho, mes, proveedor, proveedor])
 
         kpis = rows_total[0] if rows_total else {'total': 0, 'pedidos': 0, 'clientes': 0}
         return JsonResponse({'success': True, 'data': {
@@ -2893,8 +3022,9 @@ def dashboard_proveedor_kpis(request):
             'clientes':   int(kpis.get('clientes', 0) or 0),
             'regionales': rows_reg,
         }})
-    except Exception as e:
-        return JsonResponse({'success': False, 'error': str(e)}, status=500)
+    except Exception:
+        logger.exception("Error interno")
+        return JsonResponse({'success': False, 'error': 'Error interno del servidor'}, status=500)
 
 
 @api_view(['GET'])
@@ -2906,6 +3036,8 @@ def dashboard_proveedor_por_marca(request):
         proveedor = _safe_str(request.GET.get('proveedor', ''), 50).upper()
         anho      = _safe_int(request.GET.get('anho'), datetime.now().year)
         mes       = _safe_int(request.GET.get('mes'),  datetime.now().month)
+        err       = _validate_anho_mes(anho, mes)
+        if err: return err
 
         if not proveedor:
             return JsonResponse({'success': False, 'error': 'Parámetro proveedor requerido'}, status=400)
@@ -2913,21 +3045,25 @@ def dashboard_proveedor_por_marca(request):
             return JsonResponse({'success': False, 'error': 'Sin acceso a este dashboard'}, status=403)
 
         sql = """
-            SELECT dv.canal                            AS marca,
+            SELECT cd.canal                            AS marca,
                    COALESCE(SUM(fv.total), 0)          AS total,
                    COALESCE(SUM(fv.cantidad), 0)       AS cantidad
             FROM dw.fact_ventas fv
-            JOIN dw.dim_producto dp ON dp.producto_sk = fv.producto_sk
-            JOIN dw.dim_vendedor dv ON dv.vendedor_sk = fv.vendedor_sk
-            JOIN dw.dim_fecha    df ON df.fecha_sk    = fv.fecha_sk
-            WHERE df.anho = %s AND df.mes_numero = %s AND dp.proveedor = %s
-            GROUP BY dv.canal
+            JOIN dw.dim_producto      dp ON dp.producto_sk    = fv.producto_sk
+            JOIN dw.dim_fecha         df ON df.fecha_sk       = fv.fecha_sk
+            JOIN dw.dim_cliente       dc ON dc.cliente_sk     = fv.cliente_sk
+            JOIN dual.dim_cliente_dual cd ON cd.codigo_cliente = dc.cliente_codigo_erp
+                                         AND cd.es_actual = TRUE
+            WHERE df.anho = %s AND df.mes_numero = %s
+              AND (UPPER(dp.proveedor) = %s OR UPPER(dp.cat_comercial) = %s)
+            GROUP BY cd.canal
             ORDER BY total DESC
         """
-        _, rows = _run_dw_query(sql, [anho, mes, proveedor])
+        _, rows = _run_dw_query(sql, [anho, mes, proveedor, proveedor])
         return JsonResponse({'success': True, 'data': rows})
-    except Exception as e:
-        return JsonResponse({'success': False, 'error': str(e)}, status=500)
+    except Exception:
+        logger.exception("Error interno")
+        return JsonResponse({'success': False, 'error': 'Error interno del servidor'}, status=500)
 
 
 @api_view(['GET'])
@@ -2939,6 +3075,8 @@ def dashboard_proveedor_tabla(request):
         proveedor = _safe_str(request.GET.get('proveedor', ''), 50).upper()
         anho      = _safe_int(request.GET.get('anho'), datetime.now().year)
         mes       = _safe_int(request.GET.get('mes'),  datetime.now().month)
+        err       = _validate_anho_mes(anho, mes)
+        if err: return err
 
         if not proveedor:
             return JsonResponse({'success': False, 'error': 'Parámetro proveedor requerido'}, status=400)
@@ -2968,13 +3106,15 @@ def dashboard_proveedor_tabla(request):
             JOIN dw.dim_almacen  da ON da.almacen_sk  = fv.almacen_sk
             JOIN dw.dim_cliente  dc ON dc.cliente_sk  = fv.cliente_sk
             JOIN dw.dim_fecha    df ON df.fecha_sk    = fv.fecha_sk
-            WHERE df.anho = %s AND df.mes_numero = %s AND dp.proveedor = %s
+            WHERE df.anho = %s AND df.mes_numero = %s
+              AND (UPPER(dp.proveedor) = %s OR UPPER(dp.cat_comercial) = %s)
             ORDER BY fv.numero_venta, dp.producto_nombre
         """
-        _, rows = _run_dw_query(sql, [anho, mes, proveedor])
+        _, rows = _run_dw_query(sql, [anho, mes, proveedor, proveedor])
         return JsonResponse({'success': True, 'data': rows})
-    except Exception as e:
-        return JsonResponse({'success': False, 'error': str(e)}, status=500)
+    except Exception:
+        logger.exception("Error interno")
+        return JsonResponse({'success': False, 'error': 'Error interno del servidor'}, status=500)
 
 
 # ─────────────────────────────────────────
@@ -3022,6 +3162,9 @@ def exportar_ventas_combo_armado(request):
             return JsonResponse({"error": "Usuario inactivo"}, status=401)
     except Exception:
         return JsonResponse({"error": "Token inválido"}, status=401)
+
+    if not _has_dashboard_perm(token_obj.user, 'descargas'):
+        return JsonResponse({"error": "Sin acceso a descargas"}, status=403)
 
     fecha_desde = request.GET.get("fecha_desde", "")
     fecha_hasta = request.GET.get("fecha_hasta", "")
@@ -3107,8 +3250,9 @@ def exportar_ventas_combo_armado(request):
                     break
                 for row in batch:
                     ws.append(list(row) + ["", "", "", ""])
-    except Exception as e:
-        return JsonResponse({"success": False, "error": str(e)}, status=500)
+    except Exception:
+        logger.exception("Error interno")
+        return JsonResponse({"success": False, "error": "Error interno del servidor"}, status=500)
 
     buffer = io.BytesIO()
     wb.save(buffer)
@@ -3152,8 +3296,9 @@ def dashboard_canales_lista(request):
         canales = [r['canal_rrhh'] for r in rows]
         cache.set('canales_lista', canales, 3600)
         return JsonResponse({'success': True, 'data': canales})
-    except Exception as e:
-        return JsonResponse({'success': False, 'error': str(e)}, status=500)
+    except Exception:
+        logger.exception("Error interno")
+        return JsonResponse({'success': False, 'error': 'Error interno del servidor'}, status=500)
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -3166,6 +3311,9 @@ def dashboard_canales_lista(request):
 @_require_perm('informacion-rutas')
 def dashboard_marcas_lista(_request):
     """Lista de marcas activas en el DW, para filtro de cobertura."""
+    cached = cache.get('marcas_lista_rutas')
+    if cached is not None:
+        return JsonResponse({'success': True, 'data': cached})
     try:
         sql = """
             SELECT DISTINCT dp.marca
@@ -3175,9 +3323,12 @@ def dashboard_marcas_lista(_request):
             ORDER BY dp.marca
         """
         _, rows = _run_dw_query(sql, [])
-        return JsonResponse({'success': True, 'data': [r['marca'] for r in rows]})
-    except Exception as e:
-        return JsonResponse({'success': False, 'error': str(e)}, status=500)
+        data = [r['marca'] for r in rows]
+        cache.set('marcas_lista_rutas', data, 1800)   # 30 min
+        return JsonResponse({'success': True, 'data': data})
+    except Exception:
+        logger.exception("Error interno")
+        return JsonResponse({'success': False, 'error': 'Error interno del servidor'}, status=500)
 
 
 @api_view(['GET'])
@@ -3293,8 +3444,9 @@ def dashboard_informacion_rutas(request):
         supervisores = [r['supervisor'] for r in sup_rows if r.get('supervisor')]
 
         return JsonResponse({'success': True, 'data': rows, 'supervisores': supervisores})
-    except Exception as e:
-        return JsonResponse({'success': False, 'error': str(e)}, status=500)
+    except Exception:
+        logger.exception("Error interno")
+        return JsonResponse({'success': False, 'error': 'Error interno del servidor'}, status=500)
 
 
 @api_view(['GET'])
@@ -3341,8 +3493,9 @@ def dashboard_informacion_rutas_detalle(request):
         """
         _, rows = _run_dw_query(sql, params_det)
         return JsonResponse({'success': True, 'data': rows})
-    except Exception as e:
-        return JsonResponse({'success': False, 'error': str(e)}, status=500)
+    except Exception:
+        logger.exception("Error interno")
+        return JsonResponse({'success': False, 'error': 'Error interno del servidor'}, status=500)
 
 
 @api_view(['GET'])
@@ -3404,8 +3557,9 @@ def dashboard_informacion_rutas_clientes(request):
         """
         _, rows = _run_dw_query(sql, params)
         return JsonResponse({'success': True, 'data': rows})
-    except Exception as e:
-        return JsonResponse({'success': False, 'error': str(e)}, status=500)
+    except Exception:
+        logger.exception("Error interno")
+        return JsonResponse({'success': False, 'error': 'Error interno del servidor'}, status=500)
 
 
 @api_view(['GET'])
@@ -3455,8 +3609,9 @@ def dashboard_informacion_rutas_cliente_detalle(request):
         """
         _, rows = _run_dw_query(sql, params)
         return JsonResponse({'success': True, 'data': rows})
-    except Exception as e:
-        return JsonResponse({'success': False, 'error': str(e)}, status=500)
+    except Exception:
+        logger.exception("Error interno")
+        return JsonResponse({'success': False, 'error': 'Error interno del servidor'}, status=500)
 
 
 @api_view(['GET'])
@@ -3506,8 +3661,9 @@ def dashboard_informacion_rutas_categorias(request):
         for r in rows:
             r['pct'] = round(float(r['venta_neta']) / total_bs * 100, 1) if total_bs > 0 else 0
         return JsonResponse({'success': True, 'data': rows})
-    except Exception as e:
-        return JsonResponse({'success': False, 'error': str(e)}, status=500)
+    except Exception:
+        logger.exception("Error interno")
+        return JsonResponse({'success': False, 'error': 'Error interno del servidor'}, status=500)
 
 
 @api_view(['GET'])
@@ -3581,8 +3737,9 @@ def dashboard_informacion_rutas_skus(request):
         """
         _, rows = _run_dw_query(sql, params)
         return JsonResponse({'success': True, 'data': rows})
-    except Exception as e:
-        return JsonResponse({'success': False, 'error': str(e)}, status=500)
+    except Exception:
+        logger.exception("Error interno")
+        return JsonResponse({'success': False, 'error': 'Error interno del servidor'}, status=500)
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -3757,8 +3914,9 @@ def dashboard_matriz_datos(request):
             })
 
         return JsonResponse({'success': True, 'data': result, 'total_filas': len(result)})
-    except Exception as e:
-        return JsonResponse({'success': False, 'error': str(e)}, status=500)
+    except Exception:
+        logger.exception("Error interno")
+        return JsonResponse({'success': False, 'error': 'Error interno del servidor'}, status=500)
 
 
 def exportar_clientes_sin_compra(request):
@@ -3782,6 +3940,9 @@ def exportar_clientes_sin_compra(request):
             return JsonResponse({"error": "Usuario inactivo"}, status=401)
     except Exception:
         return JsonResponse({"error": "Token inválido"}, status=401)
+
+    if not _has_dashboard_perm(token_obj.user, 'informacion-rutas'):
+        return JsonResponse({"error": "Sin acceso a este dashboard"}, status=403)
 
     regional_raw = request.GET.get('regional', 'nacional').lower().replace(' ', '_')
     regional     = regional_raw if regional_raw in REGIONALES_VALID else 'nacional'
@@ -3873,8 +4034,9 @@ def exportar_clientes_sin_compra(request):
                 if not batch: break
                 for row in batch:
                     ws.append(list(row))
-    except Exception as e:
-        return JsonResponse({"success": False, "error": str(e)}, status=500)
+    except Exception:
+        logger.exception("Error interno")
+        return JsonResponse({"success": False, "error": "Error interno del servidor"}, status=500)
 
     buffer = io.BytesIO()
     wb.save(buffer)
@@ -4065,8 +4227,9 @@ def dashboard_tendencia_estacional(request):
                 'data_canal':     canal_rows,
             })
 
-    except Exception as e:
-        return JsonResponse({'success': False, 'error': str(e)}, status=500)
+    except Exception:
+        logger.exception("Error interno")
+        return JsonResponse({'success': False, 'error': 'Error interno del servidor'}, status=500)
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -4091,25 +4254,124 @@ _CAT_LINEA_FICHA = {
 @api_view(['GET'])
 @authentication_classes([ExpiringTokenAuthentication])
 @permission_classes([IsAuthenticated])
+def dashboard_almacenes_lista(request):
+    """Lista de almacenes activos, opcionalmente filtrados por regional."""
+    regional_key = _safe_str(request.GET.get('regional', ''), 50).lower()
+
+    CIUDADES_ALMACEN = {
+        'santa_cruz': ['SANTA CRUZ'],
+        'cochabamba': ['COCHABAMBA'],
+        'la_paz':     ['LA PAZ'],
+    }
+
+    params = []
+
+    ciudad_cond = ''
+    if regional_key and regional_key != 'nacional' and regional_key in CIUDADES_ALMACEN:
+        ciudades = CIUDADES_ALMACEN[regional_key]
+        if len(ciudades) == 1:
+            ciudad_cond = 'AND da.ciudad = %s'
+            params.append(ciudades[0])
+        else:
+            ph = ', '.join(['%s'] * len(ciudades))
+            ciudad_cond = f'AND da.ciudad IN ({ph})'
+            params.extend(ciudades)
+
+    sql = f"""
+        SELECT da.almacen_codigo_erp AS codigo,
+               da.almacen_nombre     AS nombre,
+               da.ciudad
+        FROM dw.dim_almacen da
+        WHERE 1=1
+          {ciudad_cond}
+        ORDER BY da.ciudad, da.almacen_nombre
+    """
+    try:
+        _, rows = _run_dw_query(sql, params)
+        return JsonResponse({'success': True, 'data': [
+            {'codigo': r['codigo'], 'nombre': r['nombre'], 'ciudad': r['ciudad']}
+            for r in rows
+        ]})
+    except Exception:
+        logger.exception("Error interno")
+        return JsonResponse({'success': False, 'error': 'Error interno del servidor'}, status=500)
+
+
+@api_view(['GET'])
+@authentication_classes([ExpiringTokenAuthentication])
+@permission_classes([IsAuthenticated])
 @_require_perm('ficha-sku')
-def dashboard_ficha_sku_buscar(request):
-    """
-    Búsqueda de productos por texto (nombre o código).
-    Params: q, categoria
-    """
-    q         = _safe_str(request.GET.get('q', ''), 100).strip()
+def dashboard_ficha_sku_marcas(request):
+    """Marcas (proveedor) disponibles, opcionalmente filtradas por categoria."""
     categoria = _safe_str(request.GET.get('categoria', ''), 50)
 
-    if len(q) < 2:
-        return JsonResponse({'success': True, 'data': []})
+    cache_key = f'ficha_sku_marcas:{categoria}'
+    cached = cache.get(cache_key)
+    if cached is not None:
+        return JsonResponse({'success': True, 'data': cached})
 
-    params = [f'%{q.upper()}%', f'%{q.upper()}%']
+    params = []
     cat_cond = ""
     if categoria in _CAT_LINEA_FICHA:
         cat_cond = "AND dp.linea = %s"
         params.append(_CAT_LINEA_FICHA[categoria])
     elif categoria == 'Sin Clasificar':
         cat_cond = "AND (dp.linea IS NULL OR dp.linea = 'SIN LINEA')"
+
+    sql = f"""
+        SELECT DISTINCT dp.proveedor AS marca
+        FROM dw.dim_producto dp
+        WHERE dp.es_producto_actual = true
+          AND dp.proveedor IS NOT NULL
+          AND dp.proveedor <> ''
+          {cat_cond}
+        ORDER BY marca
+    """
+    try:
+        _, rows = _run_dw_query(sql, params)
+        data = [r['marca'] for r in rows]
+        cache.set(cache_key, data, 1800)   # 30 min
+        return JsonResponse({'success': True, 'data': data})
+    except Exception:
+        logger.exception("Error interno")
+        return JsonResponse({'success': False, 'error': 'Error interno del servidor'}, status=500)
+
+
+@api_view(['GET'])
+@authentication_classes([ExpiringTokenAuthentication])
+@permission_classes([IsAuthenticated])
+@_require_perm('ficha-sku')
+def dashboard_ficha_sku_buscar(request):
+    """
+    Búsqueda de productos por texto (nombre o código).
+    Params: q, categoria, marca
+    """
+    q         = _safe_str(request.GET.get('q', ''), 100).strip()
+    categoria = _safe_str(request.GET.get('categoria', ''), 50)
+    marca     = _safe_str(request.GET.get('marca', ''), 100)
+
+    if len(q) < 2 and not categoria and not marca:
+        return JsonResponse({'success': True, 'data': []})
+
+    params = []
+    search_cond = ""
+    if len(q) >= 2:
+        params = [f'%{q.upper()}%', f'%{q.upper()}%']
+        search_cond = "AND (UPPER(dp.producto_nombre) LIKE %s OR UPPER(dp.producto_codigo_erp) LIKE %s)"
+
+    cat_cond = ""
+    if categoria in _CAT_LINEA_FICHA:
+        cat_cond = "AND dp.linea = %s"
+        params.append(_CAT_LINEA_FICHA[categoria])
+    elif categoria == 'Sin Clasificar':
+        cat_cond = "AND (dp.linea IS NULL OR dp.linea = 'SIN LINEA')"
+
+    marca_cond = ""
+    if marca:
+        marca_cond = "AND dp.proveedor = %s"
+        params.append(marca)
+
+    limit = 50 if len(q) >= 2 else 250
 
     sql = f"""
         SELECT DISTINCT
@@ -4120,11 +4382,9 @@ def dashboard_ficha_sku_buscar(request):
             COALESCE(dp.u_L, 0)                         AS ul
         FROM dw.dim_producto dp
         WHERE dp.es_producto_actual = true
-          AND (UPPER(dp.producto_nombre) LIKE %s
-               OR UPPER(dp.producto_codigo_erp) LIKE %s)
-          {cat_cond}
+          {search_cond} {cat_cond} {marca_cond}
         ORDER BY INITCAP(dp.producto_nombre)
-        LIMIT 25
+        LIMIT {limit}
     """
     try:
         _, rows = _run_dw_query(sql, params)
@@ -4139,8 +4399,9 @@ def dashboard_ficha_sku_buscar(request):
             for r in rows
         ]
         return JsonResponse({'success': True, 'data': data})
-    except Exception as e:
-        return JsonResponse({'success': False, 'error': str(e)}, status=500)
+    except Exception:
+        logger.exception("Error interno")
+        return JsonResponse({'success': False, 'error': 'Error interno del servidor'}, status=500)
 
 
 @api_view(['GET'])
@@ -4152,18 +4413,24 @@ def dashboard_ficha_sku_ventas(request):
     Ventas diarias de un SKU en un trimestre.
     Params: codigo, anho, trimestre (1-4), regional, canal
     """
-    codigo      = _safe_str(request.GET.get('codigo', ''), 50)
-    anho        = _safe_int(request.GET.get('anho'), datetime.now().year)
-    trimestre   = request.GET.get('trimestre', '2')
+    codigo       = _safe_str(request.GET.get('codigo', ''), 50)
+    anho         = _safe_int(request.GET.get('anho'), datetime.now().year)
+    trimestre    = request.GET.get('trimestre', '').strip()
+    mes          = _safe_int(request.GET.get('mes'), 0)
     regional_key = request.GET.get('regional', 'santa_cruz').lower().replace(' ', '_')
-    canal       = _safe_str(request.GET.get('canal', ''), 30)
+    canal        = _safe_str(request.GET.get('canal', ''), 30)
 
     if not codigo:
         return JsonResponse({'success': False, 'error': 'Parámetro codigo requerido'}, status=400)
     if regional_key not in REGIONALES_VALID:
         return JsonResponse({'success': False, 'error': 'Regional inválida'}, status=400)
 
-    mes_desde, mes_hasta = _TRIM_MESES.get(trimestre, (4, 6))
+    if trimestre in _TRIM_MESES:
+        mes_desde, mes_hasta = _TRIM_MESES[trimestre]
+    elif 1 <= mes <= 12:
+        mes_desde = mes_hasta = mes
+    else:
+        mes_desde = mes_hasta = datetime.now().month
     ciudad_cond = _regional_filter(regional_key, campo='dv.ciudad')
     canal_cond  = "AND dv.canal_rrhh = %s" if canal else ""
     params      = [anho, mes_desde, mes_hasta, codigo] + ([canal] if canal else [])
@@ -4203,8 +4470,9 @@ def dashboard_ficha_sku_ventas(request):
             for r in rows
         ]
         return JsonResponse({'success': True, 'data': data, 'es_licor': es_licor})
-    except Exception as e:
-        return JsonResponse({'success': False, 'error': str(e)}, status=500)
+    except Exception:
+        logger.exception("Error interno")
+        return JsonResponse({'success': False, 'error': 'Error interno del servidor'}, status=500)
 
 
 @api_view(['GET'])
@@ -4248,11 +4516,180 @@ def dashboard_ficha_sku_precios(request):
             for r in rows
         ]
         return JsonResponse({'success': True, 'data': data})
-    except Exception as e:
-        return JsonResponse({'success': False, 'error': str(e)})
+    except Exception:
+        logger.exception("Error interno")
+        return JsonResponse({'success': False, 'error': 'Error interno del servidor'}, status=500)
+
+
+@api_view(['GET'])
+@authentication_classes([ExpiringTokenAuthentication])
+@permission_classes([IsAuthenticated])
+@_require_perm('ficha-sku')
+def dashboard_ficha_sku_inventario(request):
+    """
+    Stock real desde fact_inventario para un SKU.
+    Params: codigo, anho, mes (o trimestre), almacen (codigo_erp opcional)
+    Devuelve: stock_actual (último registro), fecha_stock, y snapshots del período.
+    """
+    codigo    = _safe_str(request.GET.get('codigo', ''), 50)
+    anho      = _safe_int(request.GET.get('anho'), datetime.now().year)
+    trimestre = request.GET.get('trimestre', '').strip()
+    mes       = _safe_int(request.GET.get('mes'), 0)
+    almacen   = _safe_str(request.GET.get('almacen', ''), 50)
+
+    if not codigo:
+        return JsonResponse({'success': False, 'error': 'código requerido'}, status=400)
+
+    if trimestre in _TRIM_MESES:
+        mes_desde, mes_hasta = _TRIM_MESES[trimestre]
+    elif 1 <= mes <= 12:
+        mes_desde = mes_hasta = mes
+    else:
+        mes_desde = mes_hasta = datetime.now().month
+
+    last_day    = _cal_mod.monthrange(anho, mes_hasta)[1]
+    fecha_desde = f"{anho}-{mes_desde:02d}-01"
+    fecha_hasta = f"{anho}-{mes_hasta:02d}-{last_day:02d}"
+
+    almacen_join = "JOIN dw.dim_almacen da ON da.almacen_sk = fi.almacen_sk" if almacen else ""
+    almacen_cond = "AND da.almacen_codigo_erp = %s"                          if almacen else ""
+
+    # Snapshots dentro del período
+    sql_period = f"""
+        SELECT
+            fi.fecha_inventario::TEXT               AS fecha,
+            COALESCE(SUM(fi.stock_buenos), 0)        AS stock_buenos,
+            COALESCE(SUM(fi.stock_total),  0)        AS stock_total
+        FROM dw.fact_inventario fi
+        JOIN dw.dim_producto dp ON dp.producto_sk = fi.producto_sk
+        {almacen_join}
+        WHERE dp.producto_codigo_erp = %s
+          AND fi.fecha_inventario BETWEEN %s AND %s
+          {almacen_cond}
+        GROUP BY fi.fecha_inventario
+        ORDER BY fi.fecha_inventario
+    """
+
+    # Stock más reciente (puede ser fuera del período)
+    sql_latest = f"""
+        SELECT
+            fi.fecha_inventario::TEXT               AS fecha,
+            COALESCE(SUM(fi.stock_buenos), 0)        AS stock_buenos,
+            COALESCE(SUM(fi.stock_total),  0)        AS stock_total
+        FROM dw.fact_inventario fi
+        JOIN dw.dim_producto dp ON dp.producto_sk = fi.producto_sk
+        {almacen_join}
+        WHERE dp.producto_codigo_erp = %s
+          {almacen_cond}
+        GROUP BY fi.fecha_inventario
+        ORDER BY fi.fecha_inventario DESC
+        LIMIT 1
+    """
+
+    period_params = [codigo, fecha_desde, fecha_hasta] + ([almacen] if almacen else [])
+    latest_params = [codigo] + ([almacen] if almacen else [])
+
+    try:
+        _, period_rows = _run_dw_query(sql_period, period_params)
+        _, latest_rows = _run_dw_query(sql_latest, latest_params)
+
+        data = [
+            {
+                'fecha':        r['fecha'],
+                'stock_buenos': float(r['stock_buenos'] or 0),
+                'stock_total':  float(r['stock_total']  or 0),
+            }
+            for r in period_rows
+        ]
+
+        latest = latest_rows[0] if latest_rows else {}
+        return JsonResponse({
+            'success':      True,
+            'stock_actual': float(latest.get('stock_buenos') or 0),
+            'fecha_stock':  latest.get('fecha'),
+            'data':         data,
+        })
+    except Exception:
+        logger.exception("Error interno")
+        return JsonResponse({'success': False, 'error': 'Error interno del servidor'}, status=500)
 
 
 # ─── Distribución de Rutas ────────────────────────────────────────────────────
+
+@api_view(['GET'])
+@authentication_classes([ExpiringTokenAuthentication])
+@permission_classes([IsAuthenticated])
+@_require_perm('inventario-almacen')
+def dashboard_inventario_almacen(request):
+    """
+    Stock por producto y almacén para una fecha dada.
+    Params: fecha (YYYY-MM-DD), regional, almacen (codigo_erp)
+    """
+    fecha        = _safe_str(request.GET.get('fecha', ''), 10)
+    regional_key = _safe_str(request.GET.get('regional', ''), 20).lower().replace(' ', '_')
+    almacen      = _safe_str(request.GET.get('almacen', ''), 50)
+
+    if not fecha:
+        return JsonResponse({'success': False, 'error': 'Parámetro fecha requerido'}, status=400)
+
+    CIUDADES_ALMACEN = {
+        'santa_cruz': ['SANTA CRUZ'],
+        'cochabamba': ['COCHABAMBA'],
+        'la_paz':     ['LA PAZ'],
+    }
+
+    params = [fecha]
+    almacen_cond  = ''
+    regional_cond = ''
+
+    if almacen:
+        almacen_cond = 'AND da.almacen_codigo_erp = %s'
+        params.append(almacen)
+    elif regional_key and regional_key != 'nacional' and regional_key in CIUDADES_ALMACEN:
+        ciudades = CIUDADES_ALMACEN[regional_key]
+        ph = ', '.join(['%s'] * len(ciudades))
+        regional_cond = f'AND da.ciudad IN ({ph})'
+        params.extend(ciudades)
+
+    sql = f"""
+        SELECT
+            da.almacen_nombre                           AS almacen,
+            dp.producto_codigo_erp                      AS cod_interno,
+            INITCAP(dp.producto_nombre)                 AS producto,
+            fi.u_medida                                 AS u_medida,
+            COALESCE(SUM(fi.stock_buenos),   0)         AS stock_buenos,
+            COALESCE(SUM(fi.stock_danhados), 0)         AS stock_danhados,
+            COALESCE(SUM(fi.stock_vencidos), 0)         AS stock_vencidos,
+            COALESCE(SUM(fi.stock_total),    0)         AS stock_total
+        FROM dw.fact_inventario fi
+        JOIN dw.dim_producto dp ON dp.producto_sk = fi.producto_sk
+        JOIN dw.dim_almacen  da ON da.almacen_sk  = fi.almacen_sk
+        WHERE fi.fecha_inventario = %s
+          {almacen_cond}
+          {regional_cond}
+        GROUP BY da.almacen_nombre, dp.producto_codigo_erp, dp.producto_nombre, fi.u_medida
+        ORDER BY da.almacen_nombre, dp.producto_nombre
+    """
+    try:
+        _, rows = _run_dw_query(sql, params)
+        data = [
+            {
+                'almacen':        r['almacen'],
+                'cod_interno':    r['cod_interno'],
+                'producto':       r['producto'],
+                'u_medida':       r['u_medida'] or '',
+                'stock_buenos':   float(r['stock_buenos']   or 0),
+                'stock_danhados': float(r['stock_danhados'] or 0),
+                'stock_vencidos': float(r['stock_vencidos'] or 0),
+                'stock_total':    float(r['stock_total']    or 0),
+            }
+            for r in rows
+        ]
+        return JsonResponse({'success': True, 'data': data})
+    except Exception:
+        logger.exception("Error interno")
+        return JsonResponse({'success': False, 'error': 'Error interno del servidor'}, status=500)
+
 
 @api_view(['GET'])
 @authentication_classes([ExpiringTokenAuthentication])
@@ -4292,8 +4729,9 @@ def dashboard_rutas_opciones(request):
             'supervisores': [r['supervisor'] for r in sup_rows],
             'dias':         [r['dia'] for r in dia_rows],
         })
-    except Exception as e:
-        return JsonResponse({'success': False, 'error': str(e)}, status=500)
+    except Exception:
+        logger.exception("Error interno")
+        return JsonResponse({'success': False, 'error': 'Error interno del servidor'}, status=500)
 
 
 @api_view(['GET'])
@@ -4362,8 +4800,9 @@ def dashboard_rutas_buscar(request):
             for r in rows
         ]
         return JsonResponse({'success': True, 'data': data})
-    except Exception as e:
-        return JsonResponse({'success': False, 'error': str(e)}, status=500)
+    except Exception:
+        logger.exception("Error interno")
+        return JsonResponse({'success': False, 'error': 'Error interno del servidor'}, status=500)
 
 
 @api_view(['GET'])
@@ -4482,8 +4921,9 @@ def dashboard_rutas_info(request):
             'supervisor':     vi.get('supervisor',  '') or '',
             'clientesGeo':    clientes_geo,
         })
-    except Exception as e:
-        return JsonResponse({'success': False, 'error': str(e)})
+    except Exception:
+        logger.exception("Error interno")
+        return JsonResponse({'success': False, 'error': 'Error interno del servidor'}, status=500)
 
 
 @api_view(['GET'])
@@ -4611,5 +5051,405 @@ def dashboard_rutas_todos_poligonos(request):
                 clientes_geo = []
 
         return JsonResponse({'success': True, 'rutas': list(rutas.values()), 'clientesGeo': clientes_geo})
-    except Exception as e:
-        return JsonResponse({'success': False, 'error': str(e)})
+    except Exception:
+        logger.exception("Error interno")
+        return JsonResponse({'success': False, 'error': 'Error interno del servidor'}, status=500)
+
+
+# ---------------------------------------------------------------------------
+# Dashboard Comportamiento Productos
+# ---------------------------------------------------------------------------
+
+@api_view(['GET'])
+@authentication_classes([ExpiringTokenAuthentication])
+@permission_classes([IsAuthenticated])
+@_require_perm('comportamiento-productos')
+def dashboard_comportamiento_opciones(request):
+    regional_key = _safe_str(request.GET.get('regional', ''), 50).lower()
+    canal        = _safe_str(request.GET.get('canal', ''), 100)
+
+    params_v = []
+    conds_v  = ['dv.es_vendedor_actual = true']
+
+    regional_cond = _regional_filter(regional_key, 'dv.ciudad')
+    if regional_cond:
+        conds_v.append(regional_cond)
+
+    if canal:
+        conds_v.append('dv.canal_rrhh = %s')
+        params_v.append(canal)
+
+    where_v = ' AND '.join(conds_v)
+    sql_v = f"""
+        SELECT DISTINCT INITCAP(dv.vendedor_nombre) AS vendedor
+        FROM dw.dim_vendedor dv
+        WHERE {where_v}
+        ORDER BY vendedor
+        LIMIT 200
+    """
+    try:
+        _, rows_v = _run_dw_query(sql_v, params_v)
+        vendedores = [r['vendedor'] for r in rows_v if r['vendedor']]
+    except Exception:
+        logger.exception("Error interno — vendedores opciones")
+        return JsonResponse({'success': False, 'error': 'Error interno del servidor'}, status=500)
+
+    sql_m = """
+        SELECT DISTINCT dp.proveedor AS marca
+        FROM dw.dim_producto dp
+        WHERE dp.es_producto_actual = true
+          AND dp.proveedor IS NOT NULL
+          AND TRIM(dp.proveedor) <> ''
+        ORDER BY marca
+    """
+    try:
+        _, rows_m = _run_dw_query(sql_m, [])
+        marcas = [r['marca'] for r in rows_m if r['marca']]
+    except Exception:
+        logger.exception("Error interno — marcas opciones")
+        return JsonResponse({'success': False, 'error': 'Error interno del servidor'}, status=500)
+
+    return JsonResponse({'success': True, 'vendedores': vendedores, 'marcas': marcas})
+
+
+@api_view(['GET'])
+@authentication_classes([ExpiringTokenAuthentication])
+@permission_classes([IsAuthenticated])
+@_require_perm('comportamiento-productos')
+def dashboard_comportamiento_productos_buscar(request):
+    marca = _safe_str(request.GET.get('marca', ''), 150)
+    q     = _safe_str(request.GET.get('q', ''), 150)
+
+    params = []
+    conds  = ['dp.es_producto_actual = true']
+
+    if marca:
+        conds.append('dp.proveedor = %s')
+        params.append(marca)
+
+    if q:
+        q_upper = q.upper()
+        conds.append("(UPPER(dp.producto_nombre) LIKE %s OR UPPER(dp.producto_codigo_erp) LIKE %s)")
+        params.append(f'%{q_upper}%')
+        params.append(f'%{q_upper}%')
+
+    where = ' AND '.join(conds)
+    sql = f"""
+        SELECT DISTINCT
+            dp.producto_codigo_erp                                          AS codigo,
+            INITCAP(dp.producto_nombre)                                     AS nombre,
+            COALESCE(dp.proveedor, '')                                      AS marca,
+            COALESCE(dp.linea, '')                                          AS linea,
+            CASE WHEN dp.linea = 'BEBIDAS ALC' THEN true ELSE false END     AS es_licor
+        FROM dw.dim_producto dp
+        WHERE {where}
+        ORDER BY nombre
+        LIMIT 50
+    """
+    try:
+        _, rows = _run_dw_query(sql, params)
+        data = [
+            {
+                'codigo':   r['codigo'],
+                'nombre':   r['nombre'],
+                'marca':    r['marca'],
+                'linea':    r['linea'],
+                'es_licor': r['es_licor'],
+            }
+            for r in rows
+        ]
+        return JsonResponse({'success': True, 'data': data})
+    except Exception:
+        logger.exception("Error interno")
+        return JsonResponse({'success': False, 'error': 'Error interno del servidor'}, status=500)
+
+
+@api_view(['GET'])
+@authentication_classes([ExpiringTokenAuthentication])
+@permission_classes([IsAuthenticated])
+@_require_perm('comportamiento-productos')
+def dashboard_comportamiento_grafico1(request):
+    regional_key = _safe_str(request.GET.get('regional', ''), 50).lower()
+    canal        = _safe_str(request.GET.get('canal', ''), 100)
+    vendedor     = _safe_str(request.GET.get('vendedor', ''), 150)
+    anho         = _safe_int(request.GET.get('anho', ''), 0)
+    mes          = _safe_int(request.GET.get('mes', ''), 0)
+    dia_corte    = _safe_int(request.GET.get('dia_corte', ''), 0)
+    codigos_raw  = request.GET.get('codigos', '') or ''
+    marca        = _safe_str(request.GET.get('marca', ''), 150)
+
+    if not anho or not mes:
+        return JsonResponse({'success': False, 'error': 'Parametros anho y mes son requeridos'})
+
+    if canal:
+        dim_field = 'INITCAP(dv.vendedor_nombre)'
+        modo      = 'vendedor'
+    else:
+        dim_field = 'dv.canal_rrhh'
+        modo      = 'canal'
+
+    params = [anho, mes]
+    conds  = [
+        'df.anho = %s',
+        'df.mes_numero = %s',
+        'dv.es_vendedor_actual = true',
+        'dp.es_producto_actual = true',
+    ]
+
+    if dia_corte:
+        conds.append('df.dia_numero <= %s')
+        params.append(dia_corte)
+
+    regional_cond = _regional_filter(regional_key, 'dv.ciudad')
+    if regional_cond:
+        conds.append(regional_cond)
+
+    if canal:
+        conds.append('dv.canal_rrhh = %s')
+        params.append(canal)
+
+    if vendedor:
+        conds.append('INITCAP(dv.vendedor_nombre) = %s')
+        params.append(vendedor)
+
+    codigos = [_safe_str(c.strip(), 100) for c in codigos_raw.split(',') if c.strip()]
+    if codigos:
+        placeholders = ', '.join(['%s'] * len(codigos))
+        conds.append(f'dp.producto_codigo_erp IN ({placeholders})')
+        params.extend(codigos)
+    elif marca:
+        conds.append('dp.proveedor = %s')
+        params.append(marca)
+
+    where = ' AND '.join(conds)
+    sql = f"""
+        SELECT {dim_field} AS dimension,
+               COALESCE(SUM(fv.venta_neta), 0)   AS bs,
+               COALESCE(SUM(fv.cantidad), 0)      AS uds,
+               FLOOR(COALESCE(SUM(
+                   CASE WHEN dp.linea = 'BEBIDAS ALC'
+                        THEN fv.cantidad::NUMERIC * COALESCE(dp.u_L, 0) / 9000.0
+                        ELSE 0 END
+               ), 0))                              AS cajas9l
+        FROM dw.fact_ventas fv
+        JOIN dw.dim_fecha    df ON df.fecha_sk    = fv.fecha_sk
+        JOIN dw.dim_vendedor dv ON dv.vendedor_sk = fv.vendedor_sk
+        JOIN dw.dim_producto dp ON dp.producto_sk = fv.producto_sk
+        WHERE {where}
+        GROUP BY {dim_field}
+        ORDER BY bs DESC
+        LIMIT 30
+    """
+    try:
+        _, rows = _run_dw_query(sql, params)
+        data = [
+            {
+                'dimension': r['dimension'] or '',
+                'bs':        float(r['bs']),
+                'uds':       int(r['uds']),
+                'cajas9l':   int(r['cajas9l']),
+            }
+            for r in rows
+        ]
+        return JsonResponse({'success': True, 'modo': modo, 'data': data})
+    except Exception:
+        logger.exception("Error interno")
+        return JsonResponse({'success': False, 'error': 'Error interno del servidor'}, status=500)
+
+
+@api_view(['GET'])
+@authentication_classes([ExpiringTokenAuthentication])
+@permission_classes([IsAuthenticated])
+@_require_perm('comportamiento-productos')
+def dashboard_comportamiento_grafico2(request):
+    regional_key = _safe_str(request.GET.get('regional', ''), 50).lower()
+    canal        = _safe_str(request.GET.get('canal', ''), 100)
+    vendedor     = _safe_str(request.GET.get('vendedor', ''), 150)
+    anho         = _safe_int(request.GET.get('anho', ''), 0)
+    mes          = _safe_int(request.GET.get('mes', ''), 0)
+    dia_corte    = _safe_int(request.GET.get('dia_corte', ''), 0)
+    codigos_raw  = request.GET.get('codigos', '') or ''
+    marca        = _safe_str(request.GET.get('marca', ''), 150)
+
+    if not anho or not mes:
+        return JsonResponse({'success': False, 'error': 'Parametros anho y mes son requeridos'})
+
+    codigos = [_safe_str(c.strip(), 100) for c in codigos_raw.split(',') if c.strip()]
+    if not codigos and not marca:
+        return JsonResponse({'success': False, 'error': 'Se requiere marca o productos'})
+
+    params = [anho, mes]
+    conds  = [
+        'df.anho = %s',
+        'df.mes_numero = %s',
+        'dv.es_vendedor_actual = true',
+        'dp.es_producto_actual = true',
+    ]
+
+    if dia_corte:
+        conds.append('df.dia_numero <= %s')
+        params.append(dia_corte)
+
+    regional_cond = _regional_filter(regional_key, 'dv.ciudad')
+    if regional_cond:
+        conds.append(regional_cond)
+
+    if canal:
+        conds.append('dv.canal_rrhh = %s')
+        params.append(canal)
+
+    if vendedor:
+        conds.append('INITCAP(dv.vendedor_nombre) = %s')
+        params.append(vendedor)
+
+    if codigos:
+        placeholders = ', '.join(['%s'] * len(codigos))
+        conds.append(f'dp.producto_codigo_erp IN ({placeholders})')
+        params.extend(codigos)
+    else:
+        conds.append('dp.proveedor = %s')
+        params.append(marca)
+
+    where = ' AND '.join(conds)
+    sql = f"""
+        SELECT dp.producto_codigo_erp                                           AS codigo,
+               INITCAP(dp.producto_nombre)                                      AS nombre,
+               COALESCE(dp.proveedor, '')                                       AS marca,
+               COALESCE(SUM(fv.venta_neta), 0)                                 AS bs,
+               COALESCE(SUM(fv.cantidad), 0)                                    AS uds,
+               FLOOR(COALESCE(SUM(
+                   CASE WHEN dp.linea = 'BEBIDAS ALC'
+                        THEN fv.cantidad::NUMERIC * COALESCE(dp.u_L, 0) / 9000.0
+                        ELSE 0 END
+               ), 0))                                                            AS cajas9l,
+               CASE WHEN MAX(dp.linea) = 'BEBIDAS ALC' THEN true ELSE false END AS es_licor
+        FROM dw.fact_ventas fv
+        JOIN dw.dim_fecha    df ON df.fecha_sk    = fv.fecha_sk
+        JOIN dw.dim_vendedor dv ON dv.vendedor_sk = fv.vendedor_sk
+        JOIN dw.dim_producto dp ON dp.producto_sk = fv.producto_sk
+        WHERE {where}
+        GROUP BY dp.producto_codigo_erp, dp.producto_nombre, dp.proveedor
+        ORDER BY bs DESC
+        LIMIT 50
+    """
+    try:
+        _, rows = _run_dw_query(sql, params)
+        data = [
+            {
+                'codigo':   r['codigo'],
+                'nombre':   r['nombre'],
+                'marca':    r['marca'],
+                'bs':       float(r['bs']),
+                'uds':      int(r['uds']),
+                'cajas9l':  int(r['cajas9l']),
+                'es_licor': r['es_licor'],
+            }
+            for r in rows
+        ]
+        return JsonResponse({'success': True, 'data': data})
+    except Exception:
+        logger.exception("Error interno")
+        return JsonResponse({'success': False, 'error': 'Error interno del servidor'}, status=500)
+
+
+@api_view(['GET'])
+@authentication_classes([ExpiringTokenAuthentication])
+@permission_classes([IsAuthenticated])
+@_require_perm('comportamiento-productos')
+def dashboard_comportamiento_tabla(request):
+    regional_key = _safe_str(request.GET.get('regional', ''), 50).lower()
+    canal        = _safe_str(request.GET.get('canal', ''), 100)
+    vendedor     = _safe_str(request.GET.get('vendedor', ''), 150)
+    codigo       = _safe_str(request.GET.get('codigo', ''), 100)
+
+    if not codigo:
+        return JsonResponse({'success': False, 'error': 'Parametro codigo es requerido'})
+
+    base_conds  = ['dp.producto_codigo_erp = %s']
+    base_params = [codigo]
+
+    regional_cond = _regional_filter(regional_key, 'dv.ciudad')
+    if regional_cond:
+        base_conds.append(regional_cond)
+
+    if canal:
+        base_conds.append('dv.canal_rrhh = %s')
+        base_params.append(canal)
+
+    if vendedor:
+        base_conds.append('INITCAP(dv.vendedor_nombre) = %s')
+        base_params.append(vendedor)
+
+    base_where = ' AND '.join(base_conds)
+
+    sql_anho_mes = f"""
+        SELECT df.anho,
+               df.mes_numero                                AS mes,
+               COUNT(DISTINCT fv.cliente_sk)                AS clientes,
+               COALESCE(SUM(fv.cantidad), 0)                AS uds,
+               FLOOR(COALESCE(SUM(
+                   CASE WHEN dp.linea = 'BEBIDAS ALC'
+                        THEN fv.cantidad::NUMERIC * COALESCE(dp.u_L, 0) / 9000.0
+                        ELSE 0 END
+               ), 0))                                        AS cajas9l
+        FROM dw.fact_ventas fv
+        JOIN dw.dim_fecha    df ON df.fecha_sk    = fv.fecha_sk
+        JOIN dw.dim_vendedor dv ON dv.vendedor_sk = fv.vendedor_sk
+        JOIN dw.dim_producto dp ON dp.producto_sk = fv.producto_sk
+        WHERE {base_where}
+        GROUP BY df.anho, df.mes_numero
+        ORDER BY df.anho, df.mes_numero
+    """
+
+    sql_canal_anho_mes = f"""
+        SELECT dv.canal_rrhh                                AS canal,
+               df.anho,
+               df.mes_numero                                AS mes,
+               COUNT(DISTINCT fv.cliente_sk)                AS clientes,
+               COALESCE(SUM(fv.cantidad), 0)                AS uds,
+               FLOOR(COALESCE(SUM(
+                   CASE WHEN dp.linea = 'BEBIDAS ALC'
+                        THEN fv.cantidad::NUMERIC * COALESCE(dp.u_L, 0) / 9000.0
+                        ELSE 0 END
+               ), 0))                                        AS cajas9l
+        FROM dw.fact_ventas fv
+        JOIN dw.dim_fecha    df ON df.fecha_sk    = fv.fecha_sk
+        JOIN dw.dim_vendedor dv ON dv.vendedor_sk = fv.vendedor_sk
+        JOIN dw.dim_producto dp ON dp.producto_sk = fv.producto_sk
+        WHERE {base_where}
+        GROUP BY dv.canal_rrhh, df.anho, df.mes_numero
+        ORDER BY dv.canal_rrhh, df.anho, df.mes_numero
+    """
+
+    try:
+        _, rows1 = _run_dw_query(sql_anho_mes, base_params)
+        por_anho_mes = [
+            {'anho': r['anho'], 'mes': r['mes'], 'clientes': int(r['clientes']), 'uds': int(r['uds']), 'cajas9l': int(r['cajas9l'])}
+            for r in rows1
+        ]
+    except Exception:
+        logger.exception("Error interno — por_anho_mes")
+        return JsonResponse({'success': False, 'error': 'Error interno del servidor'}, status=500)
+
+    try:
+        _, rows2 = _run_dw_query(sql_canal_anho_mes, base_params)
+        por_canal_anho_mes = [
+            {
+                'canal':    r['canal'] or '',
+                'anho':     r['anho'],
+                'mes':      r['mes'],
+                'clientes': int(r['clientes']),
+                'uds':      int(r['uds']),
+                'cajas9l':  int(r['cajas9l']),
+            }
+            for r in rows2
+        ]
+    except Exception:
+        logger.exception("Error interno — por_canal_anho_mes")
+        return JsonResponse({'success': False, 'error': 'Error interno del servidor'}, status=500)
+
+    return JsonResponse({
+        'success':            True,
+        'por_anho_mes':       por_anho_mes,
+        'por_canal_anho_mes': por_canal_anho_mes,
+    })

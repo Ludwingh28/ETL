@@ -1,4 +1,4 @@
-import { useEffect, useState, useCallback, useMemo, type ChangeEvent } from "react";
+﻿import { useEffect, useState, useCallback, useMemo, type ChangeEvent } from "react";
 import {
   Search, RefreshCw, AlertCircle, Package,
 } from "lucide-react";
@@ -132,8 +132,6 @@ function pctColor(pct: number | null | undefined) {
 
 export default function DashboardUnidadesSupervisores() {
   const { apiFetch, user } = useAuth();
-  const now = new Date();
-
   const isAdmin           = isAdminUser(user?.cargo, user?.is_staff);
   const isGerenteRegional = !isAdmin && user?.cargo === "Gerente Regional";
   const isSuperv          = !isAdmin && !isGerenteRegional && (user?.cargo?.toLowerCase().includes("supervisor") ?? false);
@@ -144,8 +142,8 @@ export default function DashboardUnidadesSupervisores() {
   const [canalList,     setCanalList]     = useState<string[]>([]);
   const [supervisor,    setSupervisor]    = useState<string>("");
   const [supervisorList,setSupervisorList]= useState<string[]>([]);
-  const [anho,      setAnho]      = useState(now.getFullYear());
-  const [mes,       setMes]       = useState(now.getMonth() + 1);
+  const [anho,      setAnho]      = useState(0);
+  const [mes,       setMes]       = useState(0);
 
   // Toggle global Bs / Uds (afecta toda la página)
   const [metrica, setMetrica] = useState<"bs" | "uds">("bs");
@@ -193,8 +191,7 @@ export default function DashboardUnidadesSupervisores() {
       .then(r => {
         if (r.success && r.data.length > 0) {
           setPeriodos(r.data);
-          const existe = r.data.some(p => p.anho === anho && p.mes_numero === mes);
-          if (!existe) { setAnho(r.data[0].anho); setMes(r.data[0].mes_numero); }
+          setAnho(r.data[0].anho); setMes(r.data[0].mes_numero);
         }
       })
       .catch(() => undefined);
@@ -228,6 +225,7 @@ export default function DashboardUnidadesSupervisores() {
 
   // ── Vendedores ────────────────────────────────────────────────────────────
   const fetchData = useCallback(async () => {
+    if (!anho || !mes) return;
     setLoading(true); setError(null); setSelVendedor(null); setSkus([]); setVendSearch("");
     try {
       let url = `/dashboard/supervisores/vendedores/?anho=${anho}&mes=${mes}`;

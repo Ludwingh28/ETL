@@ -1,7 +1,7 @@
-import { useEffect, useState, type ChangeEvent } from 'react'
+﻿import { useEffect, useState, useMemo, type ChangeEvent } from 'react'
 import {
   DollarSign, ShoppingCart, Users2, MapPin,
-  Download, RefreshCw, AlertCircle,
+  Download, RefreshCw, AlertCircle, ChevronLeft, ChevronRight,
 } from 'lucide-react'
 import {
   ResponsiveContainer, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Cell,
@@ -112,14 +112,21 @@ export default function DashboardProveedor({ perm, nombre }: Props) {
   const { apiFetch } = useAuth()
   const provDB = PROV_DB[perm] ?? perm.toUpperCase()
 
-  const now = new Date()
-  const [anho, setAnho] = useState(now.getFullYear())
-  const [mes,  setMes]  = useState(now.getMonth() + 1)
+  const [anho, setAnho] = useState(0)
+  const [mes,  setMes]  = useState(0)
 
   const [periodos, setPeriodos] = useState<Periodo[]>([])
-  const [kpis,     setKpis]     = useState<KPIData | null>(null)
-  const [marcas,   setMarcas]   = useState<MarcaData[]>([])
-  const [tabla,    setTabla]    = useState<TablaRow[]>([])
+  const [kpis,      setKpis]      = useState<KPIData | null>(null)
+  const [marcas,    setMarcas]    = useState<MarcaData[]>([])
+  const [tabla,     setTabla]     = useState<TablaRow[]>([])
+  const [tablaPage, setTablaPage] = useState(1)
+
+  const PAGE_SIZE   = 200
+  const totalPages  = Math.max(1, Math.ceil(tabla.length / PAGE_SIZE))
+  const tablaVis    = useMemo(
+    () => tabla.slice((tablaPage - 1) * PAGE_SIZE, tablaPage * PAGE_SIZE),
+    [tabla, tablaPage],
+  )
   const [loading,  setLoading]  = useState(true)
   const [error,    setError]    = useState<string | null>(null)
 
@@ -137,6 +144,7 @@ export default function DashboardProveedor({ perm, nombre }: Props) {
   }, []) // eslint-disable-line react-hooks/exhaustive-deps
 
   const loadData = async () => {
+    if (!anho || !mes) return;
     setLoading(true)
     setError(null)
     const qs = `?proveedor=${provDB}&anho=${anho}&mes=${mes}`
@@ -148,7 +156,7 @@ export default function DashboardProveedor({ perm, nombre }: Props) {
       ])
       if (k.success) setKpis(k.data)
       if (m.success) setMarcas(m.data)
-      if (t.success) setTabla(t.data)
+      if (t.success) { setTabla(t.data); setTablaPage(1); }
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Error al cargar datos')
     } finally {
@@ -357,17 +365,40 @@ export default function DashboardProveedor({ perm, nombre }: Props) {
             <div className="flex items-center justify-between px-5 py-4 border-b border-slate-100">
               <div>
                 <h2 className="text-base font-semibold text-slate-700">Detalle de Ventas</h2>
-                <p className="text-xs text-slate-400 mt-0.5">{tabla.length.toLocaleString('es-BO')} registros</p>
+                <p className="text-xs text-slate-400 mt-0.5">
+                  {tabla.length.toLocaleString('es-BO')} registros
+                  {totalPages > 1 && ` · pág. ${tablaPage}/${totalPages}`}
+                </p>
               </div>
-              <button
-                onClick={exportExcel}
-                disabled={tabla.length === 0}
-                className="flex items-center gap-2 px-4 py-2 rounded-lg bg-emerald-600 text-white text-sm
-                           font-medium hover:bg-emerald-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-              >
-                <Download size={15} />
-                Exportar .xlsx
-              </button>
+              <div className="flex items-center gap-2">
+                {totalPages > 1 && (
+                  <>
+                    <button
+                      onClick={() => setTablaPage(p => Math.max(1, p - 1))}
+                      disabled={tablaPage === 1}
+                      className="p-1.5 rounded-lg border border-slate-200 hover:bg-slate-50 disabled:opacity-40"
+                    >
+                      <ChevronLeft size={14} className="text-slate-500" />
+                    </button>
+                    <button
+                      onClick={() => setTablaPage(p => Math.min(totalPages, p + 1))}
+                      disabled={tablaPage === totalPages}
+                      className="p-1.5 rounded-lg border border-slate-200 hover:bg-slate-50 disabled:opacity-40"
+                    >
+                      <ChevronRight size={14} className="text-slate-500" />
+                    </button>
+                  </>
+                )}
+                <button
+                  onClick={exportExcel}
+                  disabled={tabla.length === 0}
+                  className="flex items-center gap-2 px-4 py-2 rounded-lg bg-emerald-600 text-white text-sm
+                             font-medium hover:bg-emerald-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  <Download size={15} />
+                  Exportar .xlsx
+                </button>
+              </div>
             </div>
 
             {tabla.length === 0 ? (
@@ -391,7 +422,7 @@ export default function DashboardProveedor({ perm, nombre }: Props) {
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-50">
-                    {tabla.map((r, i) => (
+                    {tablaVis.map((r, i) => (
                       <tr key={i} className="hover:bg-slate-50/70 transition-colors">
                         <td className="px-3 py-2 text-slate-700">{r.canal ?? '—'}</td>
                         <td className="px-3 py-2 text-slate-600">{r.ciudad ?? '—'}</td>

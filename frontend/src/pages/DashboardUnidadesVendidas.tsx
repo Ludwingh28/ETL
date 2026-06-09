@@ -1,4 +1,4 @@
-import { useEffect, useState, useCallback, useMemo, type ChangeEvent } from "react";
+﻿import { useEffect, useState, useCallback, useMemo, type ChangeEvent } from "react";
 import { Package, RefreshCw, AlertCircle, Search } from "lucide-react";
 import {
   ResponsiveContainer, BarChart, Bar, XAxis, YAxis,
@@ -90,14 +90,12 @@ const fmtPct = (n: number | null | undefined) => n != null ? `${n.toFixed(1)}%` 
 
 export default function DashboardUnidadesVendidas() {
   const { apiFetch } = useAuth();
-  const now = new Date();
-
   // Filtros
   const [regional,  setRegional]  = useState<Regional>("Santa Cruz");
   const [canal,     setCanal]     = useState<string>("");
   const [canalList, setCanalList] = useState<string[]>([]);
-  const [anho,      setAnho]      = useState(now.getFullYear());
-  const [mes,       setMes]       = useState(now.getMonth() + 1);
+  const [anho,      setAnho]      = useState(0);
+  const [mes,       setMes]       = useState(0);
 
   // Toggle global Bs / Uds
   const [metrica, setMetrica] = useState<Metrica>("bs");
@@ -129,8 +127,7 @@ export default function DashboardUnidadesVendidas() {
       .then(r => {
         if (r.success && r.data.length > 0) {
           setPeriodos(r.data);
-          const existe = r.data.some(p => p.anho === anho && p.mes_numero === mes);
-          if (!existe) { setAnho(r.data[0].anho); setMes(r.data[0].mes_numero); }
+          setAnho(r.data[0].anho); setMes(r.data[0].mes_numero);
         }
       })
       .catch(() => undefined);
@@ -138,6 +135,7 @@ export default function DashboardUnidadesVendidas() {
 
   // ── Fetch canales ──────────────────────────────────────────────────────────
   const fetchCanales = useCallback(async () => {
+    if (!anho || !mes) return;
     try {
       const j = await apiFetch<{ success: boolean; data: Array<{ canal: string }> }>(
         `/dashboard/canales/kpis/?regional=${REGIONAL_KEY[regional]}&anho=${anho}&mes=${mes}`
@@ -157,6 +155,7 @@ export default function DashboardUnidadesVendidas() {
 
   // ── Fetch KPIs ─────────────────────────────────────────────────────────────
   const fetchKpis = useCallback(async () => {
+    if (!anho || !mes) return;
     setLoadingKpis(true);
     try {
       const j = await apiFetch<KpisData & { success: boolean }>(
@@ -169,6 +168,7 @@ export default function DashboardUnidadesVendidas() {
 
   // ── Fetch Subgrupos ────────────────────────────────────────────────────────
   const fetchSubgrupos = useCallback(async () => {
+    if (!anho || !mes) return;
     setLoadingSubgrupo(true);
     setSelectedSubgrupo(null);
     setSkus([]);

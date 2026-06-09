@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useMemo, type ChangeEvent } from "react";
+﻿import { useState, useEffect, useRef, useMemo, type ChangeEvent } from "react";
 import { MapPin, AlertCircle, Download, Search } from "lucide-react";
 
 const API_BASE =
@@ -21,6 +21,13 @@ interface RutaRow {
   total_clientes:     number;
   clientes_con_compra: number;
   pct_cobertura:      number | null;
+}
+
+interface MotivoNoCompraRow {
+  codigo_cliente: string;
+  nombre_cliente: string;
+  motivo:         string;
+  hora:           string; // ISO timestamp, ej. "2026-06-09T10:34:00"
 }
 
 interface SemanaRow {
@@ -95,7 +102,6 @@ const catColor = (cat: string) => CAT_COLORS[cat] ?? "#64748b";
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
-const now = new Date();
 const NUM    = new Intl.NumberFormat("es-BO", { maximumFractionDigits: 0 });
 const BS_FMT = new Intl.NumberFormat("es-BO", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 const fmtN   = (n: number) => NUM.format(n);
@@ -217,8 +223,9 @@ export default function DashboardInformacionRutas() {
   const isGerenteRegional = !isAdmin && user?.cargo === "Gerente Regional";
   const isSuperv          = !isAdmin && !isGerenteRegional && (user?.cargo?.toLowerCase().includes("supervisor") ?? false);
 
-  const [anho,        setAnho]        = useState(now.getFullYear());
-  const [mes,         setMes]         = useState(now.getMonth() + 1);
+  const [periodos,    setPeriodos]    = useState<{ anho: number; mes_numero: number; mes_nombre: string }[]>([]);
+  const [anho,        setAnho]        = useState(0);
+  const [mes,         setMes]         = useState(0);
   const [regional,    setRegional]    = useState<Regional>("Santa Cruz");
   const [canal,       setCanal]       = useState("Todos");
   const [dia,         setDia]         = useState("Todos");
@@ -246,12 +253,28 @@ export default function DashboardInformacionRutas() {
   const [clienteDetalle,     setClienteDetalle]     = useState<ClienteDetalleRow[]>([]);
   const [loadingCliDet,      setLoadingCliDet]      = useState(false);
 
+  // Motivos de no compra (datos pendientes de implementación en backend)
+  const [motivosNoCompra, setMotivosNoCompra] = useState<MotivoNoCompraRow[]>([]);
+
   const [searchQuery,    setSearchQuery]    = useState("");
   const [metricaDetalle, setMetricaDetalle] = useState<"bs" | "pedidos">("bs");
   const [downloading,    setDownloading]    = useState(false);
   const [loading,        setLoading]        = useState(true);
   const [loadingDetalle, setLoadingDetalle] = useState(false);
   const [error,          setError]          = useState<string | null>(null);
+
+  // Cargar periodos disponibles
+  useEffect(() => {
+    apiFetch<{ success: boolean; data: { anho: number; mes_numero: number; mes_nombre: string }[] }>("/dashboard/nacional/periodos/")
+      .then(r => {
+        if (r.success && r.data.length) {
+          setPeriodos(r.data);
+          setAnho(r.data[0].anho);
+          setMes(r.data[0].mes_numero);
+        }
+      })
+      .catch(() => undefined);
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Cargar listas estáticas (canales + marcas)
   useEffect(() => {
@@ -273,6 +296,7 @@ export default function DashboardInformacionRutas() {
 
   // Cargar tabla de rutas
   useEffect(() => {
+    if (!anho || !mes) return;
     const load = async () => {
       setLoading(true); setError(null); setSelectedRuta(null); setSearchQuery("");
       const qs = new URLSearchParams({
@@ -373,7 +397,7 @@ export default function DashboardInformacionRutas() {
     void load();
   }, [selectedRuta, selectedCliente, selectedClienteSem, anho, mes]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  const anhos = [now.getFullYear(), now.getFullYear() - 1, now.getFullYear() - 2];
+  const anhos = [...new Set(periodos.map(p => p.anho))].sort((a, b) => b - a);
 
   const rutasSinVendedor = useMemo(() => rutas.filter(r => !r.vendedor).length, [rutas]);
 
@@ -453,11 +477,27 @@ export default function DashboardInformacionRutas() {
     venta_neta: s.venta_neta,
   }));
 
-  const coberturaGlobal = useMemo(() => {
-    const totalClientes      = rutas.reduce((s, r) => s + r.total_clientes, 0);
-    const clientesConVenta   = rutas.reduce((s, r) => s + r.clientes_con_compra, 0);
-    if (!totalClientes) return null;
-    return (clientesConVenta / totalClientes) * 100;
+  // TODO: reemplazar por fetch real cuando exista el endpoint
+  // GET /api/dashboard/informacion-rutas/motivos-no-compra/?ruta=X&anho=Y&mes=Z
+  useEffect(() => {
+    setMotivosNoCompra([]);
+  }, [selectedRuta, anho, mes]);
+
+  const motivosChart = useMemo(() => {
+    const counts = new Map<string, number>();
+    for (const row of motivosNoCompra) {
+      counts.set(row.motivo, (counts.get(row.motivo) ?? 0) + 1);
+    }
+    return Array.from(counts.entries())
+      .map(([motivo, cantidad]) => ({ motivo, cantidad }))
+      .sort((a, b) => b.cantidad - a.cantidad);
+  }, [motivosNoCompra]);
+
+  const { totalClientes, clientesConVenta, coberturaGlobal } = useMemo(() => {
+    const totalClientes    = rutas.reduce((s, r) => s + r.total_clientes, 0);
+    const clientesConVenta = rutas.reduce((s, r) => s + r.clientes_con_compra, 0);
+    const coberturaGlobal  = totalClientes ? (clientesConVenta / totalClientes) * 100 : null;
+    return { totalClientes, clientesConVenta, coberturaGlobal };
   }, [rutas]);
 
 
@@ -478,14 +518,21 @@ export default function DashboardInformacionRutas() {
         <div className="flex items-end gap-3 flex-wrap">
           <div className="flex flex-col gap-1">
             <label className="text-[10px] uppercase tracking-widest text-slate-400 font-semibold">Gestión</label>
-            <select value={anho} onChange={(e: ChangeEvent<HTMLSelectElement>) => setAnho(Number(e.target.value))} className={selCls}>
+            <select value={anho} onChange={(e: ChangeEvent<HTMLSelectElement>) => {
+              const newAnho = Number(e.target.value);
+              setAnho(newAnho);
+              const firstMes = periodos.find(p => p.anho === newAnho);
+              if (firstMes) setMes(firstMes.mes_numero);
+            }} className={selCls}>
               {anhos.map(a => <option key={a} value={a}>{a}</option>)}
             </select>
           </div>
           <div className="flex flex-col gap-1">
             <label className="text-[10px] uppercase tracking-widest text-slate-400 font-semibold">Mes</label>
             <select value={mes} onChange={(e: ChangeEvent<HTMLSelectElement>) => setMes(Number(e.target.value))} className={selCls}>
-              {MESES.slice(1).map((n, i) => <option key={i+1} value={i+1}>{n}</option>)}
+              {periodos.filter(p => p.anho === anho).map(p => (
+                <option key={p.mes_numero} value={p.mes_numero}>{MESES[p.mes_numero]}</option>
+              ))}
             </select>
           </div>
           <div className="flex flex-col gap-1">
@@ -569,6 +616,14 @@ export default function DashboardInformacionRutas() {
           <div className="card">
             <p className="text-[11px] text-slate-500 font-medium uppercase tracking-wide">Sin vendedor asignado</p>
             <p className="text-2xl font-bold text-slate-800 mt-1">{fmtN(rutasSinVendedor)}</p>
+          </div>
+          <div className="card">
+            <p className="text-[11px] text-slate-500 font-medium uppercase tracking-wide">Clientes Totales</p>
+            <p className="text-2xl font-bold text-slate-800 mt-1">{fmtN(totalClientes)}</p>
+          </div>
+          <div className="card">
+            <p className="text-[11px] text-slate-500 font-medium uppercase tracking-wide">Clientes con Compras</p>
+            <p className="text-2xl font-bold text-slate-800 mt-1">{fmtN(clientesConVenta)}</p>
           </div>
           <div className="card">
             <p className="text-[11px] text-slate-500 font-medium uppercase tracking-wide">Cobertura global</p>
@@ -1105,6 +1160,108 @@ export default function DashboardInformacionRutas() {
           </div>
         );
       })()}
+
+      {/* ── Motivos de No Compra ─────────────────────────────────────────────── */}
+      {selectedRuta && (
+        <div className="flex flex-col lg:flex-row gap-4 mt-4 items-stretch">
+
+          {/* Gráfico por motivo */}
+          <div className="card flex-1 min-w-0">
+            <div className="flex items-center gap-2 mb-4">
+              <AlertCircle size={15} className="text-amber-500" />
+              <h2 className="font-semibold text-slate-700 text-sm">
+                Motivos de No Compra — <span className="text-brand-600">{selectedRuta.ruta}</span>
+              </h2>
+              <span className="ml-auto text-[10px] font-semibold px-2 py-0.5 rounded-full bg-amber-100 text-amber-600 uppercase tracking-wide">
+                Próximamente
+              </span>
+            </div>
+            {motivosChart.length === 0 ? (
+              <div className="flex items-center justify-center h-48 text-slate-300 text-sm flex-col gap-2">
+                <AlertCircle size={28} className="opacity-40" />
+                Sin datos de motivos de no compra para este período
+              </div>
+            ) : (
+              <div style={{ height: 260 }}>
+                <ResponsiveContainer width="100%" height="100%" minWidth={0}>
+                  <BarChart
+                    data={motivosChart}
+                    layout="vertical"
+                    margin={{ top: 4, right: 24, left: 8, bottom: 4 }}
+                  >
+                    <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" horizontal={false} />
+                    <XAxis
+                      type="number"
+                      allowDecimals={false}
+                      tick={{ fontSize: 11, fill: "#94a3b8" }}
+                    />
+                    <YAxis
+                      type="category"
+                      dataKey="motivo"
+                      width={160}
+                      tick={{ fontSize: 11, fill: "#64748b" }}
+                    />
+                    <Tooltip
+                      contentStyle={{ borderRadius: 12, border: "1px solid #e2e8f0", fontSize: 12 }}
+                      formatter={(val) => [fmtN(Number(val)), "Clientes"]}
+                    />
+                    <Bar dataKey="cantidad" fill="#f59e0b" radius={[0, 4, 4, 0]} />
+                  </BarChart>
+                </ResponsiveContainer>
+              </div>
+            )}
+          </div>
+
+          {/* Tabla clientes con motivo y hora */}
+          <div className="card lg:w-96 shrink-0">
+            <div className="flex items-center gap-2 mb-4">
+              <AlertCircle size={15} className="text-amber-500" />
+              <h2 className="font-semibold text-slate-700 text-sm">Detalle por Cliente</h2>
+            </div>
+            {motivosNoCompra.length === 0 ? (
+              <div className="flex items-center justify-center h-48 text-slate-300 text-sm flex-col gap-2">
+                <AlertCircle size={28} className="opacity-40" />
+                Sin registros de motivos para esta ruta
+              </div>
+            ) : (
+              <div className="overflow-y-auto" style={{ maxHeight: 340 }}>
+                <table className="text-xs w-full">
+                  <thead className="sticky top-0 bg-white">
+                    <tr className="border-b border-slate-100">
+                      <th className="text-left py-1.5 pr-3 font-semibold text-slate-500 uppercase tracking-wide text-[10px]">Cliente</th>
+                      <th className="text-left py-1.5 px-3 font-semibold text-slate-500 uppercase tracking-wide text-[10px]">Motivo</th>
+                      <th className="text-right py-1.5 pl-3 font-semibold text-slate-500 uppercase tracking-wide text-[10px]">Hora</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {motivosNoCompra.map((m, i) => (
+                      <tr key={i} className="border-b border-slate-50 hover:bg-slate-50">
+                        <td className="py-1.5 pr-3">
+                          <div className="flex items-center gap-1.5">
+                            <span className="shrink-0 text-[10px] font-mono font-semibold px-1.5 py-0.5 rounded bg-slate-100 text-slate-500">
+                              {m.codigo_cliente}
+                            </span>
+                            <span className="text-slate-700 leading-snug">{m.nombre_cliente}</span>
+                          </div>
+                        </td>
+                        <td className="py-1.5 px-3">
+                          <span className="px-2 py-0.5 rounded-full bg-amber-50 text-amber-700 text-[10px] font-semibold">
+                            {m.motivo}
+                          </span>
+                        </td>
+                        <td className="py-1.5 pl-3 text-right tabular-nums text-slate-500 font-mono text-[10px]">
+                          {m.hora.length >= 16 ? m.hora.slice(11, 16) : m.hora}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </div>
+
+        </div>
+      )}
 
     </DashboardLayout>
   );

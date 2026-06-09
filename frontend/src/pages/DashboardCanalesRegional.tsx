@@ -1,4 +1,4 @@
-import { useEffect, useState, useCallback, useMemo, type ChangeEvent } from "react";
+﻿import { useEffect, useState, useCallback, useMemo, type ChangeEvent } from "react";
 import { DollarSign, ShoppingCart, Store, Building2, Wine, Truck, RefreshCw, UtensilsCrossed, BarChart2, Globe, Layers, Package, AlertCircle, Search } from "lucide-react";
 import { ResponsiveContainer, LineChart, Line, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Cell } from "recharts";
 import type { LucideIcon } from "lucide-react";
@@ -266,15 +266,13 @@ function LeyendaLineas({ esPeriodoActual }: { esPeriodoActual: boolean }) {
 
 export default function DashboardCanalesRegional() {
   const { apiFetch, user } = useAuth();
-  const now = new Date();
-
   const ADMIN_CARGOS_C = new Set(["Administrador de Sistema","Subadministrador de Sistemas","Gerente General","Gerente de Ventas","Analista de Datos"]);
   const isAdmin = user?.is_staff === true || ADMIN_CARGOS_C.has(user?.cargo ?? "");
   const isGerenteRegional = !isAdmin && user?.cargo === "Gerente Regional";
 
   const [regional, setRegional] = useState<Regional>("Santa Cruz");
-  const [anho, setAnho]         = useState(now.getFullYear());
-  const [mes, setMes]           = useState(now.getMonth() + 1);
+  const [anho, setAnho]         = useState(0);
+  const [mes, setMes]           = useState(0);
   const [canal, setCanal]       = useState<string | null>(null);
 
   // Inicializar regional/canal desde el perfil del usuario si no es admin
@@ -310,8 +308,7 @@ export default function DashboardCanalesRegional() {
       .then(r => {
         if (r.success && r.data.length > 0) {
           setPeriodos(r.data);
-          const existe = r.data.some(p => p.anho === anho && p.mes_numero === mes);
-          if (!existe) { setAnho(r.data[0].anho); setMes(r.data[0].mes_numero); }
+          setAnho(r.data[0].anho); setMes(r.data[0].mes_numero);
         }
       })
       .catch(() => undefined);
@@ -335,6 +332,7 @@ export default function DashboardCanalesRegional() {
 
   // ── Fetch KPIs (cambia al cambiar regional/año/mes) ────────────────────────
   const fetchKpis = useCallback(async () => {
+    if (!anho || !mes) return;
     setLoadingKpis(true);
     setError(null);
     try {
@@ -360,6 +358,7 @@ export default function DashboardCanalesRegional() {
 
   // ── Fetch Tendencia ────────────────────────────────────────────────────────
   const fetchTendencia = useCallback(async () => {
+    if (!anho || !mes) return;
     setLoadingTend(true);
     try {
       const canalParam = canal ? `&canal=${encodeURIComponent(canal)}` : "";
@@ -378,6 +377,7 @@ export default function DashboardCanalesRegional() {
 
   // ── Fetch Categorías ───────────────────────────────────────────────────────
   const fetchCategorias = useCallback(async () => {
+    if (!anho || !mes) return;
     setLoadingCat(true);
     try {
       const canalParam = canal ? `&canal=${encodeURIComponent(canal)}` : "";
@@ -395,6 +395,7 @@ export default function DashboardCanalesRegional() {
 
   // ── Fetch SKUs ─────────────────────────────────────────────────────────────
   const fetchSkus = useCallback(async () => {
+    if (!anho || !mes) return;
     setLoadingSku(true);
     try {
       const canalParam = canal ? `&canal=${encodeURIComponent(canal)}` : "";

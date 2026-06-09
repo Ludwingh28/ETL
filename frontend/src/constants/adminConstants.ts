@@ -67,11 +67,12 @@ export const DASHBOARD_GROUPS: DashboardGroup[] = [
   {
     grupo: 'Varios',
     items: [
-      { id: 'ficha-sku',          label: 'Ficha de SKU'           },
-      { id: 'distribucion-rutas', label: 'Distribución de Rutas'  },
-      { id: 'lista-precios',      label: 'Lista de Precios'       },
-      { id: 'inventario-almacen', label: 'Inventario por Almacén' },
-      { id: 'fechas-vencimiento', label: 'Fechas de Vencimiento'  },
+      { id: 'ficha-sku',                   label: 'Ficha de SKU'              },
+      { id: 'distribucion-rutas',          label: 'Distribución de Rutas'     },
+      { id: 'comportamiento-productos',    label: 'Comportamiento Productos'  },
+      { id: 'lista-precios',               label: 'Lista de Precios'          },
+      { id: 'inventario-almacen',          label: 'Inventario por Almacén'    },
+      { id: 'fechas-vencimiento',          label: 'Fechas de Vencimiento'     },
     ],
   },
   {
@@ -105,12 +106,12 @@ export const ALL_DASHBOARD_IDS = DASHBOARD_GROUPS.flatMap(g => g.items.map(i => 
 
 export const PERMISOS_POR_CARGO: Record<Cargo, string[]> = {
   'Gerente General':            ALL_DASHBOARD_IDS,
-  'Gerente de Ventas':          ['nacional', 'regionales', 'canales', 'supervisores', 'unidades-vendidas', 'unidades-supervisores', 'informacion-rutas', 'tendencia-estacional', 'ticket-promedio', 'ficha-sku', 'distribucion-rutas', 'margen-bruto'],
-  'Gerente Regional':           ['regionales', 'canales', 'supervisores', 'preventas-realizadas', 'avances-ventas', 'unidades-vendidas', 'unidades-supervisores', 'informacion-rutas', 'tendencia-estacional', 'distribucion-rutas'],
+  'Gerente de Ventas':          ['nacional', 'regionales', 'canales', 'supervisores', 'unidades-vendidas', 'unidades-supervisores', 'informacion-rutas', 'tendencia-estacional', 'ticket-promedio', 'ficha-sku', 'distribucion-rutas', 'comportamiento-productos', 'margen-bruto'],
+  'Gerente Regional':           ['regionales', 'canales', 'supervisores', 'preventas-realizadas', 'avances-ventas', 'unidades-vendidas', 'unidades-supervisores', 'informacion-rutas', 'tendencia-estacional', 'distribucion-rutas', 'comportamiento-productos'],
   'Supervisor':                  ['canales', 'supervisores', 'preventas-realizadas', 'avances-ventas', 'unidades-supervisores', 'informacion-rutas', 'distribucion-rutas'],
   'Vendedor':                    ['preventas-realizadas', 'avances-ventas'],
   'Proveedor':                   ['lista-precios', 'pepsico', 'softys', 'dmujer', 'apego', 'colher'],
-  'Analista de Datos':          ['nacional', 'regionales', 'canales', 'supervisores', 'preventas-realizadas', 'avances-ventas', 'unidades-vendidas', 'unidades-supervisores', 'informacion-rutas', 'ticket-promedio', 'ficha-sku', 'margen-bruto', 'matriz', 'descargas'],
+  'Analista de Datos':          ['nacional', 'regionales', 'canales', 'supervisores', 'preventas-realizadas', 'avances-ventas', 'unidades-vendidas', 'unidades-supervisores', 'informacion-rutas', 'ticket-promedio', 'ficha-sku', 'comportamiento-productos', 'margen-bruto', 'matriz', 'descargas'],
   'Administrador de Sistema':   ALL_DASHBOARD_IDS,
   'Subadministrador de Sistemas': ALL_DASHBOARD_IDS,
 }

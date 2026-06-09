@@ -88,16 +88,31 @@ urlpatterns = [
     # Tabla Matriz
     path('dashboard/matriz/datos/',          views.dashboard_matriz_datos,          name='matriz-datos'),
 
+    # Almacenes
+    path('dashboard/almacenes/lista/', views.dashboard_almacenes_lista, name='almacenes-lista'),
+
     # Dashboard Ficha de SKU
-    path('dashboard/ficha-sku/buscar/',  views.dashboard_ficha_sku_buscar,  name='ficha-sku-buscar'),
-    path('dashboard/ficha-sku/ventas/',  views.dashboard_ficha_sku_ventas,  name='ficha-sku-ventas'),
-    path('dashboard/ficha-sku/precios/', views.dashboard_ficha_sku_precios, name='ficha-sku-precios'),
+    path('dashboard/ficha-sku/marcas/',     views.dashboard_ficha_sku_marcas,     name='ficha-sku-marcas'),
+    path('dashboard/ficha-sku/buscar/',     views.dashboard_ficha_sku_buscar,     name='ficha-sku-buscar'),
+    path('dashboard/ficha-sku/ventas/',     views.dashboard_ficha_sku_ventas,     name='ficha-sku-ventas'),
+    path('dashboard/ficha-sku/precios/',    views.dashboard_ficha_sku_precios,    name='ficha-sku-precios'),
+    path('dashboard/ficha-sku/inventario/', views.dashboard_ficha_sku_inventario, name='ficha-sku-inventario'),
+
+    # Dashboard Inventario por Almacén
+    path('dashboard/inventario-almacen/datos/', views.dashboard_inventario_almacen, name='inventario-almacen-datos'),
 
     # Dashboard Distribución de Rutas
     path('dashboard/distribucion-rutas/opciones/',         views.dashboard_rutas_opciones,        name='rutas-opciones'),
     path('dashboard/distribucion-rutas/buscar/',           views.dashboard_rutas_buscar,           name='rutas-buscar'),
     path('dashboard/distribucion-rutas/info/',             views.dashboard_rutas_info,             name='rutas-info'),
     path('dashboard/distribucion-rutas/todos-poligonos/',  views.dashboard_rutas_todos_poligonos,  name='rutas-todos-poligonos'),
+
+    # Dashboard Comportamiento Productos
+    path('dashboard/comportamiento-productos/opciones/',  views.dashboard_comportamiento_opciones,          name='comportamiento-opciones'),
+    path('dashboard/comportamiento-productos/productos/', views.dashboard_comportamiento_productos_buscar,   name='comportamiento-productos-buscar'),
+    path('dashboard/comportamiento-productos/grafico1/',  views.dashboard_comportamiento_grafico1,           name='comportamiento-grafico1'),
+    path('dashboard/comportamiento-productos/grafico2/',  views.dashboard_comportamiento_grafico2,           name='comportamiento-grafico2'),
+    path('dashboard/comportamiento-productos/tabla/',     views.dashboard_comportamiento_tabla,              name='comportamiento-tabla'),
 
     # Exportaciones XLSX
     path('exportar/ventas-combo-armado/',    views.exportar_ventas_combo_armado,    name='exportar-ventas-combo-armado'),

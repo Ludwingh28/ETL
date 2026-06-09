@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useMemo, type ChangeEvent } from "react";
+﻿import { useState, useEffect, useCallback, useMemo, type ChangeEvent } from "react";
 import {
   ResponsiveContainer, BarChart, Bar, XAxis, YAxis,
   CartesianGrid, Tooltip, Cell, Legend,
@@ -186,8 +186,8 @@ export default function DashboardTendenciaEstacional() {
   const [canales,       setCanales]       = useState<string[]>([]);
   const [supervisor,    setSupervisor]    = useState<string>("");
   const [supervisorList,setSupervisorList]= useState<string[]>([]);
-  const [anho,      setAnho]      = useState<number>(now.getFullYear());
-  const [mes,       setMes]       = useState<number>(now.getMonth() + 1);
+  const [anho,      setAnho]      = useState<number>(0);
+  const [mes,       setMes]       = useState<number>(0);
   const [metrica,   setMetrica]   = useState<Metrica>("total");
   const [estacional,         setEstacional]         = useState<boolean>(false);
   const [corteModo,          setCorteModo]          = useState<CorteModo>("hoy");
@@ -221,18 +221,21 @@ export default function DashboardTendenciaEstacional() {
       .catch(() => undefined);
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Cargar supervisores
+  // Cargar supervisores — se re-ejecuta cuando cambia regional, canal o período
   const fetchSupervisores = useCallback(async () => {
-    if (isSuperv) return;
+    if (isSuperv || !anho || !mes) return;
     const regionalKey = regional.toLowerCase().replace(/ /g, "_");
     const canalParam  = canal && canal !== "Todos" ? `&canal=${encodeURIComponent(canal)}` : "";
     try {
       const j = await apiFetch<{ success: boolean; data: string[] }>(
-        `/dashboard/supervisores/supervisor-lista/?regional=${regionalKey}&anho=${now.getFullYear()}&mes=${now.getMonth() + 1}${canalParam}`
+        `/dashboard/supervisores/supervisor-lista/?regional=${regionalKey}&anho=${anho}&mes=${mes}${canalParam}`
       );
-      if (j.success) setSupervisorList(j.data.filter(Boolean));
+      if (j.success) {
+        setSupervisorList(j.data.filter(Boolean));
+        setSupervisor(s => j.data.includes(s) ? s : "");
+      }
     } catch { setSupervisorList([]); }
-  }, [isSuperv, apiFetch, regional, canal]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [isSuperv, regional, canal, anho, mes]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => { void fetchSupervisores(); }, [fetchSupervisores]);
 
@@ -242,8 +245,7 @@ export default function DashboardTendenciaEstacional() {
       .then(r => {
         if (r.success && r.data.length > 0) {
           setPeriodos(r.data);
-          const existe = r.data.some(p => p.anho === anho && p.mes_numero === mes);
-          if (!existe) { setAnho(r.data[0].anho); setMes(r.data[0].mes_numero); }
+          setAnho(r.data[0].anho); setMes(r.data[0].mes_numero);
         }
       })
       .catch(() => undefined);
@@ -251,8 +253,10 @@ export default function DashboardTendenciaEstacional() {
 
   // Cargar datos
   useEffect(() => {
+    if (!anho || !mes) return;
     const load = async () => {
       setLoading(true); setError(null);
+      setDataMain([]); setDataCat([]); setDataCanalDsg([]);
       const qs = new URLSearchParams({
         regional:  regional.toLowerCase().replace(/ /g,"_"),
         canal,
@@ -282,7 +286,7 @@ export default function DashboardTendenciaEstacional() {
 
   // ── Helpers ───────────────────────────────────────────────────────────────
   const periodLabel = (a: number, m: number) =>
-    estacional ? String(a) : `${MESES[m].slice(0,3)} ${a}`;
+    estacional ? String(a) : `${(MESES[m] ?? "").slice(0,3)} ${a}`;
 
   // KPIs globales
   const kpiActual   = estacional
@@ -581,7 +585,7 @@ export default function DashboardTendenciaEstacional() {
                       return (
                         <tr key={`${d.anho}-${d.mes_numero}`} className="hover:bg-slate-50 transition-colors">
                           <td className="px-3 py-2.5 font-semibold text-slate-800 text-xs whitespace-nowrap">
-                            {dot}{estacional ? d.anho : `${MESES[d.mes_numero].slice(0,3)} ${d.anho}`}
+                            {dot}{estacional ? d.anho : `${(MESES[d.mes_numero] ?? "").slice(0,3)} ${d.anho}`}
                           </td>
                           <td className="px-3 py-2.5 text-right text-slate-700 text-xs whitespace-nowrap">{fmtVal(d[metrica],metrica)}</td>
                           <td className="px-3 py-2.5 text-right text-xs whitespace-nowrap">

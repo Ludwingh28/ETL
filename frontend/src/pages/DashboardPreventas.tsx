@@ -13,8 +13,9 @@ import DashboardLayout from "../components/DashboardLayout";
 // ─── Types ────────────────────────────────────────────────────────────────────
 
 interface KpisData {
-  total_pedidos: number;
-  total_importe: number;
+  total_pedidos:         number;
+  total_importe:         number;
+  ultima_actualizacion?: string | null;
 }
 
 interface CanalRow {
@@ -57,6 +58,17 @@ const isAdminUser = (cargo?: string, is_staff?: boolean) =>
 // ─── Date helpers ─────────────────────────────────────────────────────────────
 
 const toISO = (d: Date) => d.toISOString().slice(0, 10);
+
+function fmtUltimaActualizacion(ua: string | null | undefined, fechaHasta: string): string | null {
+  if (!ua) return null;
+  // ua puede ser "2025-06-01 14:30:00", "2025-06-01T14:30:00", con o sin tz
+  const dateOnly = ua.slice(0, 10);
+  // extraer hora directamente del string para evitar conversión de timezone
+  const timePart = ua.slice(11, 16); // "HH:MM"
+  const hora = timePart.length === 5 ? timePart : "—";
+  if (dateOnly === fechaHasta) return `Corte: ${hora}`;
+  return `Datos al ${fmtFechaLarga(dateOnly)} ${hora}`;
+}
 
 
 // ─── Formatters ───────────────────────────────────────────────────────────────
@@ -293,18 +305,12 @@ export default function DashboardPreventas() {
   }, [isAdmin, isSuperv, user?.regional, user?.canal, user?.full_name]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // ── Canales list ──────────────────────────────────────────────────────────
-  const fetchCanales = useCallback(async () => {
+  useEffect(() => {
     if (!isAdmin && !isGerenteRegional) return;
-    const [ay, am] = fechaDesde.split("-");
-    try {
-      const j = await apiFetch<{ success: boolean; data: Array<{ canal: string }> }>(
-        `/dashboard/canales/kpis/?regional=${REGIONAL_KEY[regional]}&anho=${ay}&mes=${parseInt(am)}`
-      );
-      if (j.success) { setCanalList(j.data.map(c => c.canal).filter(Boolean)); if (isAdmin) { setCanal(""); setSupervisor(""); } }
-    } catch { setCanalList([]); }
-  }, [isAdmin, isGerenteRegional, apiFetch, regional, fechaDesde]);
-
-  useEffect(() => { void fetchCanales(); }, [fetchCanales]);
+    apiFetch<{ success: boolean; data: string[] }>("/dashboard/canales/lista/")
+      .then(j => { if (j.success) setCanalList(j.data); })
+      .catch(() => setCanalList([]));
+  }, [isAdmin, isGerenteRegional]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // ── Supervisores list ─────────────────────────────────────────────────────
   const fetchSupList = useCallback(async () => {
@@ -386,9 +392,15 @@ export default function DashboardPreventas() {
             <ClipboardList size={20} className="text-brand-600" />
             <h1 className="text-2xl font-bold text-slate-800">Preventas Realizadas</h1>
           </div>
-          <p className="text-slate-500 text-sm">
+          <p className="text-slate-500 text-sm flex items-center flex-wrap gap-2">
             Seguimiento de pedidos ·{" "}
             <span className="font-semibold text-slate-700">{fmtRangoLabel(fechaDesde, fechaHasta)}</span>
+            {!loadingKpis && fmtUltimaActualizacion(kpis?.ultima_actualizacion, fechaHasta) && (
+              <span className="inline-flex items-center gap-1 text-[11px] font-semibold px-2 py-0.5 rounded-full bg-emerald-50 text-emerald-700 border border-emerald-200">
+                <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse inline-block" />
+                {fmtUltimaActualizacion(kpis?.ultima_actualizacion, fechaHasta)}
+              </span>
+            )}
           </p>
         </div>
 

@@ -83,9 +83,10 @@ const NAV_GROUPS: NavGroup[] = [
   {
     label: "Varios",
     items: [
-      { to: "/dashboard/ficha-sku",           icon: BarChart2,  label: "Ficha de SKU",           perm: "ficha-sku"           },
-      { to: "/dashboard/distribucion-rutas",  icon: MapPin,     label: "Distribución de Rutas",  perm: "distribucion-rutas"  },
-      { to: "/dashboard/lista-precios",       icon: List,       label: "Lista de Precios",        perm: "lista-precios"       },
+      { to: "/dashboard/ficha-sku",                icon: BarChart2,  label: "Ficha de SKU",                perm: "ficha-sku"                },
+      { to: "/dashboard/distribucion-rutas",      icon: MapPin,     label: "Distribución de Rutas",      perm: "distribucion-rutas"       },
+      { to: "/dashboard/comportamiento-productos", icon: Package,    label: "Comportamiento Productos",   perm: "comportamiento-productos" },
+      { to: "/dashboard/lista-precios",           icon: List,       label: "Lista de Precios",           perm: "lista-precios"            },
       { to: "/dashboard/inventario-almacen",  icon: Archive,    label: "Inventario por Almacén",  perm: "inventario-almacen"  },
       { to: "/dashboard/fechas-vencimiento",  icon: CalendarX,  label: "Fechas de Vencimiento",   perm: "fechas-vencimiento"  },
     ],
@@ -277,8 +278,10 @@ export default function Navbar() {
       <div
         className={`
         md:hidden fixed top-16 inset-x-0 z-30 bg-slate-900 border-b border-white/10
-        transition-all duration-300 ease-in-out overflow-hidden
-        ${mobileOpen ? "max-h-screen opacity-100" : "max-h-0 opacity-0"}
+        transition-all duration-300 ease-in-out
+        ${mobileOpen
+          ? "opacity-100 overflow-y-auto max-h-[calc(100vh-4rem)]"
+          : "opacity-0 overflow-hidden max-h-0 pointer-events-none"}
       `}
       >
         <div className="px-4 py-3 space-y-1">

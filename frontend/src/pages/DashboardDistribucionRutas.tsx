@@ -475,7 +475,7 @@ export default function DashboardDistribucionRutas() {
         if (supervisor) p.set('supervisor', supervisor)
         if (dia)        p.set('dia',        dia)
         if (vendedorQ)  p.set('vendedor',   vendedorQ)
-        const j = await apiFetch<{ success: boolean; error?: string; rutas: RutaPoligono[]; clientesGeo: { lat: number; lng: number }[] }>(
+        const j = await apiFetch<{ success: boolean; error?: string; rutas: RutaPoligono[]; clientesGeo: ClienteGeo[] }>(
           `/dashboard/distribucion-rutas/todos-poligonos/?${p}`
         )
         if (j.success) {

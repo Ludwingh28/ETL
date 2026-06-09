@@ -1,4 +1,4 @@
-import { useEffect, useState, type ChangeEvent } from "react";
+﻿import { useEffect, useState, type ChangeEvent } from "react";
 import { TrendingUp, DollarSign, ShoppingCart, Store, Building2, Wine, Truck, RefreshCw, AlertCircle, UtensilsCrossed, BarChart2, Globe, Layers } from "lucide-react";
 import { ResponsiveContainer, LineChart, Line, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip } from "recharts";
 import type { LucideIcon } from "lucide-react";
@@ -266,8 +266,8 @@ export default function DashboardRegionales() {
   const isAdmin = user?.is_staff === true || ADMIN_CARGOS_R.has(user?.cargo ?? "");
 
   const [regional, setRegional] = useState<Regional>("Santa Cruz");
-  const [anho, setAnho] = useState(now.getFullYear());
-  const [mes, setMes] = useState(now.getMonth() + 1);
+  const [anho, setAnho] = useState(0);
+  const [mes, setMes] = useState(0);
   const [periodos, setPeriodos] = useState<Periodo[]>([]);
   const [kpis, setKpis] = useState<KpisRegional | null>(null);
   const [tendencia, setTendencia] = useState<TendenciaDia[]>([]);
@@ -286,14 +286,14 @@ export default function DashboardRegionales() {
       .then((r) => {
         if (r.success && r.data.length > 0) {
           setPeriodos(r.data);
-          const existe = r.data.some(p => p.anho === anho && p.mes_numero === mes);
-          if (!existe) { setAnho(r.data[0].anho); setMes(r.data[0].mes_numero); }
+          setAnho(r.data[0].anho); setMes(r.data[0].mes_numero);
         }
       })
       .catch(() => undefined);
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   const loadData = async () => {
+    if (!anho || !mes) return;
     setLoading(true);
     setError(null);
     const qs = `?anho=${anho}&mes=${mes}&regional=${toRegionalKey(regional)}`;

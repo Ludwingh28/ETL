@@ -22,6 +22,9 @@ import DashboardProveedor from "./pages/DashboardProveedor";
 import DashboardTendenciaEstacional from "./pages/DashboardTendenciaEstacional";
 import DashboardFichaSku from "./pages/DashboardFichaSku";
 import DashboardDistribucionRutas from "./pages/DashboardDistribucionRutas";
+import DashboardComportamientoProductos from "./pages/DashboardComportamientoProductos";
+import DashboardListaPrecios from "./pages/DashboardListaPrecios";
+import DashboardInventarioAlmacen from "./pages/DashboardInventarioAlmacen";
 import DashboardPreventas from "./pages/DashboardPreventas";
 import DescargaArchivos from "./pages/DescargaArchivos";
 import DownloadToast from "./components/DownloadToast";
@@ -86,11 +89,14 @@ export default function App() {
           <Route path="/dashboard/distribucion-rutas"
             element={<Dash perm="distribucion-rutas"><DashboardDistribucionRutas /></Dash>}
           />
+          <Route path="/dashboard/comportamiento-productos"
+            element={<Dash perm="comportamiento-productos"><DashboardComportamientoProductos /></Dash>}
+          />
           <Route path="/dashboard/lista-precios"
-            element={<Dash perm="lista-precios"><DashboardEnConstruccion titulo="Lista de Precios" grupo="Varios" /></Dash>}
+            element={<Dash perm="lista-precios"><DashboardListaPrecios /></Dash>}
           />
           <Route path="/dashboard/inventario-almacen"
-            element={<Dash perm="inventario-almacen"><DashboardEnConstruccion titulo="Inventario por Almacén" grupo="Varios" /></Dash>}
+            element={<Dash perm="inventario-almacen"><DashboardInventarioAlmacen /></Dash>}
           />
           <Route path="/dashboard/fechas-vencimiento"
             element={<Dash perm="fechas-vencimiento"><DashboardEnConstruccion titulo="Fechas de Vencimiento" grupo="Varios" /></Dash>}
