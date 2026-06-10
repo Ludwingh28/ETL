@@ -13,7 +13,8 @@ if not SECRET_KEY:
     else:
         raise RuntimeError('SECRET_KEY no está configurado en variables de entorno.')
 
-DEBUG = os.getenv('DEBUG', 'True') == 'True'
+DEBUG        = os.getenv('DEBUG',        'True')  == 'True'
+HTTPS_ENABLED = os.getenv('HTTPS_ENABLED', 'False') == 'True'
 
 ALLOWED_HOSTS = os.getenv('ALLOWED_HOSTS', 'localhost,127.0.0.1,testserver').split(',')
 
@@ -160,21 +161,21 @@ SECURE_CONTENT_TYPE_NOSNIFF = True
 SECURE_BROWSER_XSS_FILTER   = True   # X-XSS-Protection: legacy, respaldado por CSP
 X_FRAME_OPTIONS              = 'DENY'
 
-# Cookies — siempre HttpOnly; Secure y SameSite=Lax solo en producción (HTTPS)
+# Cookies — siempre HttpOnly; Secure solo cuando el servidor termina TLS (HTTPS_ENABLED)
 SESSION_COOKIE_HTTPONLY  = True
 SESSION_COOKIE_SAMESITE  = 'Lax'
-SESSION_COOKIE_SECURE    = not DEBUG   # True en prod (HTTPS), False en dev (HTTP)
+SESSION_COOKIE_SECURE    = HTTPS_ENABLED
 
 CSRF_COOKIE_HTTPONLY     = True
 CSRF_COOKIE_SAMESITE     = 'Lax'
-CSRF_COOKIE_SECURE       = not DEBUG
+CSRF_COOKIE_SECURE       = HTTPS_ENABLED
 
-# HSTS — solo activar cuando el servidor termina TLS (prod)
-if not DEBUG:
+# HSTS + SSL redirect — solo activar cuando hay TLS real en el servidor
+if HTTPS_ENABLED:
     SECURE_HSTS_SECONDS           = 31536000   # 1 año
     SECURE_HSTS_INCLUDE_SUBDOMAINS = True
-    SECURE_HSTS_PRELOAD           = False       # activar tras verificar que no hay HTTP subdomains
-    SECURE_SSL_REDIRECT           = True        # redirige HTTP → HTTPS
+    SECURE_HSTS_PRELOAD           = False
+    SECURE_SSL_REDIRECT           = True
 
 # ─── Logging ──────────────────────────────────────────────────────────────────
 LOGGING = {
