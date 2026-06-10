@@ -1,7 +1,7 @@
 // ─── Imports ─────────────────────────────────────────────────────────────────
 import { useState, useMemo, useEffect, useCallback, type ComponentType } from "react";
 import { LayoutGrid, RefreshCw, Table2, FileDown, FileSpreadsheet, AlertCircle, Loader2 } from "lucide-react";
-import * as XLSX from "xlsx";
+import ExcelJS from "exceljs";
 import DashboardLayout from "../components/DashboardLayout";
 import { useAuth } from "../context/AuthContext";
 
@@ -220,25 +220,33 @@ function buildState(preset: Preset, data: Record<string, unknown>[]): PivotTable
   };
 }
 
-function downloadTable(format: "csv" | "xlsx") {
+async function downloadTable(format: "csv" | "xlsx") {
   const table = document.querySelector(".pvtTable") as HTMLTableElement | null;
   if (!table) return;
 
-  const wb = XLSX.utils.table_to_book(table, { sheet: "Matriz" });
-  const ts = new Date().toISOString().slice(0, 10);
+  const ts   = new Date().toISOString().slice(0, 10);
   const name = `dashboard-matriz-${ts}`;
 
-  if (format === "xlsx") {
-    XLSX.writeFile(wb, `${name}.xlsx`);
-  } else {
-    const ws = wb.Sheets[wb.SheetNames[0]];
-    const csv = XLSX.utils.sheet_to_csv(ws);
+  const rows = Array.from(table.rows).map(tr =>
+    Array.from(tr.cells).map(td => td.innerText.trim())
+  );
+
+  if (format === "csv") {
+    const csv  = rows.map(r => r.map(v => `"${v.replace(/"/g, '""')}"`).join(",")).join("\n");
     const blob = new Blob(["﻿" + csv], { type: "text/csv;charset=utf-8;" });
-    const url = URL.createObjectURL(blob);
-    const a = Object.assign(document.createElement("a"), { href: url, download: `${name}.csv` });
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
+    const url  = URL.createObjectURL(blob);
+    const a    = Object.assign(document.createElement("a"), { href: url, download: `${name}.csv` });
+    document.body.appendChild(a); a.click(); document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  } else {
+    const wb = new ExcelJS.Workbook();
+    const ws = wb.addWorksheet("Matriz");
+    for (const row of rows) ws.addRow(row);
+    const buf  = await wb.xlsx.writeBuffer();
+    const blob = new Blob([buf], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" });
+    const url  = URL.createObjectURL(blob);
+    const a    = Object.assign(document.createElement("a"), { href: url, download: `${name}.xlsx` });
+    document.body.appendChild(a); a.click(); document.body.removeChild(a);
     URL.revokeObjectURL(url);
   }
 }
@@ -343,11 +351,11 @@ export default function DashboardMatriz() {
 
         {/* Botones de descarga + restablecer */}
         <div className="flex items-center gap-2 flex-wrap">
-          <button onClick={() => downloadTable("csv")} className="btn-ghost flex items-center gap-1.5 text-sm text-emerald-700 hover:bg-emerald-50" title="Descargar tabla visible como CSV">
+          <button onClick={() => void downloadTable("csv")} className="btn-ghost flex items-center gap-1.5 text-sm text-emerald-700 hover:bg-emerald-50" title="Descargar tabla visible como CSV">
             <FileDown size={14} />
             CSV
           </button>
-          <button onClick={() => downloadTable("xlsx")} className="btn-ghost flex items-center gap-1.5 text-sm text-emerald-700 hover:bg-emerald-50" title="Descargar tabla visible como Excel">
+          <button onClick={() => void downloadTable("xlsx")} className="btn-ghost flex items-center gap-1.5 text-sm text-emerald-700 hover:bg-emerald-50" title="Descargar tabla visible como Excel">
             <FileSpreadsheet size={14} />
             Excel
           </button>

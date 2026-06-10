@@ -6,7 +6,7 @@ import {
 import {
   ResponsiveContainer, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Cell,
 } from 'recharts'
-import * as XLSX from 'xlsx'
+import ExcelJS from "exceljs"
 import { useAuth } from '../context/AuthContext'
 import DashboardLayout from '../components/DashboardLayout'
 
@@ -171,7 +171,7 @@ export default function DashboardProveedor({ perm, nombre }: Props) {
 
   // ─── Exportar a Excel ────────────────────────────────────────────────────
 
-  const exportExcel = () => {
+  const exportExcel = async () => {
     const cols: (keyof TablaRow)[] = [
       'canal', 'ciudad', 'mes_nombre', 'proveedor', 'marca',
       'numero_venta', 'fecha_completa', 'cliente_codigo_erp',
@@ -196,14 +196,19 @@ export default function DashboardProveedor({ perm, nombre }: Props) {
       vendedor_nombre:    'VENDEDOR',
     }
 
-    const data = tabla.map(r =>
-      Object.fromEntries(cols.map(c => [headers[c], r[c] ?? '']))
-    )
+    const wb = new ExcelJS.Workbook()
+    const ws = wb.addWorksheet(nombre)
+    ws.addRow(cols.map(c => headers[c]))
+    for (const r of tabla) ws.addRow(cols.map(c => r[c] ?? ''))
 
-    const ws = XLSX.utils.json_to_sheet(data)
-    const wb = XLSX.utils.book_new()
-    XLSX.utils.book_append_sheet(wb, ws, nombre)
-    XLSX.writeFile(wb, `${nombre}_${anho}_${String(mes).padStart(2, '0')}.xlsx`)
+    const buf  = await wb.xlsx.writeBuffer()
+    const blob = new Blob([buf], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" })
+    const url  = URL.createObjectURL(blob)
+    const a    = document.createElement("a")
+    a.href = url
+    a.download = `${nombre}_${anho}_${String(mes).padStart(2, '0')}.xlsx`
+    a.click()
+    URL.revokeObjectURL(url)
   }
 
   // ─── Render ──────────────────────────────────────────────────────────────
@@ -390,7 +395,7 @@ export default function DashboardProveedor({ perm, nombre }: Props) {
                   </>
                 )}
                 <button
-                  onClick={exportExcel}
+                  onClick={() => void exportExcel()}
                   disabled={tabla.length === 0}
                   className="flex items-center gap-2 px-4 py-2 rounded-lg bg-emerald-600 text-white text-sm
                              font-medium hover:bg-emerald-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"

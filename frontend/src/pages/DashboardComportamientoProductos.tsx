@@ -716,7 +716,7 @@ export default function DashboardComportamientoProductos() {
           "Período", ...CAL_MONTHS.map(m => MES_SHORT_LOCAL[m]),
           ...(hasTotal ? ["Total"] : []),
         ])
-        mhRow.eachCell((cell, colIdx) => {
+        mhRow.eachCell((cell: ExcelJS.Cell, colIdx: number) => {
           cell.font      = { bold: true, color: { argb: ARGB_DARK } }
           cell.fill      = bgFill(ARGB_SLATE)
           cell.alignment = { horizontal: colIdx === 1 ? "left" : "center", vertical: "middle" }
