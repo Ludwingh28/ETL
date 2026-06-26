@@ -217,16 +217,12 @@ function GrupoBotones({ value, onChange, size = "sm" }: {
 
 // ─── Métricas secundarias (shared between CanalCard and TotalCard) ─────────────
 
-function MetricasSecundarias({ ticketPromedio, cobertura, universo, clientes }: {
+function MetricasSecundarias({ ticketPromedio }: {
   ticketPromedio: number | null;
   cobertura: number | null;
   universo: number;
   clientes: number;
 }) {
-  const cobColor = cobertura == null ? "text-slate-300"
-    : cobertura >= 80 ? "text-emerald-600"
-    : cobertura >= 60 ? "text-amber-500"
-    : "text-red-500";
   return (
     <div className="flex flex-col gap-2">
       <div>
