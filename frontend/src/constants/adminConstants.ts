@@ -91,11 +91,12 @@ export const DASHBOARD_GROUPS: DashboardGroup[] = [
   {
     grupo: 'Proveedores',
     items: [
-      { id: 'pepsico', label: 'Dashboard Pepsico' },
-      { id: 'softys',  label: 'Dashboard Softys'  },
-      { id: 'dmujer',  label: 'Dashboard DMujer'  },
-      { id: 'apego',   label: 'Dashboard Apego'   },
-      { id: 'colher',  label: 'Dashboard COLHER'  },
+      { id: 'pepsico',      label: 'Dashboard Pepsico'              },
+      { id: 'softys',       label: 'Dashboard Softys'               },
+      { id: 'softys-nuevo', label: 'Dashboard Softys (En Revisión)' },
+      { id: 'dmujer',       label: 'Dashboard DMujer'               },
+      { id: 'apego',        label: 'Dashboard Apego'                },
+      { id: 'colher',       label: 'Dashboard COLHER'               },
     ],
   },
 ]
