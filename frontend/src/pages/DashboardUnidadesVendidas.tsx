@@ -140,7 +140,7 @@ export default function DashboardUnidadesVendidas() {
       const j = await apiFetch<{ success: boolean; data: Array<{ canal: string }> }>(
         `/dashboard/canales/kpis/?regional=${REGIONAL_KEY[regional]}&anho=${anho}&mes=${mes}`
       );
-      if (j.success) { setCanalList(j.data.map((c) => c.canal).filter(Boolean)); setCanal(""); }
+      if (j.success) { setCanalList(j.data.map((c) => c.canal).filter(Boolean)); }
     } catch { setCanalList([]); }
   }, [apiFetch, regional, anho, mes]);
 

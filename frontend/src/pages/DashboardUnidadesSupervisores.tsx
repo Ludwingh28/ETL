@@ -204,7 +204,7 @@ export default function DashboardUnidadesSupervisores() {
       const j = await apiFetch<{ success: boolean; data: Array<{ canal: string }> }>(
         `/dashboard/canales/kpis/?regional=${REGIONAL_KEY[regional]}&anho=${anho}&mes=${mes}`
       );
-      if (j.success) { setCanalList(j.data.map((c) => c.canal).filter(Boolean)); if (isAdmin) setCanal(""); }
+      if (j.success) { setCanalList(j.data.map((c) => c.canal).filter(Boolean)); }
     } catch { setCanalList([]); }
   }, [isAdmin, isGerenteRegional, apiFetch, regional, anho, mes]);
 

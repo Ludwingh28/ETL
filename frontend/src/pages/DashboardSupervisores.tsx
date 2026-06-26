@@ -177,7 +177,6 @@ export default function DashboardSupervisores() {
       );
       if (j.success) {
         setCanalList(j.data.map((c) => c.canal).filter(Boolean));
-        if (isAdmin) setCanal("");
       }
     } catch {
       setCanalList([]);
@@ -327,7 +326,7 @@ export default function DashboardSupervisores() {
             {isAdmin ? (
               <div className="flex gap-1.5 flex-wrap">
                 {REGIONALES.map((r) => (
-                  <button key={r} onClick={() => { setRegional(r); setSupervisor(""); }}
+                  <button key={r} onClick={() => setRegional(r)}
                     className={`text-xs font-semibold px-3 py-2 rounded-lg border transition-all ${
                       regional === r
                         ? "bg-brand-100 text-brand-700 border-brand-200 shadow-sm"

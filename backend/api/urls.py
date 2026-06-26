@@ -48,6 +48,22 @@ urlpatterns = [
     path('dashboard/canales/por-categoria/', views.dashboard_canales_por_categoria, name='canales-por-categoria'),
     path('dashboard/canales/por-sku/',       views.dashboard_canales_por_sku,       name='canales-por-sku'),
 
+    # Dashboard Softys – Canales / Regional
+    path('dashboard/softys-canales/por-grupo/',      views.dashboard_softys_canales_por_grupo, name='softys-canales-por-grupo'),
+    path('dashboard/softys-canales/sku-tendencia/',  views.dashboard_softys_sku_tendencia,     name='softys-canales-sku-tendencia'),
+    path('dashboard/softys-canales/historico-canales/', views.dashboard_softys_historico_canales, name='softys-historico-canales'),
+    path('dashboard/softys-canales/historico-grupos/',  views.dashboard_softys_historico_grupos,  name='softys-historico-grupos'),
+    path('dashboard/softys-canales/historico-skus/',    views.dashboard_softys_historico_skus,    name='softys-historico-skus'),
+    path('dashboard/softys-canales/vendedores/',        views.dashboard_softys_vendedores,          name='softys-vendedores'),
+    path('dashboard/softys-canales/clientes-semana/',  views.dashboard_softys_clientes_semana,      name='softys-clientes-semana'),
+    path('dashboard/softys-canales/sku-por-cliente/',  views.dashboard_softys_sku_por_cliente,      name='softys-sku-por-cliente'),
+    path('dashboard/softys-canales/clientes-mes/', views.dashboard_softys_clientes_mes, name='softys-clientes-mes'),
+    path('dashboard/softys-canales/export/',       views.dashboard_softys_export,       name='softys-export'),
+    path('dashboard/softys-canales/kpis/',          views.dashboard_softys_canales_kpis,          name='softys-canales-kpis'),
+    path('dashboard/softys-canales/tendencia/',     views.dashboard_softys_canales_tendencia,     name='softys-canales-tendencia'),
+    path('dashboard/softys-canales/por-regional/',  views.dashboard_softys_canales_por_regional,  name='softys-canales-por-regional'),
+    path('dashboard/softys-canales/por-sku/',       views.dashboard_softys_canales_por_sku,       name='softys-canales-por-sku'),
+
     # Dashboard Supervisores
     path('dashboard/supervisores/vendedores/',        views.dashboard_supervisores_vendedores,         name='supervisores-vendedores'),
     path('dashboard/supervisores/liquidaciones/',     views.dashboard_supervisores_liquidaciones,       name='supervisores-liquidaciones'),

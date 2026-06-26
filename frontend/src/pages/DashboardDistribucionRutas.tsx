@@ -1,9 +1,10 @@
 import 'maplibre-gl/dist/maplibre-gl.css'
 import maplibregl from 'maplibre-gl'
 import { useState, useEffect, useRef, useMemo } from 'react'
-import { Search, X, MapPin, AlertCircle, Layers, ChevronDown, Filter } from 'lucide-react'
+import { Search, X, MapPin, AlertCircle, Layers, ChevronDown, Filter, Moon } from 'lucide-react'
 import DashboardLayout from '../components/DashboardLayout'
 import { useAuth } from '../context/AuthContext'
+import type { AuthContextValue } from '../types'
 
 // ─── Tipos ────────────────────────────────────────────────────────────────────
 
@@ -40,6 +41,14 @@ interface RutaPoligono {
 }
 
 // ─── Constantes ───────────────────────────────────────────────────────────────
+
+const ADMIN_CARGOS = new Set([
+  'Administrador de Sistema', 'Gerente General', 'Analista de Datos',
+])
+
+// Supervisor especial con equipo nocturno
+const SUPERVISOR_NOCTURNO = 'Carlos Esteban Villegas'
+const VENDEDOR_NOCTURNO   = 'Juan Carlos Villarroel'
 
 const NOW       = new Date()
 const CUR_YEAR  = NOW.getFullYear()
@@ -282,7 +291,11 @@ function Spinner({ sm }: { sm?: boolean }) {
 // ─── Componente principal ─────────────────────────────────────────────────────
 
 export default function DashboardDistribucionRutas() {
-  const { apiFetch } = useAuth()
+  const { apiFetch, user } = useAuth() as AuthContextValue
+
+  const isAdmin    = !!(user && (user.is_staff || ADMIN_CARGOS.has(user.cargo ?? '')))
+  const isSuperv   = !isAdmin && (user?.cargo?.toLowerCase().includes('supervisor') ?? false)
+  const isCarlosEV = user?.full_name === SUPERVISOR_NOCTURNO
 
   // ── Filtros ───────────────────────────────────────────────────────────────
   const [anho,         setAnho]         = useState(CUR_YEAR)
@@ -326,6 +339,9 @@ export default function DashboardDistribucionRutas() {
   // ── Filtro de clasificación de cliente ───────────────────────────────────
   const [clasificacionFilter, setClasificacionFilter] = useState('')
 
+  // ── Vendedor Nocturno (solo Carlos Esteban Villegas) ─────────────────────
+  const [vendedorNocturno, setVendedorNocturno] = useState(false)
+
   // ── Cerrar combos al click fuera ─────────────────────────────────────────
   useEffect(() => {
     function handle(e: MouseEvent) {
@@ -338,9 +354,21 @@ export default function DashboardDistribucionRutas() {
     return () => document.removeEventListener('mousedown', handle)
   }, [])
 
+  // ── Pre-filtros según cargo del usuario ──────────────────────────────────
+  useEffect(() => {
+    if (isAdmin) return
+    if (user?.regional) {
+      const MAP: Record<string, string> = {
+        'Santa Cruz': 'santa_cruz', 'Cochabamba': 'cochabamba', 'La Paz': 'la_paz',
+      }
+      setRegional(MAP[user.regional] ?? user.regional.toLowerCase().replace(/ /g, '_'))
+    }
+    if (user?.canal)     setCanal(user.canal)
+    if (isSuperv && user?.full_name) setSupervisor(user.full_name)
+  }, [isAdmin, isSuperv, user?.regional, user?.canal, user?.full_name]) // eslint-disable-line react-hooks/exhaustive-deps
+
   // ── Cargar supervisores y días cuando cambia canal o regional ────────────
   useEffect(() => {
-    setSupervisor('')
     setSupervisores([])
     setLoadingSups(true)
     void (async () => {
@@ -500,6 +528,17 @@ export default function DashboardDistribucionRutas() {
     setSelectedRuta(null); setSearchQ('')
   }
 
+  function handleVendedorNocturno(checked: boolean) {
+    setVendedorNocturno(checked)
+    if (checked) {
+      setVendedorQ(VENDEDOR_NOCTURNO)
+      setVendedorSearchQ(VENDEDOR_NOCTURNO)
+      setSelectedRuta(null); setSearchQ('')
+    } else {
+      clearVendedor()
+    }
+  }
+
   function clearRuta() {
     setSelectedRuta(null); setSearchQ('')
     setRutaResults([]); setRutaInfo(null); setInfoError(null)
@@ -582,13 +621,17 @@ export default function DashboardDistribucionRutas() {
 
             <div className="flex flex-col gap-1.5">
               <label className="text-xs font-semibold uppercase tracking-wide text-slate-400">Canal</label>
-              <select
-                value={canal}
-                onChange={e => { setCanal(e.target.value); resetFilters() }}
-                className={SELECT_CLS}
-              >
-                {CANALES.map(c => <option key={c.value} value={c.value}>{c.label}</option>)}
-              </select>
+              {isSuperv ? (
+                <div className={`${SELECT_CLS} bg-slate-50 text-slate-500 cursor-default`}>{user?.canal ?? '—'}</div>
+              ) : (
+                <select
+                  value={canal}
+                  onChange={e => { setCanal(e.target.value); resetFilters() }}
+                  className={SELECT_CLS}
+                >
+                  {CANALES.map(c => <option key={c.value} value={c.value}>{c.label}</option>)}
+                </select>
+              )}
             </div>
 
             <div className="flex flex-col gap-1.5">
@@ -608,17 +651,21 @@ export default function DashboardDistribucionRutas() {
             <div className="flex flex-col gap-1.5">
               <label className="text-xs font-semibold uppercase tracking-wide text-slate-400">
                 Supervisor
-                {loadingSups && <span className="ml-1 text-[10px] font-normal text-slate-300">cargando…</span>}
+                {loadingSups && !isSuperv && <span className="ml-1 text-[10px] font-normal text-slate-300">cargando…</span>}
               </label>
-              <select
-                value={supervisor}
-                onChange={e => { setSupervisor(e.target.value); resetFilters() }}
-                className={SELECT_CLS}
-                disabled={loadingSups}
-              >
-                <option value="">Todos los supervisores</option>
-                {supervisores.map(s => <option key={s} value={s}>{s}</option>)}
-              </select>
+              {isSuperv ? (
+                <div className={`${SELECT_CLS} bg-slate-50 text-slate-500 cursor-default`}>{user?.full_name ?? '—'}</div>
+              ) : (
+                <select
+                  value={supervisor}
+                  onChange={e => { setSupervisor(e.target.value); resetFilters() }}
+                  className={SELECT_CLS}
+                  disabled={loadingSups}
+                >
+                  <option value="">Todos los supervisores</option>
+                  {supervisores.map(s => <option key={s} value={s}>{s}</option>)}
+                </select>
+              )}
             </div>
 
           </div>
@@ -640,8 +687,9 @@ export default function DashboardDistribucionRutas() {
                   {/* Trigger */}
                   <button
                     type="button"
-                    onClick={() => setVendedorComboOpen(o => !o)}
-                    className="w-full flex items-center justify-between gap-2 px-3 py-2 text-sm border border-slate-200 rounded-lg bg-white hover:border-slate-300 focus:outline-none focus:ring-2 focus:ring-brand-500 transition-colors"
+                    onClick={() => { if (!vendedorNocturno) setVendedorComboOpen(o => !o) }}
+                    className={`w-full flex items-center justify-between gap-2 px-3 py-2 text-sm border border-slate-200 rounded-lg transition-colors
+                      ${vendedorNocturno ? 'bg-slate-50 text-slate-400 cursor-default' : 'bg-white hover:border-slate-300 focus:outline-none focus:ring-2 focus:ring-brand-500'}`}
                   >
                     <span className={vendedorQ ? 'text-slate-800 font-medium truncate' : 'text-slate-400'}>
                       {vendedorQ || 'Seleccionar vendedor…'}
@@ -815,7 +863,7 @@ export default function DashboardDistribucionRutas() {
         {/* ── Toggle ver todas + filtro clasificación ─────────────────────── */}
         <div className="card space-y-3">
 
-          {/* Fila 1 – checkbox */}
+          {/* Fila 1 – checkboxes */}
           <div className="flex flex-wrap items-center gap-4">
             <label className="flex items-center gap-2.5 cursor-pointer select-none">
               <input
@@ -829,6 +877,22 @@ export default function DashboardDistribucionRutas() {
                 Ver todas las rutas del filtro seleccionado
               </span>
             </label>
+
+            {/* Checkbox Vendedor Nocturno — solo para Carlos Esteban Villegas */}
+            {isCarlosEV && (
+              <label className="flex items-center gap-2.5 cursor-pointer select-none">
+                <input
+                  type="checkbox"
+                  checked={vendedorNocturno}
+                  onChange={e => handleVendedorNocturno(e.target.checked)}
+                  className="w-4 h-4 rounded border-slate-300 accent-indigo-600"
+                />
+                <span className="text-sm font-medium text-slate-700 flex items-center gap-1.5">
+                  <Moon size={14} className="text-indigo-400" />
+                  Vendedor Nocturno
+                </span>
+              </label>
+            )}
             {verTodas && !hasFiltroParaTodas && (
               <span className="text-xs text-amber-500">Seleccioná al menos canal, supervisor, vendedor o regional</span>
             )}

@@ -20,7 +20,7 @@ export default function Login() {
 
   const sessionExpired = sessionStorage.getItem("session_expired") === "1";
 
-  if (!loading && user) return <Navigate to="/dashboard/ventas" replace />;
+  if (!loading && user) return <Navigate to="/dashboard/nacional" replace />;
 
   const handleChange = (e: ChangeEvent<HTMLInputElement>) => {
     const { name, value } = e.target;
@@ -38,7 +38,7 @@ export default function Login() {
     try {
       await login(form.username.trim(), form.password);
       sessionStorage.removeItem("session_expired");
-      navigate("/dashboard/ventas", { replace: true });
+      navigate("/dashboard/nacional", { replace: true });
     } catch (err) {
       setError(err instanceof Error ? err.message : "Error al iniciar sesión");
     } finally {

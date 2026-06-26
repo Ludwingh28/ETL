@@ -107,6 +107,7 @@ const NAV_GROUPS: NavGroup[] = [
     items: [
       { to: "/dashboard/pepsico", icon: Popcorn, label: "Dashboard Pepsico", perm: "pepsico" },
       { to: "/dashboard/softys", icon: PersonStanding, label: "Dashboard Softys", perm: "softys" },
+      { to: "/dashboard/softys-revision", icon: PersonStanding, label: "Dashboard Softys (En Revisión)", perm: "softys-nuevo" },
       { to: "/dashboard/dmujer", icon: BookHeart, label: "Dashboard DMujer", perm: "dmujer" },
       { to: "/dashboard/apego", icon: Milk, label: "Dashboard Apego", perm: "apego" },
       { to: "/dashboard/colher", icon: SoapDispenserDroplet, label: "Dashboard COLHER", perm: "colher" },

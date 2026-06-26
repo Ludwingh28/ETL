@@ -411,8 +411,6 @@ export default function DashboardCanalesRegional() {
     }
   }, [apiFetch, rKey, canal, categoria, anho, mes]);
 
-  // Al cambiar regional: resetear canal
-  useEffect(() => { setCanal(null); }, [regional]);
   // Al cambiar SKUs: resetear búsqueda y selección
   useEffect(() => { setSkuSearch(""); setSelectedSkuCode(null); }, [skus]);
 

@@ -26,6 +26,7 @@ const PERM_TO_ROUTE: Record<string, string> = {
   'matriz':                '/dashboard/matriz',
   'pepsico':               '/dashboard/pepsico',
   'softys':                '/dashboard/softys',
+  'softys-nuevo':          '/dashboard/softys-revision',
   'dmujer':                '/dashboard/dmujer',
   'apego':                 '/dashboard/apego',
   'colher':                '/dashboard/colher',
@@ -78,7 +79,16 @@ export default function DashboardRoute({ perm, children }: Props) {
 
   if (perms.includes(perm)) return <>{children}</>
 
-  // No tiene acceso → redirigir silenciosamente al primer dashboard permitido
+  // Sin permiso y aún no intentamos refrescar → esperar el refresh (effect en curso)
+  if (!refreshed) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-slate-100">
+        <div className="w-10 h-10 border-4 border-brand-500 border-t-transparent rounded-full animate-spin" />
+      </div>
+    )
+  }
+
+  // Refresh ya hecho, sigue sin permiso → redirigir al primer dashboard permitido
   const firstRoute = perms.map(p => PERM_TO_ROUTE[p]).find(Boolean)
   return <Navigate to={firstRoute ?? '/login'} replace />
 }

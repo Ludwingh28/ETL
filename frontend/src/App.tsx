@@ -19,6 +19,7 @@ import AdminGestionUsuarios from "./pages/AdminGestionUsuarios";
 import AdminCambiarContrasena from "./pages/AdminCambiarContrasena";
 import AdminRoute from "./components/AdminRoute";
 import DashboardProveedor from "./pages/DashboardProveedor";
+import DashboardSoftysCanales from "./pages/DashboardSoftysCanales";
 import DashboardTendenciaEstacional from "./pages/DashboardTendenciaEstacional";
 import DashboardFichaSku from "./pages/DashboardFichaSku";
 import DashboardDistribucionRutas from "./pages/DashboardDistribucionRutas";
@@ -123,6 +124,9 @@ export default function App() {
           />
           <Route path="/dashboard/softys"
             element={<Dash perm="softys"><DashboardProveedor perm="softys" nombre="Softys" /></Dash>}
+          />
+          <Route path="/dashboard/softys-revision"
+            element={<Dash perm="softys-nuevo"><DashboardSoftysCanales /></Dash>}
           />
           <Route path="/dashboard/dmujer"
             element={<Dash perm="dmujer"><DashboardProveedor perm="dmujer" nombre="DMujer" /></Dash>}

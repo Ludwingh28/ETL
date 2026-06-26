@@ -411,7 +411,7 @@ export default function DashboardPreventas() {
             {isAdmin ? (
               <div className="flex gap-1.5 flex-wrap">
                 {REGIONALES.map(r => (
-                  <button key={r} onClick={() => { setRegional(r); setSupervisor(""); }}
+                  <button key={r} onClick={() => setRegional(r)}
                     className={`text-xs font-semibold px-3 py-2 rounded-lg border transition-all ${
                       regional === r
                         ? "bg-brand-100 text-brand-700 border-brand-200 shadow-sm"
@@ -431,7 +431,7 @@ export default function DashboardPreventas() {
           <div className="flex flex-col gap-1">
             <label className="text-[10px] uppercase tracking-widest text-slate-400 font-semibold">Canal</label>
             {(isAdmin || isGerenteRegional) ? (
-              <select value={canal} onChange={(e: ChangeEvent<HTMLSelectElement>) => { setCanal(e.target.value); setSupervisor(""); }}
+              <select value={canal} onChange={(e: ChangeEvent<HTMLSelectElement>) => setCanal(e.target.value)}
                 className="text-sm border border-slate-200 rounded-lg px-3 py-2 bg-white text-slate-700 focus:outline-none focus:ring-2 focus:ring-brand-500 min-w-35">
                 <option value="">Todos los canales</option>
                 {canalList.map(c => <option key={c} value={c}>{c}</option>)}

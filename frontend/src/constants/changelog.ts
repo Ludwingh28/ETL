@@ -1,4 +1,4 @@
-export const CURRENT_VERSION = "1.2.5";
+export const CURRENT_VERSION = "1.2.6";
 
 export interface ChangelogVersion {
   version: string;
@@ -12,6 +12,32 @@ export interface ChangelogVersion {
 }
 
 export const CHANGELOG: ChangelogVersion[] = [
+  {
+    version: "1.2.6",
+    date: "Junio 2026",
+    fixes: [
+      "Dashboard Softys: corregido error 500 en KPIs — caracteres % en condiciones LIKE no escapados causaban IndexError en psycopg2 al construir el filtro de universo de clientes por ruta",
+      "Dashboard Softys: permisos de Proveedor corregidos — antes quedaban bloqueados a su regional de perfil sin poder cambiarla; ahora pueden navegar entre Nacional y cada regional individualmente",
+      "Dashboard Softys: corregido bug en helper _auth_regional_canal — el branch de Proveedor estaba ausente, haciendo que los endpoints de histórico, vendedores y clientes por semana siempre retornaran datos de Santa Cruz en lugar de la regional solicitada",
+      "Dashboard Softys (Comparativo Meses): corregido límite de 60 clientes en la tabla comparativa — ahora muestra hasta 500 clientes ordenados por venta total descendente",
+    ],
+    features: [
+      "Dashboard Softys — Reestructuración completa: nueva arquitectura de dos modos de vista (SKUs por Canal y Clientes × Vendedor) con navegación independiente por modo",
+      "Dashboard Softys — Vista Clientes × Vendedor: combobox de búsqueda de vendedor con sugerencias en tiempo real al hacer foco o escribir",
+      "Dashboard Softys — Vista Clientes × Vendedor: tabla semanal de clientes (sem 1–5) con totales por fila y columna; detalle de SKUs al seleccionar un cliente o semana",
+      "Dashboard Softys — Vista Comparativa Meses: tabla de clientes con columna por mes seleccionable (3, 6, 12 meses o rango personalizado); clic en cliente muestra SKUs de todo el rango, clic en celda de mes muestra solo ese mes",
+      "Dashboard Softys — Vista Comparativa Meses: tabla de clientes con scroll vertical (máx. 480px) igual que la tabla de SKUs — ya no expande la página infinitamente",
+      "Dashboard Softys — Vista Comparativa Meses: encabezado de tabla muestra el nombre del vendedor seleccionado",
+      "Dashboard Softys — Subcategorías de Pañales: el filtro de categoría 'Pañales' se expande con dos sub-opciones — Babysec (excluye Packeton) y Packeton — visibles como segunda fila con borde indicador al seleccionar la categoría padre",
+      "Dashboard Softys — KPI Cards: métrica de Cobertura reservada para implementación futura (muestra '—' hasta revisión de universo de clientes)",
+      "Dashboard Softys — Permisos Proveedor: los usuarios con cargo Proveedor arrancan en vista Nacional y pueden cambiar libremente entre Nacional, Santa Cruz, Cochabamba y La Paz sin poder modificar el filtro de canal",
+      "Dashboard Softys — Filtros de período en línea: los controles de período (3M / 6M / 12M / Personalizado) y días comparados se desplazaron al lado del toggle 'Mes Actual / Comparativo Meses' — eliminando la necesidad de scroll para cambiar el rango de comparación",
+      "Dashboard Softys — Exportación Excel: botón 'Exportar Excel' descarga los datos crudos del mes seleccionado (fecha, regional, canal, vendedor, cliente, producto, línea Softys, cantidad, venta neta) usando el módulo de descarga estándar del sistema",
+      "Navegación: se agrega 'Dashboard Softys (En Revisión)' como ruta separada para revisión interna por gerencia (permiso: softys-nuevo) — el dashboard original de Softys sigue disponible para el proveedor sin cambios",
+    ],
+    newDashboardPerms: ["softys-nuevo"],
+    newDashboardNames: { "softys-nuevo": "Dashboard Softys (En Revisión)" },
+  },
   {
     version: "1.2.5",
     date: "Junio 2026",

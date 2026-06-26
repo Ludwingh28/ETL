@@ -536,6 +536,20 @@ CIUDADES = {
     'la_paz':     ['LPZ', 'EAL'],   # La Paz + El Alto
 }
 
+# Prefijos de ruta en dim_cliente_dual para filtrar por regional
+_RUTA_PREFIJOS = {
+    'santa_cruz': ["ruta LIKE 'SC%%'"],
+    'cochabamba': ["ruta LIKE 'CB%%'", "ruta LIKE 'CBA%%'", "ruta LIKE 'ZONA-SUPERMERCADO CB%%'"],
+    'la_paz':     ["ruta LIKE 'LP%%'", "ruta LIKE 'EA%%'"],
+}
+
+def _ruta_regional_cond(regional_key: str) -> str:
+    """Condición SQL para filtrar dim_cliente_dual.ruta por regional."""
+    prefijos = _RUTA_PREFIJOS.get(regional_key)
+    if not prefijos:
+        return '1=1'
+    return '(' + ' OR '.join(prefijos) + ')'
+
 CIUDAD_LABELS = {
     'santa_cruz': 'Santa Cruz',
     'cochabamba': 'Cochabamba',
@@ -1498,6 +1512,9 @@ def dashboard_canales_kpis(request):
         elif cargo == 'Gerente Regional':
             regional = _REGIONAL_NAME_TO_KEY.get(profile.regional, 'santa_cruz')
             canal    = _safe_str(request.GET.get('canal', ''))
+        elif cargo == 'Proveedor':
+            regional = request.GET.get('regional', 'nacional').lower().replace(' ', '_')
+            canal    = (profile.canal or '').strip()
         else:
             regional = _REGIONAL_NAME_TO_KEY.get(profile.regional, 'santa_cruz')
             canal    = (profile.canal or '').strip()
@@ -1558,6 +1575,9 @@ def dashboard_canales_tendencia(request):
         elif cargo == 'Gerente Regional':
             regional = _REGIONAL_NAME_TO_KEY.get(profile.regional, 'santa_cruz')
             canal    = _safe_str(request.GET.get('canal', ''))
+        elif cargo == 'Proveedor':
+            regional = request.GET.get('regional', 'nacional').lower().replace(' ', '_')
+            canal    = (profile.canal or '').strip()
         else:
             regional = _REGIONAL_NAME_TO_KEY.get(profile.regional, 'santa_cruz')
             canal    = (profile.canal or '').strip()
@@ -1641,6 +1661,9 @@ def dashboard_canales_por_categoria(request):
         elif cargo == 'Gerente Regional':
             regional = _REGIONAL_NAME_TO_KEY.get(profile.regional, 'santa_cruz')
             canal    = _safe_str(request.GET.get('canal', ''))
+        elif cargo == 'Proveedor':
+            regional = request.GET.get('regional', 'nacional').lower().replace(' ', '_')
+            canal    = (profile.canal or '').strip()
         else:
             regional = _REGIONAL_NAME_TO_KEY.get(profile.regional, 'santa_cruz')
             canal    = (profile.canal or '').strip()
@@ -1730,6 +1753,9 @@ def dashboard_canales_por_sku(request):
         elif cargo == 'Gerente Regional':
             regional = _REGIONAL_NAME_TO_KEY.get(profile.regional, 'santa_cruz')
             canal    = _safe_str(request.GET.get('canal', ''))
+        elif cargo == 'Proveedor':
+            regional = request.GET.get('regional', 'nacional').lower().replace(' ', '_')
+            canal    = (profile.canal or '').strip()
         else:
             regional = _REGIONAL_NAME_TO_KEY.get(profile.regional, 'santa_cruz')
             canal    = (profile.canal or '').strip()
@@ -1814,6 +1840,1394 @@ def dashboard_canales_por_sku(request):
                 'porcentaje_uds': round(cant / ppto_uds * 100, 1) if ppto_uds > 0 else None,
             })
         return JsonResponse({'success': True, 'data': result})
+    except Exception:
+        logger.exception("Error interno")
+        return JsonResponse({'success': False, 'error': 'Error interno del servidor'}, status=500)
+
+
+# ─────────────────────────────────────────
+#  DASHBOARD SOFTYS – CANALES / REGIONAL
+# ─────────────────────────────────────────
+
+_SOFTYS_COND     = "(UPPER(dp.proveedor)  = 'SOFTYS' OR UPPER(dp.cat_comercial)  = 'SOFTYS')"
+_SOFTYS_COND_DP2 = "(UPPER(dp2.proveedor) = 'SOFTYS' OR UPPER(dp2.cat_comercial) = 'SOFTYS')"
+
+_SOFTYS_GRUPO_CASE = """
+    CASE
+        WHEN UPPER(dp.producto_nombre) LIKE '%%PAN BABYSEC%%'           THEN 'Pañales'
+        WHEN UPPER(dp.producto_nombre) LIKE '%%PAN COTIDIAN%%'          THEN 'Pañales para Adultos'
+        WHEN UPPER(dp.producto_nombre) LIKE '%%PAPEL HIG.%%'            THEN 'Papel Higiénico'
+        WHEN UPPER(dp.producto_nombre) LIKE '%%LADYSOFT%%'              THEN 'Toallas Femeninas'
+        WHEN UPPER(dp.producto_nombre) LIKE '%%PANUELO ELITE%%'         THEN 'Pañuelos'
+        WHEN UPPER(dp.producto_nombre) LIKE '%%TOALLAS DE PAPEL NOVA%%' THEN 'Toallas de Papel'
+        ELSE 'Otros'
+    END
+"""
+
+_SOFTYS_GRUPO_PATTERN: dict[str, dict] = {
+    'Pañales':              {'include': ['PAN BABYSEC']},
+    # Babysec = todos PAN BABYSEC excepto los que son PACKETON
+    'Pañales Babysec':      {'include': ['PAN BABYSEC'], 'exclude': ['PACKETON']},
+    'Pañales Packeton':     {'include': ['PACKETON']},
+    'Pañales para Adultos': {'include': ['PAN COTIDIAN']},
+    'Papel Higiénico':      {'include': ['PAPEL HIG.']},
+    'Toallas Femeninas':    {'include': ['LADYSOFT']},
+    'Pañuelos':             {'include': ['PANUELO ELITE']},
+    'Toallas de Papel':     {'include': ['TOALLAS DE PAPEL NOVA']},
+}
+
+
+def _grupo_sql_cond(grupo: str, params: list, field: str = "dp.producto_nombre") -> str:
+    """Construye condición SQL para filtrar por grupo Softys. Soporta include (OR) y exclude (NOT LIKE)."""
+    cfg = _SOFTYS_GRUPO_PATTERN.get(grupo, {})
+    include = cfg.get('include', [])
+    exclude = cfg.get('exclude', [])
+    if not include:
+        return ""
+    inc_clauses = [f"UPPER({field}) LIKE %s"] * len(include)
+    for p in include:
+        params.append(f'%{p.upper()}%')
+    cond = "AND (" + " OR ".join(inc_clauses) + ")"
+    for p in exclude:
+        cond += f" AND UPPER({field}) NOT LIKE %s"
+        params.append(f'%{p.upper()}%')
+    return cond
+
+
+def _ppto_softys_by_canal(anho, mes, ciudad_cond, canal_filter='', params_extra=None):
+    """Presupuesto por canal filtrando solo productos Softys."""
+    sql = f"""
+        SELECT dv.canal_rrhh AS canal, COALESCE(SUM(fp.venta_neta_presupuestada), 0) AS presupuesto
+        FROM dw.fact_presupuesto fp
+        JOIN dw.dim_vendedor dv ON fp.vendedor_sk = dv.vendedor_sk
+        JOIN dw.dim_producto dp ON fp.producto_sk = dp.producto_sk
+        WHERE fp.anho = %s AND fp.mes = %s
+          AND ({ciudad_cond})
+          AND dv.canal_rrhh IS NOT NULL
+          {canal_filter}
+          AND {_SOFTYS_COND}
+          AND fp.version_sk = (SELECT MAX(version_sk) FROM dw.dim_presupuesto_version WHERE anho = %s AND mes = %s)
+        GROUP BY dv.canal_rrhh
+    """
+    base = [anho, mes] + (params_extra or []) + [anho, mes]
+    try:
+        _, rows = _run_dw_query(sql, base)
+        return {r['canal']: float(r['presupuesto'] or 0) for r in rows}
+    except Exception:
+        return {}
+
+
+@api_view(['GET'])
+@authentication_classes([ExpiringTokenAuthentication])
+@permission_classes([IsAuthenticated])
+@_require_perm('softys')
+def dashboard_softys_canales_kpis(request):
+    """KPI cards por canal para productos Softys. Params: regional, canal, anho, mes."""
+    try:
+        is_admin = _is_admin(request.user)
+        profile  = _get_or_create_profile(request.user)
+        cargo    = (profile.cargo or '').strip()
+        if is_admin:
+            regional = request.GET.get('regional', 'santa_cruz').lower().replace(' ', '_')
+            canal    = _safe_str(request.GET.get('canal', ''))
+        elif cargo == 'Gerente Regional':
+            regional = _REGIONAL_NAME_TO_KEY.get(profile.regional, 'santa_cruz')
+            canal    = _safe_str(request.GET.get('canal', ''))
+        elif cargo == 'Proveedor':
+            regional = request.GET.get('regional', 'nacional').lower().replace(' ', '_')
+            canal    = (profile.canal or '').strip()
+        else:
+            regional = _REGIONAL_NAME_TO_KEY.get(profile.regional, 'santa_cruz')
+            canal    = (profile.canal or '').strip()
+        anho = _safe_int(request.GET.get('anho'), datetime.now().year)
+        mes  = _safe_int(request.GET.get('mes'),  datetime.now().month)
+        err  = _validate_anho_mes(anho, mes)
+        if err: return err
+        if regional not in REGIONALES_VALID:
+            return JsonResponse({'success': False, 'error': 'Regional inválida'}, status=400)
+        dia  = _safe_int(request.GET.get('dia'),  0)
+        dia_cond = f"AND df.dia_numero <= {dia}" if 1 <= dia <= 31 else ""
+
+        ciudad_cond = _regional_filter(regional)
+        canal_cond  = "AND dv.canal_rrhh = %s" if canal else ""
+        params      = [anho, mes] + ([canal] if canal else [])
+
+        sql = f"""
+            SELECT
+                dv.canal_rrhh                            AS canal,
+                COALESCE(SUM(fv.venta_neta), 0)          AS avance,
+                COUNT(DISTINCT fv.numero_venta)           AS pedidos,
+                COUNT(DISTINCT fv.cliente_sk)             AS clientes
+            FROM dw.fact_ventas fv
+            JOIN dw.dim_fecha    df ON fv.fecha_sk    = df.fecha_sk
+            JOIN dw.dim_vendedor dv ON fv.vendedor_sk = dv.vendedor_sk
+            JOIN dw.dim_producto dp ON fv.producto_sk = dp.producto_sk
+            WHERE df.anho = %s AND df.mes_numero = %s
+              AND dv.canal_rrhh IS NOT NULL AND ({ciudad_cond})
+              {canal_cond} {dia_cond}
+              AND {_SOFTYS_COND}
+            GROUP BY dv.canal_rrhh ORDER BY avance DESC
+        """
+        _, ventas_rows = _run_dw_query(sql, params)
+        # Max day with data (for the date picker)
+        sql_maxdia = f"""
+            SELECT MAX(df.dia_numero) AS max_dia
+            FROM dw.fact_ventas fv
+            JOIN dw.dim_fecha    df ON fv.fecha_sk    = df.fecha_sk
+            JOIN dw.dim_vendedor dv ON fv.vendedor_sk = dv.vendedor_sk
+            JOIN dw.dim_producto dp ON fv.producto_sk = dp.producto_sk
+            WHERE df.anho = %s AND df.mes_numero = %s
+              AND dv.canal_rrhh IS NOT NULL AND ({ciudad_cond})
+              AND {_SOFTYS_COND}
+        """
+        _, maxdia_rows = _run_dw_query(sql_maxdia, [anho, mes])
+        max_dia = int(maxdia_rows[0]['max_dia'] or 0) if maxdia_rows else 0
+        canal_filter_ppto = "AND dv.canal_rrhh = %s" if canal else ""
+        ppto_map = _ppto_softys_by_canal(anho, mes, ciudad_cond, canal_filter_ppto, [canal] if canal else None)
+
+        # Universe: active clients from dim_cliente_dual per canal (real client portfolio)
+        # Uses ruta prefix to filter by regional — no join to dim_planificacion so no clients excluded
+        # canal_rrhh (dim_vendedor) → cd.canal (dim_cliente_dual) mapping:
+        #   WHS, WHS-LIC, WHS-* → WHS  |  DTS, DTS-* → DTS  |  others: exact match
+        def _rrhh_to_dual(rrhh: str) -> str:
+            if rrhh.startswith('WHS'): return 'WHS'
+            if rrhh.startswith('DTS'): return 'DTS'
+            return rrhh
+
+        ruta_cond = _ruta_regional_cond(regional)
+        # When filtering by a specific canal, translate canal_rrhh → cd.canal
+        dual_canal_val = _rrhh_to_dual(canal) if canal else None
+        canal_dual     = "AND cd.canal = %s" if dual_canal_val else ""
+        sql_universo = f"""
+            SELECT cd.canal, COUNT(DISTINCT cd.id_cliente) AS universo
+            FROM dual.dim_cliente_dual cd
+            WHERE cd.es_actual = true
+              AND ({ruta_cond})
+              {canal_dual}
+            GROUP BY cd.canal
+        """
+        _, universo_rows = _run_dw_query(sql_universo, ([dual_canal_val] if dual_canal_val else []))
+        universo_raw = {r['canal']: int(r['universo'] or 0) for r in universo_rows}
+
+        # Build lookup: canal_rrhh → universe size (using the rrhh→dual mapping)
+        def _universo_for(rrhh: str) -> int:
+            return universo_raw.get(_rrhh_to_dual(rrhh), 0)
+
+        result = []
+        for row in ventas_rows:
+            ppto     = ppto_map.get(row['canal'], 0)
+            universo = _universo_for(row['canal'])
+            clientes = int(row['clientes'] or 0)
+            cobertura = round(clientes / universo * 100, 1) if universo > 0 else None
+            result.append({
+                **row, 'presupuesto': ppto,
+                'porcentaje': round(float(row['avance']) / ppto * 100, 1) if ppto > 0 else None,
+                'universo': universo, 'cobertura': cobertura,
+            })
+
+        universo_total  = sum(_universo_for(r['canal']) for r in ventas_rows)
+        clientes_total  = sum(int(r['clientes'] or 0)   for r in ventas_rows)
+        cobertura_total = round(clientes_total / universo_total * 100, 1) if universo_total > 0 else None
+
+        return JsonResponse({
+            'success': True, 'data': result, 'max_dia': max_dia,
+            'universo_total': universo_total, 'cobertura_total': cobertura_total,
+        })
+    except Exception:
+        logger.exception("Error interno")
+        return JsonResponse({'success': False, 'error': 'Error interno del servidor'}, status=500)
+
+
+@api_view(['GET'])
+@authentication_classes([ExpiringTokenAuthentication])
+@permission_classes([IsAuthenticated])
+@_require_perm('softys')
+def dashboard_softys_canales_tendencia(request):
+    """Tendencia diaria Softys para canal+regional. Params: regional, canal, anho, mes."""
+    try:
+        import calendar
+        is_admin = _is_admin(request.user)
+        profile  = _get_or_create_profile(request.user)
+        cargo    = (profile.cargo or '').strip()
+        if is_admin:
+            regional = request.GET.get('regional', 'santa_cruz').lower().replace(' ', '_')
+            canal    = _safe_str(request.GET.get('canal', ''))
+        elif cargo == 'Gerente Regional':
+            regional = _REGIONAL_NAME_TO_KEY.get(profile.regional, 'santa_cruz')
+            canal    = _safe_str(request.GET.get('canal', ''))
+        elif cargo == 'Proveedor':
+            regional = request.GET.get('regional', 'nacional').lower().replace(' ', '_')
+            canal    = (profile.canal or '').strip()
+        else:
+            regional = _REGIONAL_NAME_TO_KEY.get(profile.regional, 'santa_cruz')
+            canal    = (profile.canal or '').strip()
+        anho = _safe_int(request.GET.get('anho'), datetime.now().year)
+        mes  = _safe_int(request.GET.get('mes'),  datetime.now().month)
+        hoy  = datetime.now().date()
+        if regional not in REGIONALES_VALID:
+            return JsonResponse({'success': False, 'error': 'Regional inválida'}, status=400)
+
+        ciudad_cond2 = _regional_filter(regional, campo='dv2.ciudad')
+        canal_cond2  = "AND dv2.canal_rrhh = %s" if canal else ""
+        params_avance = ([canal] if canal else []) + [anho, mes]
+
+        sql_avance = f"""
+            WITH dias AS (
+                SELECT df.dia_numero,
+                       COALESCE(SUM(fv.venta_neta), 0) AS venta_dia
+                FROM dw.dim_fecha df
+                LEFT JOIN dw.fact_ventas fv ON fv.fecha_sk = df.fecha_sk
+                    AND EXISTS (
+                        SELECT 1 FROM dw.dim_vendedor dv2
+                        WHERE dv2.vendedor_sk = fv.vendedor_sk
+                          AND ({ciudad_cond2})
+                          {canal_cond2}
+                    )
+                    AND EXISTS (
+                        SELECT 1 FROM dw.dim_producto dp2
+                        WHERE dp2.producto_sk = fv.producto_sk
+                          AND {_SOFTYS_COND_DP2}
+                    )
+                WHERE df.anho = %s AND df.mes_numero = %s
+                  AND df.fecha_completa <= CURRENT_DATE
+                GROUP BY df.dia_numero
+            )
+            SELECT dia_numero AS dia, venta_dia,
+                   SUM(venta_dia) OVER (ORDER BY dia_numero) AS avance_acumulado
+            FROM dias ORDER BY dia_numero
+        """
+        _, avance_rows = _run_dw_query(sql_avance, params_avance)
+
+        ciudad_cond = _regional_filter(regional)
+        canal_cond  = "AND dv.canal_rrhh = %s" if canal else ""
+        ppto_map = _ppto_softys_by_canal(anho, mes, ciudad_cond, canal_cond, [canal] if canal else None)
+        presupuesto_mes = sum(ppto_map.values())
+
+        dias_en_mes        = calendar.monthrange(anho, mes)[1]
+        ppto_diario        = presupuesto_mes / dias_en_mes if dias_en_mes > 0 else 0
+        es_periodo_actual  = (anho == hoy.year and mes == hoy.month)
+        dias_transcurridos = hoy.day if es_periodo_actual else dias_en_mes
+        avance_por_dia     = {int(r['dia']): r['avance_acumulado'] for r in avance_rows}
+        avance_total       = float(avance_rows[-1]['avance_acumulado']) if avance_rows else 0.0
+        tasa_diaria        = avance_total / dias_transcurridos if dias_transcurridos > 0 else 0
+
+        result = []
+        for dia in range(1, dias_en_mes + 1):
+            proyeccion = None
+            if es_periodo_actual and dia > dias_transcurridos:
+                proyeccion = round(avance_total + tasa_diaria * (dia - dias_transcurridos), 2)
+            result.append({
+                'dia':                   dia,
+                'avance_acumulado':      avance_por_dia.get(dia),
+                'presupuesto_acumulado': round(ppto_diario * dia, 2) if presupuesto_mes > 0 else None,
+                'proyeccion_acumulada':  proyeccion,
+            })
+        return JsonResponse({'success': True, 'data': result,
+                             'presupuesto_mes': presupuesto_mes,
+                             'es_periodo_actual': es_periodo_actual})
+    except Exception:
+        logger.exception("Error interno")
+        return JsonResponse({'success': False, 'error': 'Error interno del servidor'}, status=500)
+
+
+@api_view(['GET'])
+@authentication_classes([ExpiringTokenAuthentication])
+@permission_classes([IsAuthenticated])
+@_require_perm('softys')
+def dashboard_softys_canales_por_categoria(request):
+    """Ventas Softys por categoría para canal+regional. Params: regional, canal, anho, mes."""
+    try:
+        is_admin = _is_admin(request.user)
+        profile  = _get_or_create_profile(request.user)
+        cargo    = (profile.cargo or '').strip()
+        if is_admin:
+            regional = request.GET.get('regional', 'santa_cruz').lower().replace(' ', '_')
+            canal    = _safe_str(request.GET.get('canal', ''))
+        elif cargo == 'Gerente Regional':
+            regional = _REGIONAL_NAME_TO_KEY.get(profile.regional, 'santa_cruz')
+            canal    = _safe_str(request.GET.get('canal', ''))
+        elif cargo == 'Proveedor':
+            regional = request.GET.get('regional', 'nacional').lower().replace(' ', '_')
+            canal    = (profile.canal or '').strip()
+        else:
+            regional = _REGIONAL_NAME_TO_KEY.get(profile.regional, 'santa_cruz')
+            canal    = (profile.canal or '').strip()
+        anho = _safe_int(request.GET.get('anho'), datetime.now().year)
+        mes  = _safe_int(request.GET.get('mes'),  datetime.now().month)
+        if regional not in REGIONALES_VALID:
+            return JsonResponse({'success': False, 'error': 'Regional inválida'}, status=400)
+
+        ciudad_cond = _regional_filter(regional)
+        canal_cond  = "AND dv.canal_rrhh = %s" if canal else ""
+        params      = [anho, mes] + ([canal] if canal else [])
+
+        sql = f"""
+            SELECT
+                {_CATEGORIA_CASE}                                AS categoria,
+                COALESCE(SUM(fv.venta_neta), 0)                  AS avance,
+                COALESCE(SUM(fv.cantidad), 0)                    AS cantidad,
+                COUNT(DISTINCT fv.producto_sk)                   AS productos
+            FROM dw.fact_ventas fv
+            JOIN dw.dim_fecha    df   ON fv.fecha_sk    = df.fecha_sk
+            JOIN dw.dim_vendedor dv   ON fv.vendedor_sk = dv.vendedor_sk
+            JOIN dw.dim_producto dp   ON fv.producto_sk = dp.producto_sk
+            WHERE df.anho = %s AND df.mes_numero = %s
+              AND ({ciudad_cond}) {canal_cond}
+              AND dp.linea IS NOT NULL AND dp.linea != 'SIN LINEA'
+              AND {_SOFTYS_COND}
+            GROUP BY {_CATEGORIA_CASE}
+            ORDER BY avance DESC
+        """
+        _, rows = _run_dw_query(sql, params)
+
+        ppto_map = {}
+        try:
+            sql_ppto = f"""
+                SELECT
+                    {_CATEGORIA_CASE}                                        AS categoria,
+                    COALESCE(SUM(fp.venta_neta_presupuestada), 0)             AS presupuesto
+                FROM dw.fact_presupuesto fp
+                JOIN dw.dim_vendedor dv ON fp.vendedor_sk = dv.vendedor_sk
+                JOIN dw.dim_producto dp ON fp.producto_sk = dp.producto_sk
+                WHERE fp.anho = %s AND fp.mes = %s
+                  AND ({ciudad_cond}) {canal_cond}
+                  AND dp.grupo_descripcion != 'EXHIBIDORES'
+                  AND dp.grupo_descripcion IS NOT NULL
+                  AND {_SOFTYS_COND}
+                  AND fp.version_sk = (SELECT MAX(version_sk) FROM dw.dim_presupuesto_version WHERE anho = %s AND mes = %s)
+                GROUP BY {_CATEGORIA_CASE}
+            """
+            _, ppto_rows = _run_dw_query(sql_ppto, params + [anho, mes])
+            ppto_map = {r['categoria']: float(r['presupuesto'] or 0) for r in ppto_rows}
+        except Exception:
+            pass
+
+        result = []
+        for row in rows:
+            cat  = row['categoria']
+            av   = float(row['avance'] or 0)
+            ppto = ppto_map.get(cat, 0)
+            result.append({
+                'categoria':   cat,
+                'avance':      av,
+                'cantidad':    int(row['cantidad'] or 0),
+                'productos':   int(row['productos'] or 0),
+                'presupuesto': ppto,
+                'porcentaje':  round(av / ppto * 100, 1) if ppto > 0 else None,
+            })
+        return JsonResponse({'success': True, 'data': result})
+    except Exception:
+        logger.exception("Error interno")
+        return JsonResponse({'success': False, 'error': 'Error interno del servidor'}, status=500)
+
+
+@api_view(['GET'])
+@authentication_classes([ExpiringTokenAuthentication])
+@permission_classes([IsAuthenticated])
+@_require_perm('softys')
+def dashboard_softys_canales_por_sku(request):
+    """Top SKUs Softys para canal+grupo+regional. Params: regional, canal, grupo, anho, mes."""
+    try:
+        is_admin = _is_admin(request.user)
+        profile  = _get_or_create_profile(request.user)
+        cargo    = (profile.cargo or '').strip()
+        if is_admin:
+            regional = request.GET.get('regional', 'santa_cruz').lower().replace(' ', '_')
+            canal    = _safe_str(request.GET.get('canal', ''))
+        elif cargo == 'Gerente Regional':
+            regional = _REGIONAL_NAME_TO_KEY.get(profile.regional, 'santa_cruz')
+            canal    = _safe_str(request.GET.get('canal', ''))
+        elif cargo == 'Proveedor':
+            regional = request.GET.get('regional', 'nacional').lower().replace(' ', '_')
+            canal    = (profile.canal or '').strip()
+        else:
+            regional = _REGIONAL_NAME_TO_KEY.get(profile.regional, 'santa_cruz')
+            canal    = (profile.canal or '').strip()
+        grupo = _safe_str(request.GET.get('grupo', ''))
+        anho  = _safe_int(request.GET.get('anho'), datetime.now().year)
+        mes   = _safe_int(request.GET.get('mes'),  datetime.now().month)
+        err   = _validate_anho_mes(anho, mes)
+        if err: return err
+        dia  = _safe_int(request.GET.get('dia'),  0)
+        dia_cond = f"AND df.dia_numero <= {dia}" if 1 <= dia <= 31 else ""
+        limit = min(_safe_int(request.GET.get('limit'), 500), 1000)
+        if regional not in REGIONALES_VALID:
+            return JsonResponse({'success': False, 'error': 'Regional inválida'}, status=400)
+
+        ciudad_cond = _regional_filter(regional)
+        canal_cond  = "AND dv.canal_rrhh = %s" if canal else ""
+        params = [anho, mes]
+        if canal:
+            params.append(canal)
+
+        cat_cond = _grupo_sql_cond(grupo, params)
+
+        params_ventas = list(params) + [limit]
+
+        sql = f"""
+            SELECT
+                dp.producto_codigo_erp                           AS codigo,
+                dp.producto_nombre                               AS producto,
+                COALESCE(dp.linea, 'Sin Línea')                  AS categoria,
+                COALESCE(dp.subgrupo_descripcion, '')            AS subgrupo,
+                COALESCE(SUM(fv.cantidad), 0)                    AS cantidad,
+                COALESCE(SUM(fv.venta_neta), 0)                  AS venta_neta,
+                COUNT(DISTINCT fv.cliente_sk)                    AS clientes
+            FROM dw.fact_ventas fv
+            JOIN dw.dim_fecha    df ON fv.fecha_sk    = df.fecha_sk
+            JOIN dw.dim_vendedor dv ON fv.vendedor_sk = dv.vendedor_sk
+            JOIN dw.dim_producto dp ON fv.producto_sk = dp.producto_sk
+            WHERE df.anho = %s AND df.mes_numero = %s
+              AND ({ciudad_cond}) {canal_cond} {cat_cond} {dia_cond}
+              AND {_SOFTYS_COND}
+            GROUP BY dp.producto_codigo_erp, dp.producto_nombre,
+                     dp.linea, dp.subgrupo_descripcion
+            ORDER BY venta_neta DESC
+            LIMIT %s
+        """
+        _, rows = _run_dw_query(sql, params_ventas)
+
+        ppto_map = {}
+        try:
+            sql_ppto = f"""
+                SELECT dp.producto_codigo_erp                        AS codigo,
+                       COALESCE(SUM(fp.venta_neta_presupuestada), 0) AS presupuesto,
+                       COALESCE(SUM(fp.cantidad_presupuestada), 0)   AS presupuesto_uds
+                FROM dw.fact_presupuesto fp
+                JOIN dw.dim_vendedor dv ON fp.vendedor_sk = dv.vendedor_sk
+                JOIN dw.dim_producto dp ON fp.producto_sk = dp.producto_sk
+                WHERE fp.anho = %s AND fp.mes = %s
+                  AND ({ciudad_cond}) {canal_cond} {cat_cond}
+                  AND {_SOFTYS_COND}
+                  AND fp.version_sk = (SELECT MAX(version_sk) FROM dw.dim_presupuesto_version WHERE anho = %s AND mes = %s)
+                GROUP BY dp.producto_codigo_erp
+            """
+            _, ppto_rows = _run_dw_query(sql_ppto, params + [anho, mes])
+            ppto_map = {r['codigo']: r for r in ppto_rows}
+        except Exception:
+            pass
+
+        result = []
+        for row in rows:
+            vn       = float(row['venta_neta'] or 0)
+            cant     = int(row['cantidad'] or 0)
+            p        = ppto_map.get(row['codigo'], {})
+            ppto_bs  = float(p.get('presupuesto',     0) or 0)
+            ppto_uds = float(p.get('presupuesto_uds', 0) or 0)
+            result.append({
+                **row,
+                'venta_neta':      vn,
+                'presupuesto':     ppto_bs,
+                'presupuesto_uds': int(ppto_uds),
+                'porcentaje':      round(vn   / ppto_bs  * 100, 1) if ppto_bs  > 0 else None,
+                'porcentaje_uds':  round(cant / ppto_uds * 100, 1) if ppto_uds > 0 else None,
+            })
+        return JsonResponse({'success': True, 'data': result})
+    except Exception:
+        logger.exception("Error interno")
+        return JsonResponse({'success': False, 'error': 'Error interno del servidor'}, status=500)
+
+
+@api_view(['GET'])
+@authentication_classes([ExpiringTokenAuthentication])
+@permission_classes([IsAuthenticated])
+@_require_perm('softys')
+def dashboard_softys_canales_por_regional(request):
+    """Ventas Softys desglosadas por regional (para la vista Nacional). Params: anho, mes, canal."""
+    try:
+        is_admin = _is_admin(request.user)
+        profile  = _get_or_create_profile(request.user)
+        cargo    = (profile.cargo or '').strip()
+        if is_admin:
+            canal = _safe_str(request.GET.get('canal', ''))
+        elif cargo == 'Gerente Regional':
+            canal = _safe_str(request.GET.get('canal', ''))
+        else:
+            canal = (profile.canal or '').strip()
+        anho = _safe_int(request.GET.get('anho'), datetime.now().year)
+        mes  = _safe_int(request.GET.get('mes'),  datetime.now().month)
+        err  = _validate_anho_mes(anho, mes)
+        if err: return err
+        dia  = _safe_int(request.GET.get('dia'),  0)
+        dia_cond = f"AND df.dia_numero <= {dia}" if 1 <= dia <= 31 else ""
+
+        scz  = _ciudad_case('dv.ciudad', 'santa_cruz')
+        cbba = _ciudad_case('dv.ciudad', 'cochabamba')
+        lpz  = _ciudad_case('dv.ciudad', 'la_paz')
+        canal_cond = "AND dv.canal_rrhh = %s" if canal else ""
+
+        sql = f"""
+            SELECT
+                CASE
+                    WHEN {scz}  THEN 'Santa Cruz'
+                    WHEN {cbba} THEN 'Cochabamba'
+                    WHEN {lpz}  THEN 'La Paz'
+                    ELSE 'Otras'
+                END                               AS regional,
+                COALESCE(SUM(fv.venta_neta), 0)   AS avance,
+                COUNT(DISTINCT fv.cliente_sk)      AS clientes,
+                COUNT(DISTINCT fv.numero_venta)    AS pedidos
+            FROM dw.fact_ventas fv
+            JOIN dw.dim_fecha    df ON fv.fecha_sk    = df.fecha_sk
+            JOIN dw.dim_vendedor dv ON fv.vendedor_sk = dv.vendedor_sk
+            JOIN dw.dim_producto dp ON fv.producto_sk = dp.producto_sk
+            WHERE df.anho = %s AND df.mes_numero = %s
+              {canal_cond} {dia_cond}
+              AND {_SOFTYS_COND}
+            GROUP BY regional ORDER BY avance DESC
+        """
+        _, ventas_rows = _run_dw_query(sql, [anho, mes] + ([canal] if canal else []))
+
+        # Budget by regional
+        ppto_scz  = _ppto_softys_by_canal(anho, mes, _ciudad_case('dv.ciudad', 'santa_cruz'),  canal_cond, [canal] if canal else None)
+        ppto_cbba = _ppto_softys_by_canal(anho, mes, _ciudad_case('dv.ciudad', 'cochabamba'),   canal_cond, [canal] if canal else None)
+        ppto_lpz  = _ppto_softys_by_canal(anho, mes, _ciudad_case('dv.ciudad', 'la_paz'),       canal_cond, [canal] if canal else None)
+        ppto_map = {
+            'Santa Cruz': sum(ppto_scz.values()),
+            'Cochabamba': sum(ppto_cbba.values()),
+            'La Paz':     sum(ppto_lpz.values()),
+        }
+
+        result = []
+        for row in ventas_rows:
+            reg  = row['regional']
+            av   = float(row['avance'] or 0)
+            ppto = ppto_map.get(reg, 0)
+            result.append({
+                'regional':   reg,
+                'avance':     av,
+                'presupuesto': ppto,
+                'clientes':   int(row['clientes'] or 0),
+                'pedidos':    int(row['pedidos'] or 0),
+                'porcentaje': round(av / ppto * 100, 1) if ppto > 0 else None,
+            })
+        return JsonResponse({'success': True, 'data': result})
+    except Exception:
+        logger.exception("Error interno")
+        return JsonResponse({'success': False, 'error': 'Error interno del servidor'}, status=500)
+
+
+# ─── Helpers histórico ────────────────────────────────────────────────────────
+
+_MESES_SHORT = ["Ene","Feb","Mar","Abr","May","Jun","Jul","Ago","Sep","Oct","Nov","Dic"]
+
+def _periodos_anteriores(anho, mes, n):
+    """Lista de (anho, mes) de los últimos n meses en orden cronológico."""
+    periodos = []
+    a, m = anho, mes
+    for _ in range(n):
+        periodos.append((a, m))
+        m -= 1
+        if m == 0:
+            m = 12
+            a -= 1
+    return list(reversed(periodos))
+
+def _mes_label(anho, mes):
+    return f"{_MESES_SHORT[mes - 1]} {str(anho)[2:]}"
+
+def _month_keys_placeholders(periodos):
+    keys = [a * 100 + m for a, m in periodos]
+    placeholders = ', '.join(['%s'] * len(keys))
+    return keys, placeholders
+
+def _auth_regional_canal(request):
+    """Extrae regional_key y canal según rol. Retorna (regional_key, canal)."""
+    is_admin = _is_admin(request.user)
+    profile  = _get_or_create_profile(request.user)
+    cargo    = (profile.cargo or '').strip()
+    if is_admin:
+        regional = request.GET.get('regional', 'santa_cruz').lower().replace(' ', '_')
+        canal    = _safe_str(request.GET.get('canal', ''))
+    elif cargo == 'Gerente Regional':
+        regional = _REGIONAL_NAME_TO_KEY.get(profile.regional, 'santa_cruz')
+        canal    = _safe_str(request.GET.get('canal', ''))
+    elif cargo == 'Proveedor':
+        regional = request.GET.get('regional', 'nacional').lower().replace(' ', '_')
+        canal    = (profile.canal or '').strip()
+    else:
+        regional = _REGIONAL_NAME_TO_KEY.get(profile.regional, 'santa_cruz')
+        canal    = (profile.canal or '').strip()
+    return regional, canal
+
+
+@api_view(['GET'])
+@authentication_classes([ExpiringTokenAuthentication])
+@permission_classes([IsAuthenticated])
+@_require_perm('softys')
+def dashboard_softys_canales_por_grupo(request):
+    """Ventas Softys agrupadas por línea de producto (Pañales, Papel Higiénico, etc.). Params: regional, canal, anho, mes, dia."""
+    try:
+        regional, canal = _auth_regional_canal(request)
+        anho = _safe_int(request.GET.get('anho'), datetime.now().year)
+        mes  = _safe_int(request.GET.get('mes'),  datetime.now().month)
+        dia  = _safe_int(request.GET.get('dia'),  0)
+        err  = _validate_anho_mes(anho, mes)
+        if err: return err
+        if regional not in REGIONALES_VALID:
+            return JsonResponse({'success': False, 'error': 'Regional inválida'}, status=400)
+
+        ciudad_cond = _regional_filter(regional)
+        canal_cond  = "AND dv.canal_rrhh = %s" if canal else ""
+        dia_cond    = f"AND df.dia_numero <= {dia}" if 1 <= dia <= 31 else ""
+        params      = [anho, mes] + ([canal] if canal else [])
+
+        sql = f"""
+            SELECT
+                {_SOFTYS_GRUPO_CASE}            AS grupo,
+                COALESCE(SUM(fv.venta_neta), 0) AS avance,
+                COALESCE(SUM(fv.cantidad), 0)   AS cantidad,
+                COUNT(DISTINCT fv.cliente_sk)   AS clientes
+            FROM dw.fact_ventas fv
+            JOIN dw.dim_fecha    df ON fv.fecha_sk    = df.fecha_sk
+            JOIN dw.dim_vendedor dv ON fv.vendedor_sk = dv.vendedor_sk
+            JOIN dw.dim_producto dp ON fv.producto_sk = dp.producto_sk
+            WHERE df.anho = %s AND df.mes_numero = %s
+              AND ({ciudad_cond}) {canal_cond} {dia_cond}
+              AND {_SOFTYS_COND}
+            GROUP BY {_SOFTYS_GRUPO_CASE}
+            ORDER BY avance DESC
+        """
+        _, rows = _run_dw_query(sql, params)
+
+        ppto_map = {}
+        try:
+            sql_ppto = f"""
+                SELECT
+                    {_SOFTYS_GRUPO_CASE}                                AS grupo,
+                    COALESCE(SUM(fp.venta_neta_presupuestada), 0)        AS presupuesto
+                FROM dw.fact_presupuesto fp
+                JOIN dw.dim_vendedor dv ON fp.vendedor_sk = dv.vendedor_sk
+                JOIN dw.dim_producto dp ON fp.producto_sk = dp.producto_sk
+                WHERE fp.anho = %s AND fp.mes = %s
+                  AND ({ciudad_cond}) {canal_cond}
+                  AND {_SOFTYS_COND}
+                  AND fp.version_sk = (SELECT MAX(version_sk) FROM dw.dim_presupuesto_version WHERE anho = %s AND mes = %s)
+                GROUP BY {_SOFTYS_GRUPO_CASE}
+            """
+            _, ppto_rows = _run_dw_query(sql_ppto, [anho, mes] + ([canal] if canal else []) + [anho, mes])
+            ppto_map = {r['grupo']: float(r['presupuesto'] or 0) for r in ppto_rows}
+        except Exception:
+            pass
+
+        _ORDEN_G = ["Pañales", "Pañales para Adultos", "Papel Higiénico", "Toallas Femeninas", "Pañuelos", "Toallas de Papel", "Otros"]
+        result = []
+        for row in rows:
+            g    = row['grupo']
+            av   = float(row['avance'] or 0)
+            ppto = ppto_map.get(g, 0)
+            result.append({
+                'grupo':       g,
+                'avance':      av,
+                'presupuesto': ppto,
+                'cantidad':    int(row['cantidad'] or 0),
+                'clientes':    int(row['clientes'] or 0),
+                'porcentaje':  round(av / ppto * 100, 1) if ppto > 0 else None,
+            })
+        result.sort(key=lambda x: _ORDEN_G.index(x['grupo']) if x['grupo'] in _ORDEN_G else 99)
+        return JsonResponse({'success': True, 'data': result})
+    except Exception:
+        logger.exception("Error interno")
+        return JsonResponse({'success': False, 'error': 'Error interno del servidor'}, status=500)
+
+
+@api_view(['GET'])
+@authentication_classes([ExpiringTokenAuthentication])
+@permission_classes([IsAuthenticated])
+@_require_perm('softys')
+def dashboard_softys_sku_tendencia(request):
+    """Tendencia diaria de ventas para un SKU Softys específico. Params: regional, canal, anho, mes, sku."""
+    try:
+        import calendar
+        regional, canal = _auth_regional_canal(request)
+        anho = _safe_int(request.GET.get('anho'), datetime.now().year)
+        mes  = _safe_int(request.GET.get('mes'),  datetime.now().month)
+        sku  = _safe_str(request.GET.get('sku', ''))
+        if not sku:
+            return JsonResponse({'success': False, 'error': 'Parámetro sku requerido'}, status=400)
+        err = _validate_anho_mes(anho, mes)
+        if err: return err
+        if regional not in REGIONALES_VALID:
+            return JsonResponse({'success': False, 'error': 'Regional inválida'}, status=400)
+
+        ciudad_cond  = _regional_filter(regional)
+        ciudad_cond2 = _regional_filter(regional, campo='dv2.ciudad')
+        canal_cond   = "AND dv.canal_rrhh = %s" if canal else ""
+        canal_cond2  = "AND dv2.canal_rrhh = %s" if canal else ""
+
+        params_avance = ([canal] if canal else []) + [sku, anho, mes]
+
+        sql_avance = f"""
+            WITH dias AS (
+                SELECT df.dia_numero,
+                       COALESCE(SUM(fv.venta_neta), 0) AS venta_dia
+                FROM dw.dim_fecha df
+                LEFT JOIN dw.fact_ventas fv ON fv.fecha_sk = df.fecha_sk
+                    AND EXISTS (
+                        SELECT 1 FROM dw.dim_vendedor dv2
+                        WHERE dv2.vendedor_sk = fv.vendedor_sk
+                          AND ({ciudad_cond2})
+                          {canal_cond2}
+                    )
+                    AND EXISTS (
+                        SELECT 1 FROM dw.dim_producto dp2
+                        WHERE dp2.producto_sk = fv.producto_sk
+                          AND {_SOFTYS_COND_DP2}
+                          AND dp2.producto_codigo_erp = %s
+                    )
+                WHERE df.anho = %s AND df.mes_numero = %s
+                  AND df.fecha_completa <= CURRENT_DATE
+                GROUP BY df.dia_numero
+            )
+            SELECT dia_numero AS dia, venta_dia,
+                   SUM(venta_dia) OVER (ORDER BY dia_numero) AS avance_acumulado
+            FROM dias ORDER BY dia_numero
+        """
+        _, avance_rows = _run_dw_query(sql_avance, params_avance)
+
+        ppto_total = 0
+        producto_nombre = ''
+        try:
+            sql_info = f"""
+                SELECT COALESCE(SUM(fp.venta_neta_presupuestada), 0) AS presupuesto,
+                       MAX(dp.producto_nombre)                        AS nombre
+                FROM dw.fact_presupuesto fp
+                JOIN dw.dim_vendedor dv ON fp.vendedor_sk = dv.vendedor_sk
+                JOIN dw.dim_producto dp ON fp.producto_sk = dp.producto_sk
+                WHERE fp.anho = %s AND fp.mes = %s
+                  AND ({ciudad_cond}) {canal_cond}
+                  AND dp.producto_codigo_erp = %s
+                  AND {_SOFTYS_COND}
+                  AND fp.version_sk = (SELECT MAX(version_sk) FROM dw.dim_presupuesto_version WHERE anho = %s AND mes = %s)
+            """
+            _, info_rows = _run_dw_query(sql_info, [anho, mes] + ([canal] if canal else []) + [sku, anho, mes])
+            if info_rows:
+                ppto_total = float(info_rows[0]['presupuesto'] or 0)
+                producto_nombre = info_rows[0]['nombre'] or ''
+        except Exception:
+            pass
+
+        if not producto_nombre:
+            try:
+                _, nombre_rows = _run_dw_query(
+                    "SELECT producto_nombre FROM dw.dim_producto WHERE producto_codigo_erp = %s LIMIT 1", [sku])
+                if nombre_rows:
+                    producto_nombre = nombre_rows[0]['producto_nombre'] or ''
+            except Exception:
+                pass
+
+        hoy = datetime.now().date()
+        dias_en_mes = calendar.monthrange(anho, mes)[1]
+        es_periodo_actual = (anho == hoy.year and mes == hoy.month)
+        dias_transcurridos = hoy.day if es_periodo_actual else dias_en_mes
+        ppto_diario = ppto_total / dias_en_mes if dias_en_mes > 0 and ppto_total > 0 else 0
+        avance_por_dia = {int(r['dia']): float(r['avance_acumulado'] or 0) for r in avance_rows}
+        avance_total = float(avance_rows[-1]['avance_acumulado']) if avance_rows else 0.0
+        tasa_diaria = avance_total / dias_transcurridos if dias_transcurridos > 0 else 0
+
+        result = []
+        for d in range(1, dias_en_mes + 1):
+            proyeccion = None
+            if es_periodo_actual and d > dias_transcurridos:
+                proyeccion = round(avance_total + tasa_diaria * (d - dias_transcurridos), 2)
+            result.append({
+                'dia':                   d,
+                'avance_acumulado':      avance_por_dia.get(d),
+                'presupuesto_acumulado': round(ppto_diario * d, 2) if ppto_diario > 0 else None,
+                'proyeccion_acumulada':  proyeccion,
+            })
+        return JsonResponse({
+            'success': True, 'data': result,
+            'producto_nombre': producto_nombre,
+            'presupuesto_total': ppto_total,
+            'es_periodo_actual': es_periodo_actual,
+        })
+    except Exception:
+        logger.exception("Error interno")
+        return JsonResponse({'success': False, 'error': 'Error interno del servidor'}, status=500)
+
+
+@api_view(['GET'])
+@authentication_classes([ExpiringTokenAuthentication])
+@permission_classes([IsAuthenticated])
+@_require_perm('softys')
+def dashboard_softys_historico_canales(request):
+    """Ventas Softys por canal mes a mes. Params: regional, canal, anho, mes, meses."""
+    try:
+        regional, canal = _auth_regional_canal(request)
+        anho    = _safe_int(request.GET.get('anho'), datetime.now().year)
+        mes     = _safe_int(request.GET.get('mes'),  datetime.now().month)
+        meses_n = min(_safe_int(request.GET.get('meses'), 6), 12)
+        modo    = request.GET.get('modo', 'completo')
+        dia_ref = _safe_int(request.GET.get('dia_ref'), 0)
+        dia_hist_cond = f"AND df.dia_numero <= {dia_ref}" if modo in ('mismo_rango', 'personalizado') and 1 <= dia_ref <= 31 else ""
+        if regional not in REGIONALES_VALID:
+            return JsonResponse({'success': False, 'error': 'Regional inválida'}, status=400)
+
+        periodos = _periodos_anteriores(anho, mes, meses_n)
+        keys, placeholders = _month_keys_placeholders(periodos)
+        ciudad_cond = _regional_filter(regional)
+        canal_cond  = "AND dv.canal_rrhh = %s" if canal else ""
+        params = keys + ([canal] if canal else [])
+
+        sql = f"""
+            SELECT df.anho, df.mes_numero,
+                   dv.canal_rrhh                   AS nombre,
+                   COALESCE(SUM(fv.venta_neta), 0) AS avance
+            FROM dw.fact_ventas fv
+            JOIN dw.dim_fecha    df ON fv.fecha_sk    = df.fecha_sk
+            JOIN dw.dim_vendedor dv ON fv.vendedor_sk = dv.vendedor_sk
+            JOIN dw.dim_producto dp ON fv.producto_sk = dp.producto_sk
+            WHERE (df.anho * 100 + df.mes_numero) IN ({placeholders})
+              AND ({ciudad_cond}) {canal_cond}
+              AND dv.canal_rrhh IS NOT NULL
+              {dia_hist_cond}
+              AND {_SOFTYS_COND}
+            GROUP BY df.anho, df.mes_numero, dv.canal_rrhh
+            ORDER BY df.anho, df.mes_numero, avance DESC
+        """
+        _, rows = _run_dw_query(sql, params)
+
+        # Pivot
+        nombres = list(dict.fromkeys(r['nombre'] for r in rows))
+        grid = {n: {p: 0.0 for p in periodos} for n in nombres}
+        for r in rows:
+            grid[r['nombre']][(r['anho'], r['mes_numero'])] = float(r['avance'] or 0)
+
+        periodos_out = [{'anho': a, 'mes': m, 'label': _mes_label(a, m)} for a, m in periodos]
+        series = [{'nombre': n, 'valores': [grid[n][p] for p in periodos]} for n in nombres]
+        return JsonResponse({'success': True, 'periodos': periodos_out, 'series': series})
+    except Exception:
+        logger.exception("Error interno")
+        return JsonResponse({'success': False, 'error': 'Error interno del servidor'}, status=500)
+
+
+@api_view(['GET'])
+@authentication_classes([ExpiringTokenAuthentication])
+@permission_classes([IsAuthenticated])
+@_require_perm('softys')
+def dashboard_softys_historico_grupos(request):
+    """Ventas Softys por línea de producto mes a mes. Params: regional, canal, anho, mes, meses, modo, dia_ref."""
+    try:
+        regional, canal = _auth_regional_canal(request)
+        anho    = _safe_int(request.GET.get('anho'), datetime.now().year)
+        mes     = _safe_int(request.GET.get('mes'),  datetime.now().month)
+        meses_n = min(_safe_int(request.GET.get('meses'), 6), 12)
+        modo    = request.GET.get('modo', 'completo')
+        dia_ref = _safe_int(request.GET.get('dia_ref'), 0)
+        dia_hist_cond = f"AND df.dia_numero <= {dia_ref}" if modo in ('mismo_rango', 'personalizado') and 1 <= dia_ref <= 31 else ""
+        if regional not in REGIONALES_VALID:
+            return JsonResponse({'success': False, 'error': 'Regional inválida'}, status=400)
+
+        periodos = _periodos_anteriores(anho, mes, meses_n)
+        keys, placeholders = _month_keys_placeholders(periodos)
+        ciudad_cond = _regional_filter(regional)
+        canal_cond  = "AND dv.canal_rrhh = %s" if canal else ""
+        params = keys + ([canal] if canal else [])
+
+        # Agrupa por nombre de producto y categoriza en Python para evitar LIKE con % en GROUP BY
+        sql = f"""
+            SELECT df.anho, df.mes_numero,
+                   dp.producto_nombre              AS producto,
+                   COALESCE(SUM(fv.venta_neta), 0) AS avance
+            FROM dw.fact_ventas fv
+            JOIN dw.dim_fecha    df ON fv.fecha_sk    = df.fecha_sk
+            JOIN dw.dim_vendedor dv ON fv.vendedor_sk = dv.vendedor_sk
+            JOIN dw.dim_producto dp ON fv.producto_sk = dp.producto_sk
+            WHERE (df.anho * 100 + df.mes_numero) IN ({placeholders})
+              AND ({ciudad_cond}) {canal_cond}
+              {dia_hist_cond}
+              AND {_SOFTYS_COND}
+            GROUP BY df.anho, df.mes_numero, dp.producto_nombre
+            ORDER BY df.anho, df.mes_numero
+        """
+        _, rows = _run_dw_query(sql, params)
+
+        def _grupo(nombre):
+            n = (nombre or '').upper()
+            if 'PAN BABYSEC'         in n: return 'Pañales'
+            if 'PAN COTIDIAN'        in n: return 'Pañales para Adultos'
+            if 'PAPEL HIG.'          in n: return 'Papel Higiénico'
+            if 'LADYSOFT'            in n: return 'Toallas Femeninas'
+            if 'PANUELO ELITE'       in n: return 'Pañuelos'
+            if 'TOALLAS DE PAPEL NOVA' in n: return 'Toallas de Papel'
+            return None  # excluir "Otros" de la vista de categorías
+
+        _ORDEN_G = ['Pañales', 'Pañales para Adultos', 'Papel Higiénico', 'Toallas Femeninas', 'Pañuelos', 'Toallas de Papel']
+        grid = {g: {p: 0.0 for p in periodos} for g in _ORDEN_G}
+
+        for r in rows:
+            g = _grupo(r['producto'])
+            if g and g in grid:
+                key = (int(r['anho']), int(r['mes_numero']))
+                if key in grid[g]:
+                    grid[g][key] += float(r['avance'] or 0)
+
+        periodos_out = [{'anho': a, 'mes': m, 'label': _mes_label(a, m)} for a, m in periodos]
+        series = [
+            {'nombre': g, 'valores': [grid[g][p] for p in periodos]}
+            for g in _ORDEN_G
+            if any(v > 0 for v in grid[g].values())
+        ]
+        return JsonResponse({'success': True, 'periodos': periodos_out, 'series': series})
+    except Exception:
+        logger.exception("Error interno")
+        return JsonResponse({'success': False, 'error': 'Error interno del servidor'}, status=500)
+
+
+@api_view(['GET'])
+@authentication_classes([ExpiringTokenAuthentication])
+@permission_classes([IsAuthenticated])
+@_require_perm('softys')
+def dashboard_softys_historico_skus(request):
+    """Top 10 SKUs Softys mes a mes. Params: regional, canal, anho, mes, meses, grupo."""
+    try:
+        regional, canal = _auth_regional_canal(request)
+        anho    = _safe_int(request.GET.get('anho'), datetime.now().year)
+        mes     = _safe_int(request.GET.get('mes'),  datetime.now().month)
+        meses_n = min(_safe_int(request.GET.get('meses'), 6), 12)
+        modo    = request.GET.get('modo', 'completo')
+        dia_ref = _safe_int(request.GET.get('dia_ref'), 0)
+        dia_hist_cond = f"AND df.dia_numero <= {dia_ref}" if modo in ('mismo_rango', 'personalizado') and 1 <= dia_ref <= 31 else ""
+        grupo   = _safe_str(request.GET.get('grupo', ''))
+        sku_codigo = _safe_str(request.GET.get('sku', ''))
+        if regional not in REGIONALES_VALID:
+            return JsonResponse({'success': False, 'error': 'Regional inválida'}, status=400)
+
+        periodos = _periodos_anteriores(anho, mes, meses_n)
+        keys, placeholders = _month_keys_placeholders(periodos)
+        ciudad_cond = _regional_filter(regional)
+        canal_cond  = "AND dv.canal_rrhh = %s" if canal else ""
+        params = keys + ([canal] if canal else [])
+
+        grupo_cond = _grupo_sql_cond(grupo, params)
+
+        sku_cond = ""
+        if sku_codigo:
+            sku_cond = "AND dp.producto_codigo_erp = %s"
+            params.append(sku_codigo)
+
+        sql = f"""
+            SELECT df.anho, df.mes_numero,
+                   dp.producto_codigo_erp          AS codigo,
+                   dp.producto_nombre              AS producto,
+                   COALESCE(SUM(fv.venta_neta), 0) AS avance
+            FROM dw.fact_ventas fv
+            JOIN dw.dim_fecha    df ON fv.fecha_sk    = df.fecha_sk
+            JOIN dw.dim_vendedor dv ON fv.vendedor_sk = dv.vendedor_sk
+            JOIN dw.dim_producto dp ON fv.producto_sk = dp.producto_sk
+            WHERE (df.anho * 100 + df.mes_numero) IN ({placeholders})
+              AND ({ciudad_cond}) {canal_cond} {grupo_cond} {sku_cond}
+              {dia_hist_cond}
+              AND {_SOFTYS_COND}
+            GROUP BY df.anho, df.mes_numero, dp.producto_codigo_erp, dp.producto_nombre
+            ORDER BY df.anho, df.mes_numero, avance DESC
+        """
+        _, rows = _run_dw_query(sql, params)
+
+        # Acumular totales por SKU para rankear top 10
+        from collections import defaultdict
+        sku_total = defaultdict(float)
+        sku_nombre = {}
+        sku_grid = defaultdict(lambda: {p: 0.0 for p in periodos})
+        for r in rows:
+            cod = r['codigo']
+            av  = float(r['avance'] or 0)
+            sku_total[cod] += av
+            sku_nombre[cod] = r['producto']
+            sku_grid[cod][(r['anho'], r['mes_numero'])] = av
+
+        top10 = sorted(sku_total, key=lambda c: -sku_total[c])[:10]
+        periodos_out = [{'anho': a, 'mes': m, 'label': _mes_label(a, m)} for a, m in periodos]
+        skus_out = [
+            {'codigo': c, 'producto': sku_nombre[c], 'total': round(sku_total[c], 2),
+             'valores': [sku_grid[c][p] for p in periodos]}
+            for c in top10
+        ]
+        return JsonResponse({'success': True, 'periodos': periodos_out, 'skus': skus_out})
+    except Exception:
+        logger.exception("Error interno")
+        return JsonResponse({'success': False, 'error': 'Error interno del servidor'}, status=500)
+
+
+# ─────────────────────────────────────────
+#  SOFTYS – CLIENTES POR VENDEDOR
+# ─────────────────────────────────────────
+
+@api_view(['GET'])
+@authentication_classes([ExpiringTokenAuthentication])
+@permission_classes([IsAuthenticated])
+@_require_perm('softys')
+def dashboard_softys_vendedores(request):
+    """Lista vendedores Softys del periodo. Params: regional, canal, anho, mes, dia, grupo."""
+    try:
+        regional, canal = _auth_regional_canal(request)
+        anho  = _safe_int(request.GET.get('anho'), datetime.now().year)
+        mes   = _safe_int(request.GET.get('mes'),  datetime.now().month)
+        dia   = _safe_int(request.GET.get('dia'),  0)
+        grupo = _safe_str(request.GET.get('grupo', ''))
+        err   = _validate_anho_mes(anho, mes)
+        if err: return err
+        if regional not in REGIONALES_VALID:
+            return JsonResponse({'success': False, 'error': 'Regional inválida'}, status=400)
+
+        ciudad_cond = _regional_filter(regional)
+        canal_cond  = "AND dv.canal_rrhh = %s" if canal else ""
+        dia_cond    = f"AND df.dia_numero <= {dia}" if 1 <= dia <= 31 else ""
+        params      = [anho, mes] + ([canal] if canal else [])
+
+        grupo_cond = _grupo_sql_cond(grupo, params)
+
+        sql = f"""
+            SELECT dv.vendedor_nombre,
+                   COUNT(DISTINCT fv.cliente_sk)   AS clientes,
+                   COALESCE(SUM(fv.venta_neta), 0) AS total
+            FROM dw.fact_ventas fv
+            JOIN dw.dim_fecha    df ON fv.fecha_sk    = df.fecha_sk
+            JOIN dw.dim_vendedor dv ON fv.vendedor_sk = dv.vendedor_sk
+            JOIN dw.dim_producto dp ON fv.producto_sk = dp.producto_sk
+            WHERE df.anho = %s AND df.mes_numero = %s
+              AND ({ciudad_cond}) {canal_cond}
+              {dia_cond} {grupo_cond}
+              AND {_SOFTYS_COND}
+              AND dv.vendedor_nombre IS NOT NULL
+            GROUP BY dv.vendedor_nombre
+            ORDER BY total DESC
+        """
+        _, rows = _run_dw_query(sql, params)
+        return JsonResponse({'success': True, 'data': [
+            {'vendedor': r['vendedor_nombre'], 'clientes': int(r['clientes'] or 0), 'total': float(r['total'] or 0)}
+            for r in rows
+        ]})
+    except Exception:
+        logger.exception("Error interno")
+        return JsonResponse({'success': False, 'error': 'Error interno del servidor'}, status=500)
+
+
+@api_view(['GET'])
+@authentication_classes([ExpiringTokenAuthentication])
+@permission_classes([IsAuthenticated])
+@_require_perm('softys')
+def dashboard_softys_clientes_semana(request):
+    """Clientes de un vendedor con ventas Softys por semana. Params: regional, canal, anho, mes, dia, vendedor, grupo."""
+    try:
+        regional, canal = _auth_regional_canal(request)
+        anho     = _safe_int(request.GET.get('anho'), datetime.now().year)
+        mes      = _safe_int(request.GET.get('mes'),  datetime.now().month)
+        dia      = _safe_int(request.GET.get('dia'),  0)
+        vendedor = _safe_str(request.GET.get('vendedor', ''))
+        grupo    = _safe_str(request.GET.get('grupo', ''))
+        err      = _validate_anho_mes(anho, mes)
+        if err: return err
+        if regional not in REGIONALES_VALID:
+            return JsonResponse({'success': False, 'error': 'Regional inválida'}, status=400)
+
+        ciudad_cond   = _regional_filter(regional)
+        canal_cond    = "AND dv.canal_rrhh = %s" if canal else ""
+        vendedor_cond = "AND dv.vendedor_nombre = %s" if vendedor else ""
+        dia_cond      = f"AND df.dia_numero <= {dia}" if 1 <= dia <= 31 else ""
+        params        = [anho, mes] + ([canal] if canal else []) + ([vendedor] if vendedor else [])
+
+        grupo_cond = _grupo_sql_cond(grupo, params)
+
+        sql = f"""
+            SELECT
+                dc.cliente_codigo_erp                                                               AS codigo,
+                COALESCE(dc.cliente_nombre, dc.cliente_codigo_erp)                                 AS nombre,
+                COALESCE(SUM(CASE WHEN df.dia_numero BETWEEN  1 AND  7 THEN fv.venta_neta END), 0) AS sem1,
+                COALESCE(SUM(CASE WHEN df.dia_numero BETWEEN  8 AND 14 THEN fv.venta_neta END), 0) AS sem2,
+                COALESCE(SUM(CASE WHEN df.dia_numero BETWEEN 15 AND 21 THEN fv.venta_neta END), 0) AS sem3,
+                COALESCE(SUM(CASE WHEN df.dia_numero BETWEEN 22 AND 28 THEN fv.venta_neta END), 0) AS sem4,
+                COALESCE(SUM(CASE WHEN df.dia_numero >= 29             THEN fv.venta_neta END), 0) AS sem5,
+                COALESCE(SUM(fv.venta_neta), 0)                                                    AS total
+            FROM dw.fact_ventas fv
+            JOIN dw.dim_fecha    df ON fv.fecha_sk    = df.fecha_sk
+            JOIN dw.dim_vendedor dv ON fv.vendedor_sk = dv.vendedor_sk
+            JOIN dw.dim_producto dp ON fv.producto_sk = dp.producto_sk
+            JOIN dw.dim_cliente  dc ON fv.cliente_sk  = dc.cliente_sk
+            WHERE df.anho = %s AND df.mes_numero = %s
+              AND ({ciudad_cond}) {canal_cond} {vendedor_cond}
+              {dia_cond} {grupo_cond}
+              AND {_SOFTYS_COND}
+            GROUP BY dc.cliente_codigo_erp, dc.cliente_nombre
+            ORDER BY total DESC
+        """
+        _, rows = _run_dw_query(sql, params)
+
+        clientes = [
+            {
+                'codigo': r['codigo'], 'nombre': r['nombre'],
+                'sem1': float(r['sem1'] or 0), 'sem2': float(r['sem2'] or 0),
+                'sem3': float(r['sem3'] or 0), 'sem4': float(r['sem4'] or 0),
+                'sem5': float(r['sem5'] or 0), 'total': float(r['total'] or 0),
+            }
+            for r in rows
+        ]
+        tiene_sem5 = any(c['sem5'] > 0 for c in clientes)
+        totales = {
+            'sem1': sum(c['sem1'] for c in clientes), 'sem2': sum(c['sem2'] for c in clientes),
+            'sem3': sum(c['sem3'] for c in clientes), 'sem4': sum(c['sem4'] for c in clientes),
+            'sem5': sum(c['sem5'] for c in clientes), 'total': sum(c['total'] for c in clientes),
+        }
+        return JsonResponse({'success': True, 'clientes': clientes, 'totales': totales, 'tiene_sem5': tiene_sem5})
+    except Exception:
+        logger.exception("Error interno")
+        return JsonResponse({'success': False, 'error': 'Error interno del servidor'}, status=500)
+
+
+@api_view(['GET'])
+@authentication_classes([ExpiringTokenAuthentication])
+@permission_classes([IsAuthenticated])
+@_require_perm('softys')
+def dashboard_softys_sku_por_cliente(request):
+    """SKUs Softys de un cliente específico. Params: regional, canal, anho, mes, dia, cliente, semana (1-5|0=todo), grupo, vendedor, meses (>0 = rango histórico)."""
+    try:
+        regional, canal = _auth_regional_canal(request)
+        anho           = _safe_int(request.GET.get('anho'), datetime.now().year)
+        mes            = _safe_int(request.GET.get('mes'),  datetime.now().month)
+        dia            = _safe_int(request.GET.get('dia'),  0)
+        meses          = min(_safe_int(request.GET.get('meses'), 0), 24)
+        cliente_codigo = _safe_str(request.GET.get('cliente', ''))
+        semana         = _safe_int(request.GET.get('semana'), 0)
+        grupo          = _safe_str(request.GET.get('grupo', ''))
+        vendedor       = _safe_str(request.GET.get('vendedor', ''))
+        err            = _validate_anho_mes(anho, mes)
+        if err: return err
+        if not cliente_codigo:
+            return JsonResponse({'success': False, 'error': 'Parámetro cliente requerido'}, status=400)
+        if regional not in REGIONALES_VALID:
+            return JsonResponse({'success': False, 'error': 'Regional inválida'}, status=400)
+
+        ciudad_cond   = _regional_filter(regional)
+        canal_cond    = "AND dv.canal_rrhh = %s" if canal else ""
+        vendedor_cond = "AND dv.vendedor_nombre = %s" if vendedor else ""
+
+        if meses > 0:
+            # Range mode: aggregate across last N months
+            periodos = _periodos_anteriores(anho, mes, meses)
+            keys, placeholders = _month_keys_placeholders(periodos)
+            date_cond = f"(df.anho * 100 + df.mes_numero) IN ({placeholders})"
+            params = keys + [cliente_codigo] + ([canal] if canal else []) + ([vendedor] if vendedor else [])
+            dia_cond    = ""
+            semana_cond = ""
+        else:
+            # Single month mode
+            date_cond = "df.anho = %s AND df.mes_numero = %s"
+            params    = [anho, mes, cliente_codigo] + ([canal] if canal else []) + ([vendedor] if vendedor else [])
+            dia_cond  = f"AND df.dia_numero <= {dia}" if 1 <= dia <= 31 else ""
+            _SEM_RANGES = {1: (1, 7), 2: (8, 14), 3: (15, 21), 4: (22, 28), 5: (29, 31)}
+            if semana in _SEM_RANGES:
+                s, e = _SEM_RANGES[semana]
+                semana_cond = f"AND df.dia_numero BETWEEN {s} AND {e}"
+            else:
+                semana_cond = ""
+
+        grupo_cond = _grupo_sql_cond(grupo, params)
+
+        sql = f"""
+            SELECT
+                dp.producto_codigo_erp              AS codigo,
+                dp.producto_nombre                  AS producto,
+                COALESCE(SUM(fv.cantidad), 0)       AS cantidad,
+                COALESCE(SUM(fv.venta_neta), 0)     AS venta_neta
+            FROM dw.fact_ventas fv
+            JOIN dw.dim_fecha    df ON fv.fecha_sk    = df.fecha_sk
+            JOIN dw.dim_vendedor dv ON fv.vendedor_sk = dv.vendedor_sk
+            JOIN dw.dim_producto dp ON fv.producto_sk = dp.producto_sk
+            JOIN dw.dim_cliente  dc ON fv.cliente_sk  = dc.cliente_sk
+            WHERE {date_cond}
+              AND dc.cliente_codigo_erp = %s
+              AND ({ciudad_cond}) {canal_cond} {vendedor_cond}
+              {dia_cond} {semana_cond} {grupo_cond}
+              AND {_SOFTYS_COND}
+            GROUP BY dp.producto_codigo_erp, dp.producto_nombre
+            ORDER BY venta_neta DESC
+        """
+        _, rows = _run_dw_query(sql, params)
+
+        nombre_sql = "SELECT COALESCE(cliente_nombre, cliente_codigo_erp) AS nombre FROM dw.dim_cliente WHERE cliente_codigo_erp = %s LIMIT 1"
+        _, nombre_rows = _run_dw_query(nombre_sql, [cliente_codigo])
+        cliente_nombre = nombre_rows[0]['nombre'] if nombre_rows else cliente_codigo
+
+        skus = [
+            {'codigo': r['codigo'], 'producto': r['producto'],
+             'cantidad': float(r['cantidad'] or 0), 'venta_neta': float(r['venta_neta'] or 0)}
+            for r in rows
+        ]
+        return JsonResponse({
+            'success': True, 'cliente_nombre': cliente_nombre, 'semana': semana,
+            'skus': skus, 'total_uds': sum(s['cantidad'] for s in skus),
+            'total_bs': sum(s['venta_neta'] for s in skus),
+        })
+    except Exception:
+        logger.exception("Error interno")
+        return JsonResponse({'success': False, 'error': 'Error interno del servidor'}, status=500)
+
+
+@api_view(['GET'])
+@authentication_classes([ExpiringTokenAuthentication])
+@permission_classes([IsAuthenticated])
+@_require_perm('softys')
+def dashboard_softys_clientes_mes(request):
+    """Clientes Softys con ventas por mes (comparativo). Params: regional, canal, anho, mes, meses, modo, dia_ref, vendedor, grupo."""
+    try:
+        regional, canal = _auth_regional_canal(request)
+        anho    = _safe_int(request.GET.get('anho'), datetime.now().year)
+        mes     = _safe_int(request.GET.get('mes'),  datetime.now().month)
+        meses_n = min(_safe_int(request.GET.get('meses'), 6), 24)
+        modo    = request.GET.get('modo', 'completo')
+        dia_ref = _safe_int(request.GET.get('dia_ref'), 0)
+        vendedor = _safe_str(request.GET.get('vendedor', ''))
+        grupo   = _safe_str(request.GET.get('grupo', ''))
+        dia_hist_cond = f"AND df.dia_numero <= {dia_ref}" if modo in ('mismo_rango', 'personalizado') and 1 <= dia_ref <= 31 else ""
+        err = _validate_anho_mes(anho, mes)
+        if err: return err
+        if regional not in REGIONALES_VALID:
+            return JsonResponse({'success': False, 'error': 'Regional inválida'}, status=400)
+
+        periodos = _periodos_anteriores(anho, mes, meses_n)
+        keys, placeholders = _month_keys_placeholders(periodos)
+        ciudad_cond   = _regional_filter(regional)
+        canal_cond    = "AND dv.canal_rrhh = %s" if canal else ""
+        vendedor_cond = "AND dv.vendedor_nombre = %s" if vendedor else ""
+        params = keys + ([canal] if canal else []) + ([vendedor] if vendedor else [])
+
+        grupo_cond = _grupo_sql_cond(grupo, params)
+
+        sql = f"""
+            SELECT
+                dc.cliente_codigo_erp                               AS codigo,
+                COALESCE(dc.cliente_nombre, dc.cliente_codigo_erp)  AS nombre,
+                df.anho, df.mes_numero,
+                COALESCE(SUM(fv.venta_neta), 0)                     AS avance
+            FROM dw.fact_ventas fv
+            JOIN dw.dim_fecha    df ON fv.fecha_sk    = df.fecha_sk
+            JOIN dw.dim_vendedor dv ON fv.vendedor_sk = dv.vendedor_sk
+            JOIN dw.dim_producto dp ON fv.producto_sk = dp.producto_sk
+            JOIN dw.dim_cliente  dc ON fv.cliente_sk  = dc.cliente_sk
+            WHERE (df.anho * 100 + df.mes_numero) IN ({placeholders})
+              AND ({ciudad_cond}) {canal_cond} {vendedor_cond}
+              {dia_hist_cond} {grupo_cond}
+              AND {_SOFTYS_COND}
+            GROUP BY dc.cliente_codigo_erp, dc.cliente_nombre, df.anho, df.mes_numero
+        """
+        _, rows = _run_dw_query(sql, params)
+
+        periodos_out = [{'anho': a, 'mes': m, 'label': _mes_label(a, m)} for a, m in periodos]
+
+        # Pivot: {(codigo, nombre): {(anho, mes): float}}
+        client_grid = {}
+        client_totals = {}
+        for r in rows:
+            key = (r['codigo'], r['nombre'])
+            period_key = (int(r['anho']), int(r['mes_numero']))
+            if key not in client_grid:
+                client_grid[key] = {p: 0.0 for p in periodos}
+                client_totals[key] = 0.0
+            v = float(r['avance'] or 0)
+            if period_key in client_grid[key]:
+                client_grid[key][period_key] += v
+                client_totals[key] += v
+
+        sorted_clients = sorted(client_totals.items(), key=lambda x: x[1], reverse=True)[:500]
+        clientes_out = [
+            {
+                'codigo': k[0], 'nombre': k[1],
+                'total': client_totals[k],
+                'valores': [client_grid[k][p] for p in periodos],
+            }
+            for k, _ in sorted_clients
+        ]
+        return JsonResponse({'success': True, 'periodos': periodos_out, 'clientes': clientes_out})
+    except Exception:
+        logger.exception("Error interno")
+        return JsonResponse({'success': False, 'error': 'Error interno del servidor'}, status=500)
+
+
+@api_view(['GET'])
+@authentication_classes([ExpiringTokenAuthentication])
+@permission_classes([IsAuthenticated])
+@_require_perm('softys')
+def dashboard_softys_export(request):
+    """Exporta detalle plano de ventas Softys (una fila por línea de pedido).
+    Params: regional, canal, grupo, anho, mes, dia.
+    Pensado para descarga Excel — limitado a 150 000 filas."""
+    try:
+        is_admin = _is_admin(request.user)
+        profile  = _get_or_create_profile(request.user)
+        cargo    = (profile.cargo or '').strip()
+        if is_admin:
+            regional = request.GET.get('regional', 'santa_cruz').lower().replace(' ', '_')
+            canal    = _safe_str(request.GET.get('canal', ''))
+        elif cargo == 'Gerente Regional':
+            regional = _REGIONAL_NAME_TO_KEY.get(profile.regional, 'santa_cruz')
+            canal    = _safe_str(request.GET.get('canal', ''))
+        elif cargo == 'Proveedor':
+            regional = request.GET.get('regional', 'nacional').lower().replace(' ', '_')
+            canal    = (profile.canal or '').strip()
+        else:
+            regional = _REGIONAL_NAME_TO_KEY.get(profile.regional, 'santa_cruz')
+            canal    = (profile.canal or '').strip()
+
+        grupo = _safe_str(request.GET.get('grupo', ''))
+        anho  = _safe_int(request.GET.get('anho'), datetime.now().year)
+        mes   = _safe_int(request.GET.get('mes'),  datetime.now().month)
+        err   = _validate_anho_mes(anho, mes)
+        if err: return err
+        dia   = _safe_int(request.GET.get('dia'), 0)
+        if regional not in REGIONALES_VALID:
+            return JsonResponse({'success': False, 'error': 'Regional inválida'}, status=400)
+
+        ciudad_cond = _regional_filter(regional)
+        canal_cond  = "AND dv.canal_rrhh = %s" if canal else ""
+        dia_cond    = f"AND df.dia_numero <= {dia}" if 1 <= dia <= 31 else ""
+
+        params = [anho, mes]
+        if canal:
+            params.append(canal)
+        cat_cond = _grupo_sql_cond(grupo, params)
+
+        sql = f"""
+            SELECT
+                MAKE_DATE(df.anho, df.mes_numero, df.dia_numero)          AS fecha,
+                df.anho                                                    AS anho,
+                df.mes_numero                                              AS mes,
+                df.mes_nombre                                              AS mes_nombre,
+                df.dia_numero                                              AS dia,
+                CASE
+                    WHEN dv.ciudad IN ('SCZ')       THEN 'Santa Cruz'
+                    WHEN dv.ciudad IN ('CBA')       THEN 'Cochabamba'
+                    WHEN dv.ciudad IN ('LPZ','EAL') THEN 'La Paz'
+                    ELSE COALESCE(dv.ciudad, '—')
+                END                                                        AS regional,
+                dv.canal_rrhh                                              AS canal,
+                dv.vendedor_nombre                                         AS vendedor,
+                dc.cliente_codigo_erp                                      AS cod_cliente,
+                COALESCE(dc.cliente_nombre, dc.cliente_codigo_erp)         AS cliente,
+                dp.producto_codigo_erp                                     AS cod_producto,
+                dp.producto_nombre                                         AS producto,
+                {_SOFTYS_GRUPO_CASE}                                       AS linea_softys,
+                COALESCE(dp.subgrupo_descripcion, '—')                    AS subcategoria,
+                fv.cantidad                                                AS cantidad,
+                fv.venta_neta                                              AS venta_neta,
+                fv.numero_venta                                            AS nro_pedido
+            FROM dw.fact_ventas fv
+            JOIN dw.dim_fecha    df ON fv.fecha_sk    = df.fecha_sk
+            JOIN dw.dim_vendedor dv ON fv.vendedor_sk = dv.vendedor_sk
+            JOIN dw.dim_producto dp ON fv.producto_sk = dp.producto_sk
+            JOIN dw.dim_cliente  dc ON fv.cliente_sk  = dc.cliente_sk
+            WHERE df.anho = %s AND df.mes_numero = %s
+              AND ({ciudad_cond}) {canal_cond} {cat_cond} {dia_cond}
+              AND {_SOFTYS_COND}
+            ORDER BY fecha, nro_pedido
+            LIMIT 150000
+        """
+        _, rows = _run_dw_query(sql, params)
+        # Serializar fecha a string para JSON
+        for r in rows:
+            if r.get('fecha'):
+                r['fecha'] = str(r['fecha'])
+        return JsonResponse({'success': True, 'data': rows, 'total': len(rows)})
     except Exception:
         logger.exception("Error interno")
         return JsonResponse({'success': False, 'error': 'Error interno del servidor'}, status=500)

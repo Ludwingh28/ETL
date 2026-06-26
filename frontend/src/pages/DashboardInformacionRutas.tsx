@@ -538,7 +538,7 @@ export default function DashboardInformacionRutas() {
           <div className="flex flex-col gap-1">
             <label className="text-[10px] uppercase tracking-widest text-slate-400 font-semibold">Canal</label>
             {(isAdmin || isGerenteRegional) ? (
-              <select value={canal} onChange={(e: ChangeEvent<HTMLSelectElement>) => { setCanal(e.target.value); setSupervisor("Todos"); }} className={selCls}>
+              <select value={canal} onChange={(e: ChangeEvent<HTMLSelectElement>) => setCanal(e.target.value)} className={selCls}>
                 <option value="Todos">Todos</option>
                 {canales.map(c => <option key={c} value={c}>{c}</option>)}
               </select>
@@ -582,7 +582,7 @@ export default function DashboardInformacionRutas() {
         <span className="text-[10px] uppercase tracking-widest text-slate-400 font-semibold mr-1">Regional</span>
         {isAdmin ? (
           REGIONALES.map(r => (
-            <button key={r} onClick={() => { setRegional(r); setSupervisor("Todos"); }}
+            <button key={r} onClick={() => setRegional(r)}
               className={`text-xs font-semibold px-3 py-1.5 rounded-lg border transition-all ${
                 regional === r
                   ? `${REGIONAL_CONFIG[r].badge} shadow-sm`
