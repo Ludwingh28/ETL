@@ -4,6 +4,7 @@ import { ResponsiveContainer, LineChart, Line, BarChart, Bar, XAxis, YAxis, Cart
 import type { LucideIcon } from "lucide-react";
 import { useAuth } from "../context/AuthContext";
 import DashboardLayout from "../components/DashboardLayout";
+import { setActiveFilters } from "../utils/filterStore";
 
 // ─── Tipos ───────────────────────────────────────────────────────────────────
 
@@ -219,6 +220,10 @@ export default function DashboardNacional() {
   const [esPeriodoActual, setEsPeriodoActual] = useState(true);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    setActiveFilters({ anho, mes });
+  }, [anho, mes]);
 
   useEffect(() => {
     apiFetch<{ success: boolean; data: Periodo[] }>("/dashboard/nacional/periodos/")

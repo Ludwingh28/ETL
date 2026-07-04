@@ -5,6 +5,7 @@ import {
   CartesianGrid, Tooltip, Legend, ReferenceLine,
 } from "recharts";
 import DashboardLayout from "../components/DashboardLayout";
+import { setActiveFilters } from "../utils/filterStore";
 import { useAuth } from "../context/AuthContext";
 
 // ─── Tipos ────────────────────────────────────────────────────────────────────
@@ -380,6 +381,10 @@ export default function DashboardFichaSku() {
 
   // ── UI ────────────────────────────────────────────────────────────────────
   const [metrica, setMetrica] = useState<"uds" | "vol">("uds");
+
+  useEffect(() => {
+    setActiveFilters({ anho, mes, verTrimestre, trimestre, regional, almacen: almacen || "Todos", canal: canal || "Todos", searchCategoria, marca, metrica });
+  }, [anho, mes, verTrimestre, trimestre, regional, almacen, canal, searchCategoria, marca, metrica]);
 
   // ── Cargar marcas cuando cambia la categoría (o al montar) ───────────────
   useEffect(() => {

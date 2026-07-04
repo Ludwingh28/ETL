@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import { Calendar, ChevronLeft, ChevronRight, Search, Warehouse } from "lucide-react";
 import DashboardLayout from "../components/DashboardLayout";
+import { setActiveFilters } from "../utils/filterStore";
 import { useAuth } from "../context/AuthContext";
 
 // ─── Tipos ────────────────────────────────────────────────────────────────────
@@ -176,6 +177,10 @@ export default function DashboardInventarioAlmacen() {
 
   // ── Filtro cliente ────────────────────────────────────────────────────────
   const [busqueda, setBusqueda] = useState("");
+
+  useEffect(() => {
+    setActiveFilters({ fecha, regional, almacen: almacen || "Todos", busqueda });
+  }, [fecha, regional, almacen, busqueda]);
 
   // ── Cargar almacenes al cambiar regional ──────────────────────────────────
   useEffect(() => {

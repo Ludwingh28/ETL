@@ -6,30 +6,32 @@ import type { ReactNode } from 'react'
 const ADMIN_CARGOS = ['Administrador de Sistema', 'Subadministrador de Sistemas']
 
 const PERM_TO_ROUTE: Record<string, string> = {
-  'nacional':              '/dashboard/nacional',
-  'regionales':            '/dashboard/regionales',
-  'canales':               '/dashboard/canales',
-  'supervisores':          '/dashboard/supervisores',
-  'preventas-realizadas':  '/dashboard/preventas-realizadas',
-  'avances-ventas':        '/dashboard/avances-ventas',
-  'unidades-vendidas':     '/dashboard/unidades-vendidas',
-  'unidades-supervisores': '/dashboard/unidades-supervisores',
-  'informacion-rutas':     '/dashboard/informacion-rutas',
-  'ticket-promedio':       '/dashboard/ticket-promedio',
-  'ficha-sku':                  '/dashboard/ficha-sku',
-  'distribucion-rutas':         '/dashboard/distribucion-rutas',
-  'comportamiento-productos':   '/dashboard/comportamiento-productos',
-  'lista-precios':              '/dashboard/lista-precios',
-  'inventario-almacen':    '/dashboard/inventario-almacen',
-  'fechas-vencimiento':    '/dashboard/fechas-vencimiento',
-  'margen-bruto':          '/dashboard/margen-bruto',
-  'matriz':                '/dashboard/matriz',
-  'pepsico':               '/dashboard/pepsico',
-  'softys':                '/dashboard/softys',
-  'softys-nuevo':          '/dashboard/softys-revision',
-  'dmujer':                '/dashboard/dmujer',
-  'apego':                 '/dashboard/apego',
-  'colher':                '/dashboard/colher',
+  'nacional':                  '/dashboard/nacional',
+  'regionales':                '/dashboard/regionales',
+  'canales':                   '/dashboard/canales',
+  'supervisores':              '/dashboard/supervisores',
+  'preventas-realizadas':      '/dashboard/preventas-realizadas',
+  'avances-ventas':            '/dashboard/avances-ventas',
+  'unidades-vendidas':         '/dashboard/unidades-vendidas',
+  'unidades-supervisores':     '/dashboard/unidades-supervisores',
+  'informacion-rutas':         '/dashboard/informacion-rutas',
+  'tendencia-estacional':      '/dashboard/tendencia-estacional',
+  'ticket-promedio':           '/dashboard/ticket-promedio',
+  'ficha-sku':                 '/dashboard/ficha-sku',
+  'distribucion-rutas':        '/dashboard/distribucion-rutas',
+  'comportamiento-productos':  '/dashboard/comportamiento-productos',
+  'lista-precios':             '/dashboard/lista-precios',
+  'inventario-almacen':        '/dashboard/inventario-almacen',
+  'fechas-vencimiento':        '/dashboard/fechas-vencimiento',
+  'margen-bruto':              '/dashboard/margen-bruto',
+  'matriz':                    '/dashboard/matriz',
+  'descargas':                 '/documentos/descargas',
+  'pepsico':                   '/dashboard/pepsico',
+  'softys':                    '/dashboard/softys',
+  'softys-nuevo':              '/dashboard/softys-revision',
+  'dmujer':                    '/dashboard/dmujer',
+  'apego':                     '/dashboard/apego',
+  'colher':                    '/dashboard/colher',
 }
 
 interface Props {
@@ -90,5 +92,16 @@ export default function DashboardRoute({ perm, children }: Props) {
 
   // Refresh ya hecho, sigue sin permiso → redirigir al primer dashboard permitido
   const firstRoute = perms.map(p => PERM_TO_ROUTE[p]).find(Boolean)
-  return <Navigate to={firstRoute ?? '/login'} replace />
+  if (firstRoute) return <Navigate to={firstRoute} replace />
+
+  // Sin ningún dashboard asignado — mostrar pantalla de sin acceso en lugar de ciclar a /login
+  return (
+    <div className="min-h-screen flex items-center justify-center bg-slate-100">
+      <div className="bg-white rounded-2xl shadow-lg p-10 max-w-sm text-center">
+        <p className="text-2xl mb-2">🔒</p>
+        <p className="text-slate-800 font-semibold text-lg mb-1">Sin acceso</p>
+        <p className="text-slate-500 text-sm">Tu cuenta no tiene dashboards asignados. Contactá al administrador.</p>
+      </div>
+    </div>
+  )
 }

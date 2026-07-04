@@ -3,6 +3,7 @@ import maplibregl from 'maplibre-gl'
 import { useState, useEffect, useRef, useMemo } from 'react'
 import { Search, X, MapPin, AlertCircle, Layers, ChevronDown, Filter, Moon } from 'lucide-react'
 import DashboardLayout from '../components/DashboardLayout'
+import { setActiveFilters } from '../utils/filterStore'
 import { useAuth } from '../context/AuthContext'
 import type { AuthContextValue } from '../types'
 
@@ -341,6 +342,10 @@ export default function DashboardDistribucionRutas() {
 
   // ── Vendedor Nocturno (solo Carlos Esteban Villegas) ─────────────────────
   const [vendedorNocturno, setVendedorNocturno] = useState(false)
+
+  useEffect(() => {
+    setActiveFilters({ anho, mes, regional, canal, dia, supervisor })
+  }, [anho, mes, regional, canal, dia, supervisor])
 
   // ── Cerrar combos al click fuera ─────────────────────────────────────────
   useEffect(() => {

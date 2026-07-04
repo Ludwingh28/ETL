@@ -9,6 +9,7 @@ import {
 import { AlertCircle, X, ChevronDown, Search, Download } from "lucide-react";
 import { useAuth } from "../context/AuthContext";
 import DashboardLayout from "../components/DashboardLayout";
+import { setActiveFilters } from "../utils/filterStore";
 import type { AuthContextValue } from "../types";
 
 // ─── Tipos ────────────────────────────────────────────────────────────────────
@@ -418,6 +419,10 @@ export default function DashboardComportamientoProductos() {
   const tablasCache = useRef(new Map<string, { total: FilaTotalTabla[]; canal: FilaCanalTabla[] }>())
   const [error,        setError]        = useState<string | null>(null)
 
+  useEffect(() => {
+    setActiveFilters({ regional, canal, anho, mes, metrica, vendedorQ, marca })
+  }, [regional, canal, anho, mes, metrica, vendedorQ, marca])
+
   const tieneAlgunLicor = useMemo(
     () => productosSeleccionados.some(p => p.es_licor),
     [productosSeleccionados]
@@ -477,14 +482,13 @@ export default function DashboardComportamientoProductos() {
     setTablaProductoCodigo("")
 
     if (!marca) return
-    // Cargar productos de la marca y auto-seleccionar el primero para la tabla
+    // Cargar productos de la marca — sin auto-seleccionar (estado "Todos" por defecto)
     const qs = new URLSearchParams({ marca })
     apiFetch<{ success: boolean; data: ProductoOption[] }>(
       `/dashboard/comportamiento-productos/productos/?${qs}`
     ).then(r => {
       if (r.success && r.data.length > 0) {
         setProductosOpts(r.data)
-        setProductosSeleccionados([r.data[0]])
       }
     }).catch(() => undefined)
   }, [marca]) // eslint-disable-line react-hooks/exhaustive-deps
@@ -1030,7 +1034,7 @@ export default function DashboardComportamientoProductos() {
                 >
                   <Search size={14} className="text-slate-400 shrink-0" />
                   <input type="text"
-                    placeholder={productosSeleccionados.length ? `${productosSeleccionados.length} seleccionado(s)` : "Buscar producto…"}
+                    placeholder={productosSeleccionados.length ? `${productosSeleccionados.length} seleccionado(s)` : marca ? `Todos — ${productosOpts.length > 0 ? productosOpts.length + " SKUs" : "todos los SKUs"}` : "Buscar producto…"}
                     value={productoSearch}
                     onChange={e => { setProductoSearch(e.target.value); setProductoComboOpen(true) }}
                     onFocus={() => setProductoComboOpen(true)}
@@ -1058,6 +1062,20 @@ export default function DashboardComportamientoProductos() {
                       </div>
                     )}
                     <div className="max-h-56 overflow-y-auto">
+                      {/* Opción Todos — visible cuando hay marca y sin búsqueda activa */}
+                      {marca && !productoSearch && (
+                        <button
+                          className={`w-full text-left px-4 py-2.5 text-sm transition-colors flex items-center gap-2.5 border-b border-slate-100 ${productosSeleccionados.length === 0 ? "bg-brand-50" : "hover:bg-slate-50"}`}
+                          onMouseDown={e => { e.preventDefault(); setProductosSeleccionados([]); setProductoComboOpen(false) }}>
+                          <span className={`w-4 h-4 rounded border flex items-center justify-center shrink-0 ${productosSeleccionados.length === 0 ? "bg-brand-600 border-brand-600" : "border-slate-300"}`}>
+                            {productosSeleccionados.length === 0 && <span className="text-white text-[10px] font-bold leading-none">✓</span>}
+                          </span>
+                          <span>
+                            <span className={`block text-xs font-semibold ${productosSeleccionados.length === 0 ? "text-brand-700" : "text-slate-700"}`}>Todos los SKUs</span>
+                            <span className="block text-[10px] text-slate-400">{productosOpts.length} productos de {marca}</span>
+                          </span>
+                        </button>
+                      )}
                       {loadingProductos ? (
                         <div className="py-4 flex justify-center">
                           <div className="w-4 h-4 border-2 border-brand-500 border-t-transparent rounded-full animate-spin" />

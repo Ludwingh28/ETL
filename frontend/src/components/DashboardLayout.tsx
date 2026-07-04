@@ -1,6 +1,7 @@
 import { type ReactNode } from 'react'
 import Navbar from './Navbar'
 import WhatsNewModal from './WhatsNewModal'
+import ReportButton from './ReportButton'
 import { CURRENT_VERSION } from '../constants/changelog'
 
 export default function DashboardLayout({ children }: { children: ReactNode }) {
@@ -20,6 +21,7 @@ export default function DashboardLayout({ children }: { children: ReactNode }) {
       </footer>
 
       <WhatsNewModal />
+      <ReportButton />
     </div>
   )
 }

@@ -21,7 +21,7 @@ export interface AuthContextValue {
   token: string | null
   loading: boolean
   login: (username: string, password: string) => Promise<User>
-  logout: () => Promise<void>
+  logout: () => void
   apiFetch: <T = unknown>(path: string, options?: RequestInit) => Promise<T>
   refreshUser: () => Promise<void>
 }
@@ -40,6 +40,28 @@ export interface ManagedUser {
   is_active:             boolean
   dashboard_permissions: string[]
   date_joined?:          string
+  last_seen?:            string | null
+}
+
+export type ReporteTipo     = 'BUG' | 'ERROR' | 'SOLICITUD'
+export type ReporteEstado   = 'PENDIENTE' | 'EN_CURSO' | 'ATENDIDA'
+export type ReportePrioridad = 'BAJA' | 'MEDIA' | 'ALTA' | 'CRITICA'
+
+export interface Reporte {
+  id:          number
+  tipo:        ReporteTipo
+  subtipo:     string
+  descripcion: string
+  estado:      ReporteEstado
+  prioridad:   ReportePrioridad
+  context:     Record<string, unknown>
+  created_at:  string
+  updated_at:  string
+  user: {
+    id:        number
+    username:  string
+    full_name: string
+  }
 }
 
 // ─── API response wrapper ────────────────────────────────────────────────────

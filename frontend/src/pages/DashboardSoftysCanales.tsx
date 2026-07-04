@@ -5,6 +5,7 @@ import { ResponsiveContainer, LineChart, Line, BarChart, Bar, XAxis, YAxis, Cart
 import type { LucideIcon } from "lucide-react";
 import { useAuth } from "../context/AuthContext";
 import DashboardLayout from "../components/DashboardLayout";
+import { setActiveFilters } from "../utils/filterStore";
 
 // ─── Tipos ─────────────────────────────────────────────────────────────────────
 
@@ -217,7 +218,7 @@ function GrupoBotones({ value, onChange, size = "sm" }: {
 
 // ─── Métricas secundarias (shared between CanalCard and TotalCard) ─────────────
 
-function MetricasSecundarias({ ticketPromedio }: {
+function MetricasSecundarias({ ticketPromedio, clientes }: {
   ticketPromedio: number | null;
   cobertura: number | null;
   universo: number;
@@ -238,7 +239,10 @@ function MetricasSecundarias({ ticketPromedio }: {
       </div>
       <div className="border-t border-slate-100 pt-2">
         <p className="text-[9px] text-slate-400 font-semibold uppercase tracking-wider leading-none mb-1">Cobertura</p>
-        <p className="text-sm font-bold leading-none text-slate-300">—</p>
+        <p className={`text-sm font-bold leading-none ${clientes > 0 ? "text-slate-800" : "text-slate-300"}`}>
+          {clientes > 0 ? fmtN(clientes) : "—"}
+        </p>
+        <p className="text-[9px] text-slate-400 leading-none mt-0.5">clientes</p>
       </div>
     </div>
   );
@@ -528,6 +532,11 @@ export default function DashboardSoftysCanales() {
   // Reset dia when month changes
   useEffect(() => { setDia(0); }, [anho, mes]); // eslint-disable-line react-hooks/exhaustive-deps
 
+  // Sync active filters to filterStore so ReportButton can capture them
+  useEffect(() => {
+    setActiveFilters({ regional, anho, mes, dia, canal: canal ?? 'Todos', grupo });
+  }, [regional, anho, mes, dia, canal, grupo]);
+
   // ── Modo Vista ────────────────────────────────────────────────────────────
   const [modoVista, setModoVista] = useState<ModoVista>("skus_canal");
 
@@ -654,7 +663,7 @@ export default function DashboardSoftysCanales() {
       const canalParam = canal ? `&canal=${encodeURIComponent(canal)}` : "";
       const grupoParam = grupo !== "Todos" ? `&grupo=${encodeURIComponent(grupo)}` : "";
       const diaParam   = dia > 0 ? `&dia=${dia}` : "";
-      const j = await apiFetch<{ success: boolean; error?: string; data: Record<string, unknown>[]; total: number }>(
+      const j = await apiFetch<{ success: boolean; error?: string; data: Record<string, unknown>[]; total: number; presupuesto_por_sku?: Record<string, unknown>[] }>(
         `/dashboard/softys-canales/export/?regional=${rKey}&anho=${anho}&mes=${mes}${canalParam}${grupoParam}${diaParam}`
       );
       if (!j.success) throw new Error(j.error ?? "Error al exportar");
@@ -663,6 +672,7 @@ export default function DashboardSoftysCanales() {
       wb.creator = "Cruzimex Dashboard";
       wb.created = new Date();
 
+      // ── Hoja 1: Ventas ────────────────────────────────────────────────────
       const ws = wb.addWorksheet("Ventas Softys");
 
       const cols: { header: string; key: string; width: number; numFmt?: string }[] = [
@@ -672,6 +682,7 @@ export default function DashboardSoftysCanales() {
         { header: "Día",             key: "dia",           width: 6  },
         { header: "Regional",        key: "regional",      width: 14 },
         { header: "Canal",           key: "canal",         width: 14 },
+        { header: "Supervisor",      key: "supervisor",    width: 26 },
         { header: "Vendedor",        key: "vendedor",      width: 26 },
         { header: "Cód. Cliente",    key: "cod_cliente",   width: 14 },
         { header: "Cliente",         key: "cliente",       width: 34 },
@@ -2215,6 +2226,7 @@ export default function DashboardSoftysCanales() {
                   <tr className="text-slate-400">
                     <th className="text-left py-2 font-semibold">Código</th>
                     <th className="text-left py-2 font-semibold">Producto</th>
+                    <th className="text-right py-2 font-semibold">Cob.</th>
                     <th className="text-right py-2 font-semibold">Venta Bs</th>
                     <th className="text-right py-2 font-semibold">Uds</th>
                     <th className="text-right py-2 font-semibold">Cumpl.</th>
@@ -2231,6 +2243,7 @@ export default function DashboardSoftysCanales() {
                         }`}>
                         <td className={`py-1.5 font-mono font-bold text-[10px] ${isSelected ? "text-sky-600" : "text-slate-500"}`}>{s.codigo}</td>
                         <td className={`py-1.5 max-w-28 truncate ${isSelected ? "text-sky-700 font-semibold" : "text-slate-700"}`} title={s.producto}>{s.producto}</td>
+                        <td className="py-1.5 text-right text-slate-600 tabular-nums">{fmtN(s.clientes)}</td>
                         <td className="py-1.5 text-right font-semibold text-slate-800 tabular-nums">{fmtN(s.venta_neta)}</td>
                         <td className="py-1.5 text-right text-slate-600 tabular-nums">{fmtN(s.cantidad)}</td>
                         <td className={`py-1.5 text-right font-bold tabular-nums ${

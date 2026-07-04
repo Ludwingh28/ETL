@@ -16,6 +16,12 @@ urlpatterns = [
     path('admin/users/<int:user_id>/permissions/', views.admin_update_permissions, name='admin-update-permissions'),
     path('admin/users/<int:user_id>/set-password/', views.admin_set_password,    name='admin-set-password'),
 
+    # Reportes / Tickets
+    path('reportes/',                        views.reporte_create,       name='reporte-create'),
+    path('reportes/list/',                   views.reporte_list,         name='reporte-list'),
+    path('reportes/unread-count/',           views.reporte_unread_count, name='reporte-unread-count'),
+    path('reportes/<int:reporte_id>/',       views.reporte_update,       name='reporte-update'),
+
     # Dashboard Ventas
     path('dashboard/ventas/kpis/', views.dashboard_ventas_kpis, name='ventas-kpis'),
     path('dashboard/ventas/por-mes/', views.dashboard_ventas_por_mes, name='ventas-por-mes'),
@@ -79,6 +85,7 @@ urlpatterns = [
     # Dashboard Unidades Vendidas
     path('dashboard/unidades/kpis/',          views.dashboard_unidades_kpis,          name='unidades-kpis'),
     path('dashboard/unidades/por-subgrupo/',  views.dashboard_unidades_por_subgrupo,  name='unidades-por-subgrupo'),
+    path('dashboard/unidades/proveedores/',   views.dashboard_unidades_proveedores,   name='unidades-proveedores'),
     path('dashboard/unidades/por-sku/',       views.dashboard_unidades_por_sku,       name='unidades-por-sku'),
     path('dashboard/unidades/vendedor-sku/',  views.dashboard_unidades_vendedor_sku,  name='unidades-vendedor-sku'),
     path('dashboard/unidades/por-vendedor/',  views.dashboard_unidades_por_vendedor,  name='unidades-por-vendedor'),

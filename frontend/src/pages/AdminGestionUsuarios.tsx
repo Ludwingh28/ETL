@@ -28,13 +28,45 @@ const AVATAR_COLORS = [
 ]
 function avatarColor(id: number) { return AVATAR_COLORS[id % AVATAR_COLORS.length] }
 
+const ONLINE_THRESHOLD_MS = 5 * 60 * 1000
+
+function LastSeen({ ts }: { ts?: string | null }) {
+  const [now] = useState(Date.now)
+  if (!ts) return <span className="text-slate-300 text-xs">Sin registro</span>
+
+  const diff = now - new Date(ts).getTime()
+
+  if (diff < ONLINE_THRESHOLD_MS) {
+    return (
+      <span className="inline-flex items-center gap-1 text-xs font-medium text-emerald-600">
+        <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
+        Online
+      </span>
+    )
+  }
+
+  const mins  = Math.floor(diff / 60000)
+  const hrs   = Math.floor(mins / 60)
+  const days  = Math.floor(hrs / 24)
+
+  let label: string
+  if (mins < 60)       label = `hace ${mins} min`
+  else if (hrs < 24)   label = `hace ${hrs} h`
+  else if (days < 7)   label = `hace ${days} día${days > 1 ? 's' : ''}`
+  else                 label = new Date(ts).toLocaleDateString('es-BO', { day: '2-digit', month: 'short', year: '2-digit' })
+
+  return <span className="text-xs text-slate-400">{label}</span>
+}
+
 // ── Checkbox con indeterminate ────────────────────────────────────────────────
 
 function GroupCheckbox({ checked, indeterminate, onChange }: {
   checked: boolean; indeterminate: boolean; onChange: () => void
 }) {
   const ref = useRef<HTMLInputElement>(null)
-  if (ref.current) ref.current.indeterminate = indeterminate
+  useEffect(() => {
+    if (ref.current) ref.current.indeterminate = indeterminate
+  }, [indeterminate])
   return <input ref={ref} type="checkbox" checked={checked} onChange={onChange} className="w-4 h-4 rounded accent-brand-600 cursor-pointer" />
 }
 
@@ -56,6 +88,12 @@ interface EditModalProps {
 function EditModal({ user, onClose, onSaved, onToast }: EditModalProps) {
   const { apiFetch } = useAuth()
   const [tab, setTab] = useState<Tab>('datos')
+
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose() }
+    window.addEventListener('keydown', handler)
+    return () => window.removeEventListener('keydown', handler)
+  }, [onClose])
 
   // ── Tab: Datos ───────────────────────────────────────────────────────────
   const [datos, setDatos] = useState({
@@ -88,6 +126,7 @@ function EditModal({ user, onClose, onSaved, onToast }: EditModalProps) {
       })
       onSaved(updated)
       onToast({ msg: 'Datos actualizados correctamente.', type: 'ok' })
+      onClose()
     } catch {
       onToast({ msg: 'Error al guardar los datos.', type: 'err' })
     } finally {
@@ -122,6 +161,7 @@ function EditModal({ user, onClose, onSaved, onToast }: EditModalProps) {
       })
       onSaved(updated)
       onToast({ msg: 'Permisos actualizados correctamente.', type: 'ok' })
+      onClose()
     } catch {
       onToast({ msg: 'Error al guardar los permisos.', type: 'err' })
     } finally {
@@ -147,6 +187,7 @@ function EditModal({ user, onClose, onSaved, onToast }: EditModalProps) {
       })
       setPwd({ new_password: '', confirm: '' })
       onToast({ msg: 'Contraseña actualizada correctamente.', type: 'ok' })
+      onClose()
     } catch {
       onToast({ msg: 'Error al cambiar la contraseña.', type: 'err' })
     } finally {
@@ -154,16 +195,12 @@ function EditModal({ user, onClose, onSaved, onToast }: EditModalProps) {
     }
   }
 
-  // ── Render ───────────────────────────────────────────────────────────────
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
-      {/* Overlay */}
       <div className="absolute inset-0 bg-black/40 backdrop-blur-sm" onClick={onClose} />
 
-      {/* Panel */}
       <div className="relative bg-white rounded-2xl shadow-2xl w-full max-w-xl max-h-[90vh] flex flex-col overflow-hidden">
 
-        {/* Header */}
         <div className="flex items-center gap-3 px-6 py-4 border-b border-slate-100">
           <div className={`w-9 h-9 rounded-full ${avatarColor(user.id)} flex items-center justify-center shrink-0`}>
             <span className="text-white text-sm font-bold">{initials(user)}</span>
@@ -179,7 +216,6 @@ function EditModal({ user, onClose, onSaved, onToast }: EditModalProps) {
           </button>
         </div>
 
-        {/* Tabs */}
         <div className="flex border-b border-slate-100 px-6">
           {([
             { id: 'datos',      label: 'Datos',      icon: UserCheck },
@@ -201,27 +237,18 @@ function EditModal({ user, onClose, onSaved, onToast }: EditModalProps) {
           ))}
         </div>
 
-        {/* Body (scrollable) */}
         <div className="flex-1 overflow-y-auto px-6 py-5">
 
-          {/* ── TAB: Datos ─────────────────────────────────────────────── */}
           {tab === 'datos' && (
             <div className="space-y-4">
-
-              {/* Usuario (username) */}
               <div>
-                <label className="block text-sm font-medium text-slate-600 mb-1.5">
-                  Nombre de Usuario
-                </label>
+                <label className="block text-sm font-medium text-slate-600 mb-1.5">Nombre de Usuario</label>
                 <div className="relative">
                   <AtSign size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" />
                   <input
                     type="text"
                     value={datos.username}
-                    onChange={e => setDatos(d => ({
-                      ...d,
-                      username: e.target.value.toLowerCase().replace(/\s+/g, ''),
-                    }))}
+                    onChange={e => setDatos(d => ({ ...d, username: e.target.value.toLowerCase().replace(/\s+/g, '') }))}
                     className="input-field pl-8 font-mono"
                     placeholder="nombre.apellido"
                   />
@@ -231,66 +258,50 @@ function EditModal({ user, onClose, onSaved, onToast }: EditModalProps) {
               <div className="grid grid-cols-2 gap-3">
                 <div>
                   <label className="block text-sm font-medium text-slate-600 mb-1.5">Nombre</label>
-                  <input
-                    type="text"
-                    value={datos.first_name}
+                  <input type="text" value={datos.first_name}
                     onChange={e => setDatos(d => ({ ...d, first_name: e.target.value }))}
-                    className="input-field"
-                  />
+                    className="input-field" />
                 </div>
                 <div>
                   <label className="block text-sm font-medium text-slate-600 mb-1.5">Apellido</label>
-                  <input
-                    type="text"
-                    value={datos.last_name}
+                  <input type="text" value={datos.last_name}
                     onChange={e => setDatos(d => ({ ...d, last_name: e.target.value }))}
-                    className="input-field"
-                  />
+                    className="input-field" />
                 </div>
               </div>
               <div>
                 <label className="block text-sm font-medium text-slate-600 mb-1.5">Correo Electrónico</label>
-                <input
-                  type="email"
-                  value={datos.email}
+                <input type="email" value={datos.email}
                   onChange={e => setDatos(d => ({ ...d, email: e.target.value }))}
-                  className="input-field"
-                />
+                  className="input-field" />
               </div>
               <div className="grid grid-cols-2 gap-3">
                 <div>
                   <label className="block text-sm font-medium text-slate-600 mb-1.5">Cargo</label>
-                  <select
-                    value={datos.cargo}
+                  <select value={datos.cargo}
                     onChange={e => setDatos(d => ({ ...d, cargo: e.target.value as Cargo | '' }))}
-                    className="input-field"
-                  >
+                    className="input-field">
                     <option value="">Sin cargo</option>
                     {CARGOS.map(c => <option key={c} value={c}>{c}</option>)}
                   </select>
                 </div>
                 <div>
                   <label className="block text-sm font-medium text-slate-600 mb-1.5">Regional</label>
-                  <select
-                    value={datos.regional}
+                  <select value={datos.regional}
                     onChange={e => setDatos(d => ({ ...d, regional: e.target.value }))}
-                    className="input-field"
-                  >
+                    className="input-field">
                     <option value="">Sin regional</option>
                     {REGIONALES.map(r => <option key={r} value={r}>{r}</option>)}
                   </select>
                 </div>
               </div>
 
-              {/* Canal — visible para cargos que lo requieren */}
               {CARGOS_CON_CANAL.has(datos.cargo) && (
                 <div>
                   <label className="block text-sm font-medium text-slate-600 mb-1.5">Canal asignado</label>
-                  <select
-                    value={datos.canal}
+                  <select value={datos.canal}
                     onChange={e => setDatos(d => ({ ...d, canal: e.target.value }))}
-                    className="input-field"
-                  >
+                    className="input-field">
                     <option value="">Todos los canales</option>
                     {CANALES.map(c => <option key={c} value={c}>{c}</option>)}
                   </select>
@@ -300,7 +311,6 @@ function EditModal({ user, onClose, onSaved, onToast }: EditModalProps) {
                 </div>
               )}
 
-              {/* Estado activo */}
               <div className="flex items-center justify-between p-3 rounded-xl bg-slate-50 border border-slate-200">
                 <div>
                   <p className="text-sm font-medium text-slate-700">Estado de la cuenta</p>
@@ -323,10 +333,8 @@ function EditModal({ user, onClose, onSaved, onToast }: EditModalProps) {
             </div>
           )}
 
-          {/* ── TAB: Accesos ───────────────────────────────────────────── */}
           {tab === 'accesos' && (
             <div className="space-y-4">
-              {/* Barra rápida */}
               <div className="flex flex-wrap items-center gap-2">
                 <button type="button" onClick={() => setPerms([...ALL_DASHBOARD_IDS])}
                   className="text-xs px-2.5 py-1 rounded-md bg-brand-50 text-brand-700 hover:bg-brand-100 transition-colors font-medium">
@@ -348,11 +356,10 @@ function EditModal({ user, onClose, onSaved, onToast }: EditModalProps) {
                 </span>
               </div>
 
-              {/* Árbol */}
               <div className="space-y-3">
                 {DASHBOARD_GROUPS.map(group => {
-                  const ids   = group.items.map(i => i.id)
-                  const allOn = ids.every(id => perms.includes(id))
+                  const ids    = group.items.map(i => i.id)
+                  const allOn  = ids.every(id => perms.includes(id))
                   const someOn = ids.some(id => perms.includes(id))
                   return (
                     <div key={group.grupo} className="p-3 rounded-xl border border-slate-100 bg-slate-50">
@@ -384,7 +391,6 @@ function EditModal({ user, onClose, onSaved, onToast }: EditModalProps) {
             </div>
           )}
 
-          {/* ── TAB: Contraseña ────────────────────────────────────────── */}
           {tab === 'contrasena' && (
             <div className="space-y-4">
               <p className="text-sm text-slate-500">
@@ -424,13 +430,10 @@ function EditModal({ user, onClose, onSaved, onToast }: EditModalProps) {
               </div>
             </div>
           )}
-
         </div>
 
-        {/* Footer con botón de guardar según tab */}
         <div className="px-6 py-4 border-t border-slate-100 flex items-center justify-end gap-3">
           <button onClick={onClose} className="btn-ghost text-sm">Cerrar</button>
-
           {tab === 'datos' && (
             <button onClick={handleSaveDatos} disabled={savingDatos} className="btn-primary text-sm flex items-center gap-2">
               {savingDatos ? <><span className="w-3.5 h-3.5 border-2 border-white/30 border-t-white rounded-full animate-spin" /> Guardando…</> : <><Check size={14} /> Guardar Datos</>}
@@ -466,7 +469,6 @@ export default function AdminGestionUsuarios() {
   const [editing,  setEditing]  = useState<ManagedUser | null>(null)
   const [toast,    setToast]    = useState<Toast | null>(null)
 
-  // Cargar usuarios
   useEffect(() => {
     apiFetch<ManagedUser[]>('/admin/users/')
       .then(data => setUsers(data))
@@ -474,14 +476,12 @@ export default function AdminGestionUsuarios() {
       .finally(() => setLoading(false))
   }, []) // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Auto-dismiss toast
   useEffect(() => {
     if (!toast) return
     const t = setTimeout(() => setToast(null), 3500)
     return () => clearTimeout(t)
   }, [toast])
 
-  // Filtros
   const filtered = users.filter(u => {
     const name = `${u.first_name} ${u.last_name} ${u.username} ${u.email}`.toLowerCase()
     return (
@@ -499,19 +499,15 @@ export default function AdminGestionUsuarios() {
   return (
     <DashboardLayout>
 
-      {/* Toast */}
       {toast && (
         <div className={`fixed top-20 right-4 z-50 flex items-center gap-2.5 px-4 py-3 rounded-xl shadow-lg text-sm font-medium transition-all ${
-          toast.type === 'ok'
-            ? 'bg-green-600 text-white'
-            : 'bg-red-600 text-white'
+          toast.type === 'ok' ? 'bg-green-600 text-white' : 'bg-red-600 text-white'
         }`}>
           {toast.type === 'ok' ? <Check size={15} /> : <AlertCircle size={15} />}
           {toast.msg}
         </div>
       )}
 
-      {/* Modal de edición */}
       {editing && (
         <EditModal
           user={editing}
@@ -521,7 +517,6 @@ export default function AdminGestionUsuarios() {
         />
       )}
 
-      {/* Cabecera */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-6">
         <div className="flex items-center gap-2">
           <Users2 size={20} className="text-brand-600" />
@@ -539,7 +534,6 @@ export default function AdminGestionUsuarios() {
       {/* Filtros */}
       <div className="card mb-5">
         <div className="flex flex-col sm:flex-row gap-3">
-          {/* Buscador */}
           <div className="relative flex-1">
             <Search size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
             <input
@@ -550,25 +544,17 @@ export default function AdminGestionUsuarios() {
               className="input-field pl-9"
             />
           </div>
-          {/* Filtro cargo */}
           <div className="relative">
-            <select
-              value={cargo}
-              onChange={e => setCargo(e.target.value)}
-              className="input-field pr-8 appearance-none min-w-44"
-            >
+            <select value={cargo} onChange={e => setCargo(e.target.value)}
+              className="input-field pr-8 appearance-none min-w-44">
               <option value="">Todos los cargos</option>
               {CARGOS.map(c => <option key={c} value={c}>{c}</option>)}
             </select>
             <ChevronDown size={14} className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" />
           </div>
-          {/* Filtro regional */}
           <div className="relative">
-            <select
-              value={regional}
-              onChange={e => setRegional(e.target.value)}
-              className="input-field pr-8 appearance-none min-w-36"
-            >
+            <select value={regional} onChange={e => setRegional(e.target.value)}
+              className="input-field pr-8 appearance-none min-w-36">
               <option value="">Todas las regionales</option>
               {REGIONALES.map(r => <option key={r} value={r}>{r}</option>)}
             </select>
@@ -577,7 +563,6 @@ export default function AdminGestionUsuarios() {
         </div>
       </div>
 
-      {/* Estados: cargando / error */}
       {loading && (
         <div className="card flex items-center justify-center py-16 gap-3 text-slate-400">
           <span className="w-6 h-6 border-2 border-slate-200 border-t-brand-500 rounded-full animate-spin" />
@@ -591,7 +576,6 @@ export default function AdminGestionUsuarios() {
         </div>
       )}
 
-      {/* Tabla */}
       {!loading && !error && (
         <div className="card p-0 overflow-hidden">
           <div className="overflow-x-auto">
@@ -604,6 +588,7 @@ export default function AdminGestionUsuarios() {
                   <th className="text-left px-4 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wide hidden xl:table-cell">Correo</th>
                   <th className="text-center px-4 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wide">Accesos</th>
                   <th className="text-center px-4 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wide">Estado</th>
+                  <th className="text-left px-4 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wide hidden lg:table-cell">Última sesión</th>
                   <th className="px-4 py-3" />
                 </tr>
               </thead>
@@ -617,21 +602,17 @@ export default function AdminGestionUsuarios() {
                 )}
                 {filtered.map(u => (
                   <tr key={u.id} className="hover:bg-slate-50/60 transition-colors">
-                    {/* Avatar + nombre */}
                     <td className="px-5 py-3.5">
                       <div className="flex items-center gap-3">
                         <div className={`w-8 h-8 rounded-full ${avatarColor(u.id)} flex items-center justify-center shrink-0`}>
                           <span className="text-white text-xs font-bold">{initials(u)}</span>
                         </div>
                         <div className="min-w-0">
-                          <p className="font-medium text-slate-800 truncate">
-                            {u.first_name} {u.last_name}
-                          </p>
+                          <p className="font-medium text-slate-800 truncate">{u.first_name} {u.last_name}</p>
                           <p className="text-xs text-slate-400 truncate">@{u.username}</p>
                         </div>
                       </div>
                     </td>
-                    {/* Cargo */}
                     <td className="px-4 py-3.5 hidden md:table-cell">
                       {u.cargo ? (
                         <span className={`inline-block px-2 py-0.5 rounded-full text-xs font-medium ${CARGO_COLOR[u.cargo] ?? 'bg-slate-100 text-slate-600'}`}>
@@ -641,32 +622,28 @@ export default function AdminGestionUsuarios() {
                         <span className="text-slate-300">—</span>
                       )}
                     </td>
-                    {/* Regional */}
                     <td className="px-4 py-3.5 text-slate-600 hidden lg:table-cell">
                       {u.regional || <span className="text-slate-300">—</span>}
                     </td>
-                    {/* Correo */}
                     <td className="px-4 py-3.5 text-slate-500 hidden xl:table-cell truncate max-w-48">
                       {u.email || <span className="text-slate-300">—</span>}
                     </td>
-                    {/* Accesos */}
                     <td className="px-4 py-3.5 text-center">
                       <span className="text-xs font-semibold text-slate-700 bg-slate-100 px-2 py-0.5 rounded-full">
                         {u.dashboard_permissions.length}/{ALL_DASHBOARD_IDS.length}
                       </span>
                     </td>
-                    {/* Estado */}
                     <td className="px-4 py-3.5 text-center">
                       <span className={`inline-flex items-center gap-1 text-xs font-medium px-2 py-0.5 rounded-full ${
-                        u.is_active
-                          ? 'bg-green-100 text-green-700'
-                          : 'bg-slate-100 text-slate-500'
+                        u.is_active ? 'bg-green-100 text-green-700' : 'bg-slate-100 text-slate-500'
                       }`}>
                         <span className={`w-1.5 h-1.5 rounded-full ${u.is_active ? 'bg-green-500' : 'bg-slate-400'}`} />
                         {u.is_active ? 'Activo' : 'Inactivo'}
                       </span>
                     </td>
-                    {/* Editar */}
+                    <td className="px-4 py-3.5 hidden lg:table-cell">
+                      <LastSeen ts={u.last_seen} />
+                    </td>
                     <td className="px-4 py-3.5 text-right">
                       <button
                         onClick={() => setEditing(u)}
@@ -682,7 +659,6 @@ export default function AdminGestionUsuarios() {
             </table>
           </div>
 
-          {/* Footer: conteo */}
           {filtered.length > 0 && (
             <div className="px-5 py-3 border-t border-slate-100 text-xs text-slate-400">
               Mostrando {filtered.length} de {users.length} usuarios

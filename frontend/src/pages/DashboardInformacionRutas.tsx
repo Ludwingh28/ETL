@@ -8,6 +8,7 @@ import {
   XAxis, YAxis, CartesianGrid, Tooltip,
 } from "recharts";
 import DashboardLayout from "../components/DashboardLayout";
+import { setActiveFilters } from "../utils/filterStore";
 import { useAuth } from "../context/AuthContext";
 import type { AuthContextValue } from "../types";
 
@@ -262,6 +263,10 @@ export default function DashboardInformacionRutas() {
   const [loading,        setLoading]        = useState(true);
   const [loadingDetalle, setLoadingDetalle] = useState(false);
   const [error,          setError]          = useState<string | null>(null);
+
+  useEffect(() => {
+    setActiveFilters({ anho, mes, regional, canal, dia, supervisor, marca });
+  }, [anho, mes, regional, canal, dia, supervisor, marca]);
 
   // Cargar periodos disponibles
   useEffect(() => {
@@ -673,7 +678,7 @@ export default function DashboardInformacionRutas() {
                   <th className="py-2 pr-4 font-semibold">Ruta</th>
                   <th className="py-2 pr-4 font-semibold">Vendedor</th>
                   <th className="py-2 pr-4 font-semibold">Supervisor</th>
-                  <th className="py-2 pr-4 font-semibold">Día</th>
+                  <th className="py-2 pr-4 font-semibold">Días</th>
                   <th className="py-2 px-3 font-semibold text-right">Clientes</th>
                   <th className="py-2 px-3 font-semibold text-right">Con compra</th>
                   <th className="py-2 pl-3 font-semibold text-right">

@@ -110,17 +110,19 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     return data.user;
   };
 
-  const logout = async (): Promise<void> => {
+  const logout = (): void => {
     if (inactivityTimer.current) clearTimeout(inactivityTimer.current);
+    // Fire-and-forget: no esperamos la respuesta del servidor para no bloquear la navegación
     if (token) {
-      await fetch(`${API_BASE}/auth/logout/`, {
+      fetch(`${API_BASE}/auth/logout/`, {
         method: "POST",
         headers: { Authorization: `Token ${token}` },
       }).catch(() => undefined);
     }
     localStorage.removeItem(TOKEN_KEY);
-    setToken(null);
-    setUser(null);
+    // Hard redirect — evita race condition con el estado de React donde Login
+    // ve user != null y redirige de vuelta al dashboard antes de que setUser(null) se procese
+    window.location.replace(`${BASE_PATH}/login`);
   };
 
   const refreshUser = useCallback(async (): Promise<void> => {

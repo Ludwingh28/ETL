@@ -1,5 +1,6 @@
 from django.http import JsonResponse, StreamingHttpResponse
-from django.db import connections
+from django.db import connections, models
+from django.utils import timezone
 from django.contrib.auth import authenticate
 from django.contrib.auth.models import User
 from django.core.cache import cache
@@ -19,7 +20,7 @@ import openpyxl
 from openpyxl.styles import Font
 from functools import wraps
 
-from .models import UserProfile
+from .models import UserProfile, Reporte
 
 logger = logging.getLogger(__name__)
 
@@ -283,6 +284,7 @@ def _serialize_user(user):
         'dashboard_permissions': profile.dashboard_permissions,
         'groups':                list(user.groups.values_list('name', flat=True)),
         'date_joined':           user.date_joined.isoformat() if user.date_joined else None,
+        'last_seen':             profile.last_seen.isoformat() if profile.last_seen else None,
     }
 
 
@@ -3201,6 +3203,7 @@ def dashboard_softys_export(request):
                     ELSE COALESCE(dv.ciudad, '—')
                 END                                                        AS regional,
                 dv.canal_rrhh                                              AS canal,
+                INITCAP(dv.supervisor)                                     AS supervisor,
                 dv.vendedor_nombre                                         AS vendedor,
                 dc.cliente_codigo_erp                                      AS cod_cliente,
                 COALESCE(dc.cliente_nombre, dc.cliente_codigo_erp)         AS cliente,
@@ -3223,11 +3226,46 @@ def dashboard_softys_export(request):
             LIMIT 150000
         """
         _, rows = _run_dw_query(sql, params)
-        # Serializar fecha a string para JSON
         for r in rows:
             if r.get('fecha'):
                 r['fecha'] = str(r['fecha'])
-        return JsonResponse({'success': True, 'data': rows, 'total': len(rows)})
+
+        # Presupuesto por SKU + canal (todos los SKUs Softys, tengan ppto o no)
+        ppto_params = [anho, mes, anho, mes]
+        if canal:
+            ppto_canal_cond = "AND dv.canal_rrhh = %s"
+            ppto_params.append(canal)
+        else:
+            ppto_canal_cond = ""
+        sql_ppto = f"""
+            SELECT
+                dp.producto_codigo_erp                              AS cod_producto,
+                dp.producto_nombre                                  AS producto,
+                CASE
+                    WHEN dv.ciudad IN ('SCZ')       THEN 'Santa Cruz'
+                    WHEN dv.ciudad IN ('CBA')       THEN 'Cochabamba'
+                    WHEN dv.ciudad IN ('LPZ','EAL') THEN 'La Paz'
+                    ELSE ''
+                END                                                 AS regional,
+                COALESCE(dv.canal_rrhh, '')                        AS canal,
+                COALESCE(SUM(fp.venta_neta_presupuestada), 0)      AS presupuesto
+            FROM dw.dim_producto dp
+            LEFT JOIN dw.fact_presupuesto fp
+                ON fp.producto_sk = dp.producto_sk
+                AND fp.anho = %s AND fp.mes = %s
+                AND fp.version_sk = (
+                    SELECT MAX(version_sk) FROM dw.dim_presupuesto_version
+                    WHERE anho = %s AND mes = %s
+                )
+            LEFT JOIN dw.dim_vendedor dv ON dv.vendedor_sk = fp.vendedor_sk
+                AND ({ciudad_cond}) {ppto_canal_cond}
+            WHERE {_SOFTYS_COND_DP2.replace('dp2', 'dp')}
+            GROUP BY dp.producto_codigo_erp, dp.producto_nombre, dv.ciudad, dv.canal_rrhh
+            ORDER BY dp.producto_nombre, dv.ciudad, dv.canal_rrhh NULLS LAST
+        """
+        _, ppto_rows = _run_dw_query(sql_ppto, ppto_params)
+
+        return JsonResponse({'success': True, 'data': rows, 'total': len(rows), 'presupuesto_por_sku': ppto_rows})
     except Exception:
         logger.exception("Error interno")
         return JsonResponse({'success': False, 'error': 'Error interno del servidor'}, status=500)
@@ -3297,9 +3335,15 @@ def dashboard_supervisores_vendedores(request):
         params_base     = [anho, mes] + ([canal] if canal else []) + ([supervisor_filter] if supervisor_filter else [])
 
         # ── Ventas por vendedor y categoría (CASE WHEN pivot) ──────────────────
+        # Agrupamos por vendedor_nombre para consolidar vendedores con múltiples
+        # SKs históricos (SCD2). El SK devuelto es el actual (es_vendedor_actual=true);
+        # si no existe uno actual se usa el mayor SK disponible (fallback).
         sql_ventas = f"""
             SELECT
-                dv.vendedor_sk,
+                COALESCE(
+                    MAX(CASE WHEN dv.es_vendedor_actual THEN dv.vendedor_sk ELSE NULL END),
+                    MAX(dv.vendedor_sk)
+                )                                                                            AS vendedor_sk,
                 dv.vendedor_nombre                                                          AS vendedor,
                 COALESCE(SUM(CASE WHEN dp.linea = 'ALIMENTOS'            THEN fv.venta_neta ELSE 0 END), 0) AS alimentos,
                 COALESCE(SUM(CASE WHEN dp.linea = 'APEGO'                THEN fv.venta_neta ELSE 0 END), 0) AS apego,
@@ -3319,7 +3363,7 @@ def dashboard_supervisores_vendedores(request):
             JOIN dw.dim_producto dp ON fv.producto_sk = dp.producto_sk
             WHERE df.anho = %s AND df.mes_numero = %s
               AND ({ciudad_cond}) {canal_cond} {supervisor_cond}
-            GROUP BY dv.vendedor_sk, dv.vendedor_nombre
+            GROUP BY dv.vendedor_nombre
             ORDER BY total DESC
         """
         _, ventas_rows = _run_dw_query(sql_ventas, params_base)
@@ -3330,7 +3374,10 @@ def dashboard_supervisores_vendedores(request):
         try:
             sql_ppto = f"""
                 SELECT
-                    dv.vendedor_sk,
+                    COALESCE(
+                        MAX(CASE WHEN dv.es_vendedor_actual THEN dv.vendedor_sk ELSE NULL END),
+                        MAX(dv.vendedor_sk)
+                    )                                                                                                          AS vendedor_sk,
                     COALESCE(SUM(CASE WHEN dp.linea = 'ALIMENTOS'            THEN fp.venta_neta_presupuestada ELSE 0 END), 0) AS alimentos_ppto,
                     COALESCE(SUM(CASE WHEN dp.linea = 'APEGO'                THEN fp.venta_neta_presupuestada ELSE 0 END), 0) AS apego_ppto,
                     COALESCE(SUM(CASE WHEN dp.linea = 'BEBIDAS ALC'          THEN fp.venta_neta_presupuestada ELSE 0 END), 0) AS licores_ppto,
@@ -3349,7 +3396,7 @@ def dashboard_supervisores_vendedores(request):
                 WHERE fp.anho = %s AND fp.mes = %s
                   AND ({ciudad_cond}) {canal_cond} {supervisor_cond}
                   AND fp.version_sk = (SELECT MAX(version_sk) FROM dw.dim_presupuesto_version WHERE anho = %s AND mes = %s)
-                GROUP BY dv.vendedor_sk
+                GROUP BY dv.vendedor_nombre
             """
             _, ppto_rows = _run_dw_query(sql_ppto, params_base + [anho, mes])
             ppto_map = {r['vendedor_sk']: r for r in ppto_rows}
@@ -4028,23 +4075,25 @@ def dashboard_unidades_kpis(request):
 def dashboard_unidades_por_subgrupo(request):
     """
     Ventas+presupuesto agrupados por subgrupo dentro de la categoría seleccionada.
-    Params: regional, canal, categoria (requerido), anho, mes
+    Params: regional, canal, categoria (requerido), anho, mes, proveedor
     """
     try:
         regional  = request.GET.get('regional', 'santa_cruz').lower().replace(' ', '_')
         canal     = _safe_str(request.GET.get('canal', ''))
         categoria = _safe_str(request.GET.get('categoria', ''))
+        proveedor = _safe_str(request.GET.get('proveedor', ''))
         anho      = _safe_int(request.GET.get('anho'), datetime.now().year)
         mes       = _safe_int(request.GET.get('mes'),  datetime.now().month)
         if regional not in REGIONALES_VALID:
             return JsonResponse({'success': False, 'error': 'Regional inválida'}, status=400)
-        if not categoria or categoria not in _UNIDADES_CAT_LINEA:
-            return JsonResponse({'success': False, 'error': 'Categoría inválida'}, status=400)
 
-        ciudad_cond  = _regional_filter(regional)
-        canal_cond   = "AND dv.canal_rrhh = %s" if canal else ""
-        base_params  = [anho, mes] + ([canal] if canal else [])
+        ciudad_cond    = _regional_filter(regional)
+        canal_cond     = "AND dv.canal_rrhh = %s" if canal else ""
+        proveedor_cond = "AND UPPER(dp.proveedor) = UPPER(%s)" if proveedor else ""
+        base_params    = [anho, mes] + ([canal] if canal else [])
         cat_cond, params = _unidades_cat_params(categoria, base_params)
+        if proveedor:
+            params = params + [proveedor]
 
         sql_v = f"""
             SELECT
@@ -4056,7 +4105,7 @@ def dashboard_unidades_por_subgrupo(request):
             JOIN dw.dim_vendedor dv   ON fv.vendedor_sk = dv.vendedor_sk
             JOIN dw.dim_producto dp   ON fv.producto_sk = dp.producto_sk
             WHERE df.anho = %s AND df.mes_numero = %s
-              AND ({ciudad_cond}) {canal_cond} {cat_cond}
+              AND ({ciudad_cond}) {canal_cond} {cat_cond} {proveedor_cond}
             GROUP BY dp.subgrupo_descripcion
             ORDER BY venta_neta DESC
         """
@@ -4065,6 +4114,8 @@ def dashboard_unidades_por_subgrupo(request):
         ppto_map = {}
         try:
             ppto_cat_cond, params_p = _unidades_cat_params(categoria, base_params)
+            if proveedor:
+                params_p = params_p + [proveedor]
             sql_p = f"""
                 SELECT
                     COALESCE(dp.subgrupo_descripcion, 'Sin Subgrupo') AS subgrupo,
@@ -4074,7 +4125,7 @@ def dashboard_unidades_por_subgrupo(request):
                 JOIN dw.dim_vendedor             dv  ON fp.vendedor_sk = dv.vendedor_sk
                 JOIN dw.dim_producto             dp  ON fp.producto_sk = dp.producto_sk
                 WHERE fp.anho = %s AND fp.mes = %s
-                  AND ({ciudad_cond}) {canal_cond} {ppto_cat_cond}
+                  AND ({ciudad_cond}) {canal_cond} {ppto_cat_cond} {proveedor_cond}
                   AND fp.version_sk = (SELECT MAX(version_sk) FROM dw.dim_presupuesto_version WHERE anho = %s AND mes = %s)
                 GROUP BY dp.subgrupo_descripcion
             """
@@ -4110,6 +4161,47 @@ def dashboard_unidades_por_subgrupo(request):
 @api_view(['GET'])
 @authentication_classes([ExpiringTokenAuthentication])
 @permission_classes([IsAuthenticated])
+@_require_any_perm('unidades-vendidas', 'unidades-supervisores')
+def dashboard_unidades_proveedores(request):
+    """
+    Proveedores distintos que tienen ventas en la categoría dada.
+    Params: regional, canal, categoria, anho, mes
+    """
+    try:
+        regional  = request.GET.get('regional', 'santa_cruz').lower().replace(' ', '_')
+        canal     = _safe_str(request.GET.get('canal', ''))
+        categoria = _safe_str(request.GET.get('categoria', ''))
+        anho      = _safe_int(request.GET.get('anho'), datetime.now().year)
+        mes       = _safe_int(request.GET.get('mes'),  datetime.now().month)
+        if regional not in REGIONALES_VALID:
+            return JsonResponse({'success': False, 'error': 'Regional inválida'}, status=400)
+
+        ciudad_cond = _regional_filter(regional)
+        canal_cond  = "AND dv.canal_rrhh = %s" if canal else ""
+        base_params = [anho, mes] + ([canal] if canal else [])
+        cat_cond, params = _unidades_cat_params(categoria, base_params)
+
+        sql = f"""
+            SELECT DISTINCT UPPER(dp.proveedor) AS proveedor
+            FROM dw.fact_ventas fv
+            JOIN dw.dim_fecha    df ON fv.fecha_sk    = df.fecha_sk
+            JOIN dw.dim_vendedor dv ON fv.vendedor_sk = dv.vendedor_sk
+            JOIN dw.dim_producto dp ON fv.producto_sk = dp.producto_sk
+            WHERE df.anho = %s AND df.mes_numero = %s
+              AND ({ciudad_cond}) {canal_cond} {cat_cond}
+              AND dp.proveedor IS NOT NULL AND dp.proveedor <> ''
+            ORDER BY proveedor
+        """
+        _, rows = _run_dw_query(sql, params)
+        return JsonResponse({'success': True, 'data': [r['proveedor'] for r in rows]})
+    except Exception:
+        logger.exception("Error interno")
+        return JsonResponse({'success': False, 'error': 'Error interno del servidor'}, status=500)
+
+
+@api_view(['GET'])
+@authentication_classes([ExpiringTokenAuthentication])
+@permission_classes([IsAuthenticated])
 @_require_perm('unidades-vendidas')
 def dashboard_unidades_por_sku(request):
     """
@@ -4121,6 +4213,7 @@ def dashboard_unidades_por_sku(request):
         canal     = _safe_str(request.GET.get('canal', ''))
         categoria = _safe_str(request.GET.get('categoria', ''))
         subgrupo  = _safe_str(request.GET.get('subgrupo', ''))
+        proveedor = _safe_str(request.GET.get('proveedor', ''))
         anho      = _safe_int(request.GET.get('anho'), datetime.now().year)
         mes       = _safe_int(request.GET.get('mes'),  datetime.now().month)
         err       = _validate_anho_mes(anho, mes)
@@ -4129,15 +4222,17 @@ def dashboard_unidades_por_sku(request):
         if regional not in REGIONALES_VALID:
             return JsonResponse({'success': False, 'error': 'Regional inválida'}, status=400)
 
-        ciudad_cond  = _regional_filter(regional)
-        canal_cond   = "AND dv.canal_rrhh = %s" if canal else ""
-        base_params  = [anho, mes] + ([canal] if canal else [])
+        ciudad_cond    = _regional_filter(regional)
+        canal_cond     = "AND dv.canal_rrhh = %s" if canal else ""
+        proveedor_cond = "AND UPPER(dp.proveedor) = UPPER(%s)" if proveedor else ""
+        base_params    = [anho, mes] + ([canal] if canal else [])
         cat_cond, cat_params = _unidades_cat_params(categoria, base_params)
         sub_cond   = "AND dp.subgrupo_descripcion = %s" if subgrupo else ""
         sub_extra  = [subgrupo] if subgrupo else []
+        prov_extra = [proveedor] if proveedor else []
 
-        params_v    = cat_params + sub_extra + [limit]
-        params_ppto = cat_params + sub_extra
+        params_v    = cat_params + sub_extra + prov_extra + [limit]
+        params_ppto = cat_params + sub_extra + prov_extra
 
         sql_v = f"""
             SELECT
@@ -4150,7 +4245,7 @@ def dashboard_unidades_por_sku(request):
             JOIN dw.dim_vendedor dv   ON fv.vendedor_sk = dv.vendedor_sk
             JOIN dw.dim_producto dp   ON fv.producto_sk = dp.producto_sk
             WHERE df.anho = %s AND df.mes_numero = %s
-              AND ({ciudad_cond}) {canal_cond} {cat_cond} {sub_cond}
+              AND ({ciudad_cond}) {canal_cond} {cat_cond} {sub_cond} {proveedor_cond}
             GROUP BY dp.producto_codigo_erp, dp.producto_nombre
             ORDER BY venta_neta DESC
             LIMIT %s
@@ -4168,7 +4263,7 @@ def dashboard_unidades_por_sku(request):
                 JOIN dw.dim_vendedor             dv  ON fp.vendedor_sk = dv.vendedor_sk
                 JOIN dw.dim_producto             dp  ON fp.producto_sk = dp.producto_sk
                 WHERE fp.anho = %s AND fp.mes = %s
-                  AND ({ciudad_cond}) {canal_cond} {cat_cond} {sub_cond}
+                  AND ({ciudad_cond}) {canal_cond} {cat_cond} {sub_cond} {proveedor_cond}
                   AND fp.version_sk = (SELECT MAX(version_sk) FROM dw.dim_presupuesto_version WHERE anho = %s AND mes = %s)
                 GROUP BY dp.producto_codigo_erp
             """
@@ -4215,6 +4310,7 @@ def dashboard_unidades_vendedor_sku(request):
         vendedor_sk = _safe_str(request.GET.get('vendedor_sk', ''))
         categoria   = _safe_str(request.GET.get('categoria', ''))
         subgrupo    = _safe_str(request.GET.get('subgrupo', ''))
+        proveedor   = _safe_str(request.GET.get('proveedor', ''))
         anho        = _safe_int(request.GET.get('anho'), datetime.now().year)
         mes         = _safe_int(request.GET.get('mes'),  datetime.now().month)
         limit       = min(_safe_int(request.GET.get('limit'), 300), 500)
@@ -4224,14 +4320,17 @@ def dashboard_unidades_vendedor_sku(request):
         if not vendedor_sk:
             return JsonResponse({'success': False, 'error': 'vendedor_sk requerido'}, status=400)
 
-        ciudad_cond = _regional_filter(regional)
-        canal_cond  = "AND dv.canal_rrhh = %s" if canal else ""
+        ciudad_cond    = _regional_filter(regional)
+        canal_cond     = "AND dv.canal_rrhh = %s" if canal else ""
+        proveedor_cond = "AND UPPER(dp.proveedor) = UPPER(%s)" if proveedor else ""
         base_params = [anho, mes] + ([canal] if canal else [])
         cat_cond, params_v = _unidades_cat_params(categoria, base_params)
         sub_cond = ""
         if subgrupo:
             sub_cond = "AND dp.subgrupo_descripcion = %s"
             params_v = params_v + [subgrupo]
+        if proveedor:
+            params_v = params_v + [proveedor]
         params_v = params_v + [int(vendedor_sk), limit]
 
         sql_v = f"""
@@ -4245,7 +4344,7 @@ def dashboard_unidades_vendedor_sku(request):
             JOIN dw.dim_vendedor dv   ON fv.vendedor_sk = dv.vendedor_sk
             JOIN dw.dim_producto dp   ON fv.producto_sk = dp.producto_sk
             WHERE df.anho = %s AND df.mes_numero = %s
-              AND ({ciudad_cond}) {canal_cond} {cat_cond} {sub_cond}
+              AND ({ciudad_cond}) {canal_cond} {cat_cond} {sub_cond} {proveedor_cond}
               AND dv.vendedor_sk = %s
             GROUP BY dp.producto_codigo_erp, dp.producto_nombre
             ORDER BY cantidad DESC
@@ -4513,7 +4612,8 @@ def dashboard_proveedor_tabla(request):
                 dp.unidad_medida,
                 fv.cantidad,
                 fv.total,
-                dv.vendedor_nombre
+                dv.vendedor_nombre,
+                INITCAP(dv.supervisor) AS supervisor_nombre
             FROM dw.fact_ventas fv
             JOIN dw.dim_vendedor dv ON dv.vendedor_sk = fv.vendedor_sk
             JOIN dw.dim_producto dp ON dp.producto_sk = fv.producto_sk
@@ -4525,7 +4625,33 @@ def dashboard_proveedor_tabla(request):
             ORDER BY fv.numero_venta, dp.producto_nombre
         """
         _, rows = _run_dw_query(sql, [anho, mes, proveedor, proveedor])
-        return JsonResponse({'success': True, 'data': rows})
+
+        response: dict = {'success': True, 'data': rows}
+
+        if proveedor == 'SOFTYS':
+            sql_ppto = """
+                SELECT
+                    dp.producto_codigo_erp  AS cod_producto,
+                    dp.producto_nombre,
+                    COALESCE(dv.canal_rrhh, '') AS canal,
+                    COALESCE(SUM(fp.venta_neta_presupuestada), 0) AS presupuesto
+                FROM dw.dim_producto dp
+                LEFT JOIN dw.fact_presupuesto fp
+                    ON fp.producto_sk = dp.producto_sk
+                    AND fp.anho = %s AND fp.mes = %s
+                    AND fp.version_sk = (
+                        SELECT MAX(version_sk) FROM dw.dim_presupuesto_version
+                        WHERE anho = %s AND mes = %s
+                    )
+                LEFT JOIN dw.dim_vendedor dv ON dv.vendedor_sk = fp.vendedor_sk
+                WHERE (UPPER(dp.proveedor) = 'SOFTYS' OR UPPER(dp.cat_comercial) = 'SOFTYS')
+                GROUP BY dp.producto_codigo_erp, dp.producto_nombre, dv.canal_rrhh
+                ORDER BY dp.producto_nombre, dv.canal_rrhh NULLS LAST
+            """
+            _, ppto_rows = _run_dw_query(sql_ppto, [anho, mes, anho, mes])
+            response['presupuesto_por_sku'] = ppto_rows
+
+        return JsonResponse(response)
     except Exception:
         logger.exception("Error interno")
         return JsonResponse({'success': False, 'error': 'Error interno del servidor'}, status=500)
@@ -4808,9 +4934,11 @@ def dashboard_informacion_rutas(request):
             )
             SELECT
                 dc.ruta,
-                dp.vendedor,
-                dv.supervisor,
-                dp.dia,
+                MAX(dp.vendedor)   AS vendedor,
+                MAX(dv.supervisor) AS supervisor,
+                (SELECT STRING_AGG(d2.dia, ', ' ORDER BY d2.dia)
+                 FROM (SELECT DISTINCT dia FROM dual.dim_planificacion
+                       WHERE ruta = dc.ruta AND es_actual = true) AS d2) AS dia,
                 COUNT(DISTINCT dc.id_cliente)                                          AS total_clientes,
                 COUNT(DISTINCT CASE WHEN vm.canal_rrhh = dv.canal_rrhh
                                     THEN dck.cliente_sk END)                           AS clientes_con_compra,
@@ -4834,7 +4962,7 @@ def dashboard_informacion_rutas(request):
               {canal_cond}
               {dia_cond}
               {sup_cond}
-            GROUP BY dc.ruta, dp.vendedor, dv.supervisor, dp.dia
+            GROUP BY dc.ruta
             ORDER BY pct_cobertura DESC NULLS LAST, dc.ruta
         """
         _, rows = _run_dw_query(sql, params_main)
@@ -6867,3 +6995,135 @@ def dashboard_comportamiento_tabla(request):
         'por_anho_mes':       por_anho_mes,
         'por_canal_anho_mes': por_canal_anho_mes,
     })
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+#  REPORTES / TICKETS
+# ─────────────────────────────────────────────────────────────────────────────
+
+def _serialize_reporte(r):
+    return {
+        'id':          r.id,
+        'tipo':        r.tipo,
+        'subtipo':     r.subtipo,
+        'descripcion': r.descripcion,
+        'estado':      r.estado,
+        'prioridad':   r.prioridad,
+        'context':     r.context,
+        'created_at':  r.created_at.isoformat(),
+        'updated_at':  r.updated_at.isoformat(),
+        'user': {
+            'id':        r.user.id        if r.user else None,
+            'username':  r.user.username  if r.user else '(eliminado)',
+            'full_name': r.user.get_full_name() if r.user else '(eliminado)',
+        },
+    }
+
+
+@api_view(['POST'])
+@authentication_classes([ExpiringTokenAuthentication])
+@permission_classes([IsAuthenticated])
+def reporte_create(request):
+    """Cualquier usuario autenticado puede crear un reporte."""
+    data = request.data
+    tipo        = data.get('tipo', '').upper()
+    subtipo     = data.get('subtipo', '')
+    descripcion = (data.get('descripcion') or '').strip()
+    context     = data.get('context', {})
+
+    if tipo not in ('BUG', 'ERROR', 'SOLICITUD'):
+        return JsonResponse({'success': False, 'error': 'Tipo inválido'}, status=400)
+    if not descripcion:
+        return JsonResponse({'success': False, 'error': 'La descripción es requerida'}, status=400)
+
+    r = Reporte.objects.create(
+        user=request.user,
+        tipo=tipo,
+        subtipo=subtipo,
+        descripcion=descripcion,
+        context=context if isinstance(context, dict) else {},
+    )
+    return JsonResponse({'success': True, 'id': r.id}, status=201)
+
+
+@api_view(['GET'])
+@authentication_classes([ExpiringTokenAuthentication])
+@permission_classes([IsAuthenticated])
+def reporte_list(request):
+    """Lista todos los reportes. Solo admins/subadmins."""
+    if not _is_user_manager(request.user):
+        return JsonResponse({'success': False, 'error': 'Sin permisos'}, status=403)
+
+    # Marcar como revisado ahora
+    UserProfile.objects.filter(user=request.user).update(
+        reports_last_checked=timezone.now()
+    )
+
+    qs = Reporte.objects.select_related('user').all()
+
+    tipo     = request.GET.get('tipo', '')
+    estado   = request.GET.get('estado', '')
+    prioridad = request.GET.get('prioridad', '')
+    search   = request.GET.get('search', '').strip()
+
+    if tipo:
+        qs = qs.filter(tipo=tipo.upper())
+    if estado:
+        qs = qs.filter(estado=estado.upper())
+    if prioridad:
+        qs = qs.filter(prioridad=prioridad.upper())
+    if search:
+        qs = qs.filter(
+            models.Q(user__username__icontains=search)  |
+            models.Q(user__first_name__icontains=search) |
+            models.Q(user__last_name__icontains=search)  |
+            models.Q(descripcion__icontains=search)
+        )
+
+    return JsonResponse([_serialize_reporte(r) for r in qs], safe=False)
+
+
+@api_view(['PATCH'])
+@authentication_classes([ExpiringTokenAuthentication])
+@permission_classes([IsAuthenticated])
+def reporte_update(request, reporte_id):
+    """Actualiza estado y/o prioridad de un reporte. Solo admins/subadmins."""
+    if not _is_user_manager(request.user):
+        return JsonResponse({'success': False, 'error': 'Sin permisos'}, status=403)
+
+    try:
+        r = Reporte.objects.get(id=reporte_id)
+    except Reporte.DoesNotExist:
+        return JsonResponse({'success': False, 'error': 'No encontrado'}, status=404)
+
+    ESTADOS   = {c[0] for c in Reporte.ESTADO_CHOICES}
+    PRIORIDADES = {c[0] for c in Reporte.PRIORIDAD_CHOICES}
+
+    nuevo_estado    = (request.data.get('estado') or '').upper()
+    nueva_prioridad = (request.data.get('prioridad') or '').upper()
+
+    if nuevo_estado and nuevo_estado in ESTADOS:
+        r.estado = nuevo_estado
+    if nueva_prioridad and nueva_prioridad in PRIORIDADES:
+        r.prioridad = nueva_prioridad
+    r.save(update_fields=['estado', 'prioridad', 'updated_at'])
+
+    return JsonResponse({'success': True, 'reporte': _serialize_reporte(r)})
+
+
+@api_view(['GET'])
+@authentication_classes([ExpiringTokenAuthentication])
+@permission_classes([IsAuthenticated])
+def reporte_unread_count(request):
+    """Devuelve cuántos reportes nuevos hay desde la última vez que el admin revisó."""
+    if not _is_user_manager(request.user):
+        return JsonResponse({'count': 0})
+
+    profile = _get_or_create_profile(request.user)
+    since   = profile.reports_last_checked
+
+    count = Reporte.objects.filter(
+        created_at__gt=since
+    ).count() if since else Reporte.objects.count()
+
+    return JsonResponse({'count': count})

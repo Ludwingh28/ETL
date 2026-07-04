@@ -1,4 +1,4 @@
-﻿import { useEffect, useState, useCallback, useMemo, type ChangeEvent } from "react";
+﻿import { useEffect, useState, useCallback, useMemo, useRef, type ChangeEvent } from "react";
 import {
   Search, RefreshCw, AlertCircle, Package,
 } from "lucide-react";
@@ -7,6 +7,7 @@ import {
 } from "recharts";
 import { useAuth } from "../context/AuthContext";
 import DashboardLayout from "../components/DashboardLayout";
+import { setActiveFilters } from "../utils/filterStore";
 
 // ─── Tipos ────────────────────────────────────────────────────────────────────
 
@@ -164,6 +165,10 @@ export default function DashboardUnidadesSupervisores() {
   const [subgrupos,        setSubgrupos]        = useState<SubgrupoRow[]>([]);
   const [loadingSubgrupo,  setLoadingSubgrupo]  = useState(false);
 
+  // Proveedor
+  const [proveedorFilter, setProveedorFilter] = useState<string>("");
+  const [proveedores,     setProveedores]     = useState<string[]>([]);
+
   // Data
   const [data,      setData]      = useState<ApiData | null>(null);
   const [skus,      setSkus]      = useState<SkuRow[]>([]);
@@ -176,6 +181,11 @@ export default function DashboardUnidadesSupervisores() {
   const [effectiveCanal,    setEffectiveCanal]    = useState("");
 
   const [periodos, setPeriodos] = useState<Periodo[]>([]);
+  const fetchIdRef = useRef(0);
+
+  useEffect(() => {
+    setActiveFilters({ regional, canal, supervisor, anho, mes, metrica, catKey, selVendedor });
+  }, [regional, canal, supervisor, anho, mes, metrica, catKey, selVendedor]);
 
   // ── Init regional/canal desde perfil para no-admin ───────────────────────
   useEffect(() => {
@@ -226,7 +236,8 @@ export default function DashboardUnidadesSupervisores() {
   // ── Vendedores ────────────────────────────────────────────────────────────
   const fetchData = useCallback(async () => {
     if (!anho || !mes) return;
-    setLoading(true); setError(null); setSelVendedor(null); setSkus([]); setVendSearch("");
+    setLoading(true); setError(null); setSelVendedor(null); setSkus([]); setVendSearch(""); setSelectedSubgrupo(null);
+    const id = ++fetchIdRef.current;
     try {
       let url = `/dashboard/supervisores/vendedores/?anho=${anho}&mes=${mes}`;
       if (isAdmin || isGerenteRegional) {
@@ -235,6 +246,7 @@ export default function DashboardUnidadesSupervisores() {
         if (supervisor) url += `&supervisor=${encodeURIComponent(supervisor)}`;
       }
       const j = await apiFetch<ApiData & { success: boolean }>(url);
+      if (fetchIdRef.current !== id) return;
       if (j.success) {
         setData(j);
         setEffectiveRegional(j.regional);
@@ -242,11 +254,35 @@ export default function DashboardUnidadesSupervisores() {
       } else {
         setError("Sin acceso o sin datos.");
       }
-    } catch (e) { setError(String(e)); }
-    finally { setLoading(false); }
+    } catch (e) {
+      if (fetchIdRef.current === id) setError(String(e));
+    } finally {
+      if (fetchIdRef.current === id) setLoading(false);
+    }
   }, [apiFetch, isAdmin, isGerenteRegional, regional, canal, supervisor, anho, mes]);
 
   useEffect(() => { void fetchData(); }, [fetchData]);
+
+  // ── Proveedores disponibles ────────────────────────────────────────────────
+  const fetchProveedores = useCallback(async () => {
+    if (!effectiveRegional || !anho || !mes) return;
+    try {
+      const catLabel = catKey !== "total" ? CAT_CFG[catKey].label : "";
+      let url = `/dashboard/unidades/proveedores/?regional=${effectiveRegional}&anho=${anho}&mes=${mes}`;
+      if (effectiveCanal) url += `&canal=${encodeURIComponent(effectiveCanal)}`;
+      if (catLabel) url += `&categoria=${encodeURIComponent(catLabel)}`;
+      const j = await apiFetch<{ success: boolean; data: string[] }>(url);
+      if (j.success) {
+        setProveedores(j.data);
+        setProveedorFilter(f => j.data.includes(f) ? f : "");
+      } else {
+        setProveedores([]);
+        setProveedorFilter("");
+      }
+    } catch { setProveedores([]); setProveedorFilter(""); }
+  }, [apiFetch, effectiveRegional, effectiveCanal, catKey, anho, mes]);
+
+  useEffect(() => { void fetchProveedores(); }, [fetchProveedores]);
 
   // ── Subgrupos ─────────────────────────────────────────────────────────────
   const fetchSubgrupos = useCallback(async () => {
@@ -257,11 +293,12 @@ export default function DashboardUnidadesSupervisores() {
       let url = `/dashboard/unidades/por-subgrupo/?regional=${effectiveRegional}&anho=${anho}&mes=${mes}`;
       if (effectiveCanal) url += `&canal=${encodeURIComponent(effectiveCanal)}`;
       if (catLabel) url += `&categoria=${encodeURIComponent(catLabel)}`;
+      if (proveedorFilter) url += `&proveedor=${encodeURIComponent(proveedorFilter)}`;
       const j = await apiFetch<{ success: boolean; data: SubgrupoRow[] }>(url);
       if (j.success) setSubgrupos(j.data); else setSubgrupos([]);
     } catch { setSubgrupos([]); }
     finally { setLoadingSubgrupo(false); }
-  }, [apiFetch, effectiveRegional, effectiveCanal, catKey, anho, mes]);
+  }, [apiFetch, effectiveRegional, effectiveCanal, catKey, proveedorFilter, anho, mes]);
 
   useEffect(() => { void fetchSubgrupos(); }, [fetchSubgrupos]);
 
@@ -275,17 +312,20 @@ export default function DashboardUnidadesSupervisores() {
       if (effectiveCanal) url += `&canal=${encodeURIComponent(effectiveCanal)}`;
       if (catKey !== "total") url += `&categoria=${encodeURIComponent(CAT_CFG[catKey].label)}`;
       if (selectedSubgrupo)  url += `&subgrupo=${encodeURIComponent(selectedSubgrupo)}`;
+      if (proveedorFilter)   url += `&proveedor=${encodeURIComponent(proveedorFilter)}`;
       const j = await apiFetch<{ success: boolean; data: SkuRow[] }>(url);
       if (j.success) setSkus(j.data); else setSkus([]);
     } catch { setSkus([]); }
     finally { setLoadingSku(false); }
-  }, [apiFetch, selVendedor, effectiveRegional, effectiveCanal, catKey, selectedSubgrupo, anho, mes]);
+  }, [apiFetch, selVendedor, effectiveRegional, effectiveCanal, catKey, selectedSubgrupo, proveedorFilter, anho, mes]);
 
   useEffect(() => { void fetchSkus(); }, [fetchSkus]);
 
   // ── Derived ───────────────────────────────────────────────────────────────
   const cfg = CAT_CFG[catKey];
-  const [vendSort, setVendSort] = useState<"valor" | "ppto">("valor");
+  const [vendSort,   setVendSort]   = useState<"valor" | "ppto">("valor");
+  const [skuSortBy,  setSkuSortBy]  = useState<"bs" | "cump">("bs");
+  const [skuSortDir, setSkuSortDir] = useState<"desc" | "asc">("desc");
 
   const filteredVendedores = useMemo(() => {
     if (!data) return [];
@@ -301,8 +341,21 @@ export default function DashboardUnidadesSupervisores() {
 
   const filteredSkus = useMemo(() => {
     const q = skuSearch.trim().toLowerCase();
-    return q ? skus.filter((s) => s.producto.toLowerCase().includes(q) || s.codigo.toLowerCase().includes(q)) : skus;
-  }, [skus, skuSearch]);
+    const filtered = q ? skus.filter((s) => s.producto.toLowerCase().includes(q) || s.codigo.toLowerCase().includes(q)) : skus;
+    return [...filtered].sort((a, b) => {
+      if (skuSortBy === "cump") {
+        const pctA = metrica === "uds" ? a.porcentaje_uds : a.porcentaje;
+        const pctB = metrica === "uds" ? b.porcentaje_uds : b.porcentaje;
+        if (pctA === null && pctB === null) return 0;
+        if (pctA === null) return 1;  // nulls siempre al final
+        if (pctB === null) return -1;
+        return skuSortDir === "desc" ? pctB - pctA : pctA - pctB;
+      }
+      const valA = metrica === "uds" ? a.cantidad : a.venta_neta;
+      const valB = metrica === "uds" ? b.cantidad : b.venta_neta;
+      return skuSortDir === "desc" ? valB - valA : valA - valB;
+    });
+  }, [skus, skuSearch, skuSortBy, skuSortDir, metrica]);
 
   const skuChartData = useMemo(
     () => filteredSkus.map((s) => ({
@@ -421,7 +474,7 @@ export default function DashboardUnidadesSupervisores() {
         <div className="flex flex-wrap items-center gap-2">
           <span className="text-[10px] uppercase tracking-widest text-slate-400 font-semibold mr-1">Categoría</span>
           {(Object.keys(CAT_CFG) as CatKey[]).map((k) => (
-            <button key={k} onClick={() => setCatKey(k)}
+            <button key={k} onClick={() => { setCatKey(k); setProveedorFilter(""); setSelectedSubgrupo(null); }}
               className={`text-xs font-semibold px-3 py-1.5 rounded-lg border transition-all ${
                 catKey === k
                   ? CAT_CFG[k].activeClass + " border-transparent shadow-sm"
@@ -448,6 +501,23 @@ export default function DashboardUnidadesSupervisores() {
         {/* Izquierda 60%: cards planas de subgrupo */}
         <div className="col-span-5 xl:col-span-3 card">
           <h2 className="font-semibold text-slate-700 text-sm mb-1">Sub-categorías</h2>
+          {proveedores.length > 0 && (
+            <div className="flex flex-wrap gap-1.5 mb-2">
+              {proveedores.map((p) => (
+                <button
+                  key={p}
+                  onClick={() => { setProveedorFilter(proveedorFilter === p ? "" : p); setSelectedSubgrupo(null); }}
+                  className={`text-[10px] font-semibold px-2.5 py-1 rounded-full border transition-all ${
+                    proveedorFilter === p
+                      ? "bg-slate-700 text-white border-slate-700"
+                      : "bg-white text-slate-500 border-slate-200 hover:border-slate-400"
+                  }`}
+                >
+                  {p}
+                </button>
+              ))}
+            </div>
+          )}
           <p className="text-[11px] text-slate-400 mb-3">{cfg.label} · {MESES[mes]} {anho}</p>
           {loadingSubgrupo ? (
             <div className="space-y-1.5">
@@ -641,9 +711,36 @@ export default function DashboardUnidadesSupervisores() {
           <>
             <div className="flex flex-wrap items-start justify-between gap-3 mb-4">
               <div>
-                <h2 className="font-semibold text-slate-700">
-                  SKUs — <span className={cfg.color}>{selVendedor.vendedor}</span>
-                </h2>
+                <div className="flex items-center gap-2 flex-wrap">
+                  <h2 className="font-semibold text-slate-700">
+                    SKUs — <span className={cfg.color}>{selVendedor.vendedor}</span>
+                  </h2>
+                  {!loadingSku && skus.length > 0 && (
+                    <span className="text-[10px] font-bold bg-slate-100 text-slate-500 px-2 py-0.5 rounded-full">
+                      {filteredSkus.length !== skus.length ? `${filteredSkus.length}/` : ""}{skus.length} SKUs
+                    </span>
+                  )}
+                  <div className="flex items-center gap-1.5 ml-auto">
+                    {/* Sort by */}
+                    <div className="flex rounded-lg border border-slate-200 overflow-hidden text-[10px] font-semibold">
+                      {(["bs", "cump"] as const).map((opt) => (
+                        <button key={opt} onClick={() => setSkuSortBy(opt)}
+                          className={`px-2.5 py-1 transition-colors ${skuSortBy === opt ? "bg-slate-700 text-white" : "text-slate-500 hover:bg-slate-50"}`}>
+                          {opt === "bs" ? "Bs." : "Cump."}
+                        </button>
+                      ))}
+                    </div>
+                    {/* Sort direction */}
+                    <div className="flex rounded-lg border border-slate-200 overflow-hidden text-[10px] font-semibold">
+                      {(["desc", "asc"] as const).map((opt) => (
+                        <button key={opt} onClick={() => setSkuSortDir(opt)}
+                          className={`px-2.5 py-1 transition-colors ${skuSortDir === opt ? "bg-slate-700 text-white" : "text-slate-500 hover:bg-slate-50"}`}>
+                          {opt === "desc" ? "Mayor" : "Menor"}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                </div>
                 <p className="text-[11px] text-slate-400 mt-0.5">
                   {cfg.label}{selectedSubgrupo && ` · ${selectedSubgrupo}`} · {MESES[mes]} {anho} ·&nbsp;
                   <span className="font-semibold text-slate-600">{fmtN(selVendedor[cfg.cantKey] as number)} uds.</span>
@@ -696,15 +793,15 @@ export default function DashboardUnidadesSupervisores() {
                               </div>
                             );
                           }} />
-                          <Bar dataKey="avance" name={metrica === "bs" ? "Venta Bs" : "Uds. Vendidas"} radius={[0, 3, 3, 0]} barSize={9}>
-                            {skuChartData.map((entry) => (
-                              <Cell key={entry.codigo} fill={selSkuCode === entry.codigo ? cfg.barColorSel : cfg.barColor} />
-                            ))}
-                          </Bar>
                           <Bar dataKey="presupuesto" name="Presupuesto" radius={[0, 3, 3, 0]} barSize={9}
                             label={{ position: "right", fontSize: 9, fill: "#94a3b8", formatter: ((v: number) => v > 0 ? fmtAbbr(v) : "") as any }}>
                             {skuChartData.map((entry) => (
-                              <Cell key={entry.codigo} fill={selSkuCode === entry.codigo ? "#15803d" : "#22c55e"} />
+                              <Cell key={entry.codigo} fill={selSkuCode === entry.codigo ? "#4ade80" : "#86efac"} />
+                            ))}
+                          </Bar>
+                          <Bar dataKey="avance" name={metrica === "bs" ? "Venta Bs" : "Uds. Vendidas"} radius={[0, 3, 3, 0]} barSize={9}>
+                            {skuChartData.map((entry) => (
+                              <Cell key={entry.codigo} fill={selSkuCode === entry.codigo ? "#1d4ed8" : "#3b82f6"} />
                             ))}
                           </Bar>
                         </BarChart>

@@ -1,4 +1,4 @@
-﻿import { useEffect, useState, useCallback, useMemo, type ChangeEvent } from "react";
+﻿import { useEffect, useState, useCallback, useMemo, useRef, type ChangeEvent } from "react";
 import {
   DollarSign, Search, RefreshCw, AlertCircle, UserCheck, Users, ShieldAlert, ArrowUpDown,
 } from "lucide-react";
@@ -7,6 +7,7 @@ import {
 } from "recharts";
 import { useAuth } from "../context/AuthContext";
 import DashboardLayout from "../components/DashboardLayout";
+import { setActiveFilters } from "../utils/filterStore";
 
 // ─── Tipos ────────────────────────────────────────────────────────────────────
 
@@ -146,6 +147,11 @@ export default function DashboardSupervisores() {
   const [loadingLiq, setLoadingLiq] = useState(false);
 
   const [periodos, setPeriodos] = useState<Periodo[]>([]);
+  const fetchIdRef = useRef(0);
+
+  useEffect(() => {
+    setActiveFilters({ regional, canal, supervisor, anho, mes, catKey, metrica });
+  }, [regional, canal, supervisor, anho, mes, catKey, metrica]);
 
   // ── Fetch periodos ─────────────────────────────────────────────────────────
   useEffect(() => {
@@ -208,6 +214,7 @@ export default function DashboardSupervisores() {
     setError(null);
     setSelVend(null);
     setSearch("");
+    const id = ++fetchIdRef.current;
     try {
       let url = `/dashboard/supervisores/vendedores/?anho=${anho}&mes=${mes}`;
       if (isAdmin || isGerenteRegional) {
@@ -216,13 +223,15 @@ export default function DashboardSupervisores() {
         if (supervisor) url += `&supervisor=${encodeURIComponent(supervisor)}`;
       }
       const j = await apiFetch<{ success: boolean; error?: string } & SupervisoresData>(url);
+      if (fetchIdRef.current !== id) return;
       if (!j.success) throw new Error(j.error);
       setData(j);
     } catch (e: unknown) {
+      if (fetchIdRef.current !== id) return;
       setError(e instanceof Error ? e.message : String(e));
       setData(null);
     } finally {
-      setLoading(false);
+      if (fetchIdRef.current === id) setLoading(false);
     }
   }, [apiFetch, isAdmin, isGerenteRegional, regional, canal, supervisor, anho, mes]);
 

@@ -16,6 +16,7 @@ import DashboardUnidadesSupervisores from "./pages/DashboardUnidadesSupervisores
 import DashboardInformacionRutas from "./pages/DashboardInformacionRutas";
 import AdminCrearUsuario from "./pages/AdminCrearUsuario";
 import AdminGestionUsuarios from "./pages/AdminGestionUsuarios";
+import AdminReportes from "./pages/AdminReportes";
 import AdminCambiarContrasena from "./pages/AdminCambiarContrasena";
 import AdminRoute from "./components/AdminRoute";
 import DashboardProveedor from "./pages/DashboardProveedor";
@@ -141,6 +142,9 @@ export default function App() {
           {/* ── Administración (solo Administradores) ───────────────────────── */}
           <Route path="/admin/gestion-usuarios"
             element={<Protected><AdminRoute><AdminGestionUsuarios /></AdminRoute></Protected>}
+          />
+          <Route path="/admin/reportes"
+            element={<Protected><AdminRoute><AdminReportes /></AdminRoute></Protected>}
           />
           <Route path="/admin/crear-usuario"
             element={<Protected><AdminRoute><AdminCrearUsuario /></AdminRoute></Protected>}

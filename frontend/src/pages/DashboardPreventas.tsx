@@ -9,6 +9,7 @@ import {
 } from "recharts";
 import { useAuth } from "../context/AuthContext";
 import DashboardLayout from "../components/DashboardLayout";
+import { setActiveFilters } from "../utils/filterStore";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -294,6 +295,10 @@ export default function DashboardPreventas() {
   // UI
   const [vendSearch, setVendSearch] = useState("");
   const [vendSort,   setVendSort]   = useState<"monto"|"efectividad">("monto");
+
+  useEffect(() => {
+    setActiveFilters({ regional, canal, supervisor, fechaDesde, fechaHasta });
+  }, [regional, canal, supervisor, fechaDesde, fechaHasta]);
 
   // ── Init regional/canal/supervisor desde perfil para no-admin ─────────────
   useEffect(() => {

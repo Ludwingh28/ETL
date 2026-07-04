@@ -9,6 +9,7 @@ import {
 import ExcelJS from "exceljs"
 import { useAuth } from '../context/AuthContext'
 import DashboardLayout from '../components/DashboardLayout'
+import { setActiveFilters } from '../utils/filterStore'
 
 // ─── Tipos ───────────────────────────────────────────────────────────────────
 
@@ -41,6 +42,14 @@ interface TablaRow {
   cantidad:           number | null
   total:              number | null
   vendedor_nombre:    string | null
+  supervisor_nombre:  string | null
+}
+
+interface PresupuestoSku {
+  cod_producto:   string | null
+  producto_nombre: string | null
+  canal:          string | null
+  presupuesto:    number | null
 }
 
 interface Periodo {
@@ -115,11 +124,12 @@ export default function DashboardProveedor({ perm, nombre }: Props) {
   const [anho, setAnho] = useState(0)
   const [mes,  setMes]  = useState(0)
 
-  const [periodos, setPeriodos] = useState<Periodo[]>([])
-  const [kpis,      setKpis]      = useState<KPIData | null>(null)
-  const [marcas,    setMarcas]    = useState<MarcaData[]>([])
-  const [tabla,     setTabla]     = useState<TablaRow[]>([])
-  const [tablaPage, setTablaPage] = useState(1)
+  const [periodos,       setPeriodos]       = useState<Periodo[]>([])
+  const [kpis,           setKpis]           = useState<KPIData | null>(null)
+  const [marcas,         setMarcas]         = useState<MarcaData[]>([])
+  const [tabla,          setTabla]          = useState<TablaRow[]>([])
+  const [tablaPage,      setTablaPage]      = useState(1)
+  const [presupuestoSku, setPresupuestoSku] = useState<PresupuestoSku[]>([])
 
   const PAGE_SIZE   = 200
   const totalPages  = Math.max(1, Math.ceil(tabla.length / PAGE_SIZE))
@@ -129,6 +139,10 @@ export default function DashboardProveedor({ perm, nombre }: Props) {
   )
   const [loading,  setLoading]  = useState(true)
   const [error,    setError]    = useState<string | null>(null)
+
+  useEffect(() => {
+    setActiveFilters({ anho, mes })
+  }, [anho, mes])
 
   // Cargar periodos disponibles (reutiliza el endpoint del nacional)
   useEffect(() => {
@@ -152,11 +166,15 @@ export default function DashboardProveedor({ perm, nombre }: Props) {
       const [k, m, t] = await Promise.all([
         apiFetch<{ success: boolean; data: KPIData }>(`/dashboard/proveedor/kpis/${qs}`),
         apiFetch<{ success: boolean; data: MarcaData[] }>(`/dashboard/proveedor/por-marca/${qs}`),
-        apiFetch<{ success: boolean; data: TablaRow[] }>(`/dashboard/proveedor/tabla/${qs}`),
+        apiFetch<{ success: boolean; data: TablaRow[]; presupuesto_por_sku?: PresupuestoSku[] }>(`/dashboard/proveedor/tabla/${qs}`),
       ])
       if (k.success) setKpis(k.data)
       if (m.success) setMarcas(m.data)
-      if (t.success) { setTabla(t.data); setTablaPage(1); }
+      if (t.success) {
+        setTabla(t.data)
+        setTablaPage(1)
+        setPresupuestoSku(t.presupuesto_por_sku ?? [])
+      }
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Error al cargar datos')
     } finally {
@@ -172,11 +190,15 @@ export default function DashboardProveedor({ perm, nombre }: Props) {
   // ─── Exportar a Excel ────────────────────────────────────────────────────
 
   const exportExcel = async () => {
+    const isSoftys = perm === 'softys'
+
     const cols: (keyof TablaRow)[] = [
       'canal', 'ciudad', 'mes_nombre', 'proveedor', 'marca',
       'numero_venta', 'fecha_completa', 'cliente_codigo_erp',
       'clase_descripcion', 'producto_nombre', 'unidad_medida',
-      'cantidad', 'total', 'vendedor_nombre',
+      'cantidad', 'total',
+      ...(isSoftys ? ['supervisor_nombre' as keyof TablaRow] : []),
+      'vendedor_nombre',
     ]
     const headers: Record<keyof TablaRow, string> = {
       canal:              'CANAL',
@@ -194,12 +216,29 @@ export default function DashboardProveedor({ perm, nombre }: Props) {
       cantidad:           'CANTIDAD',
       total:              'TOTAL',
       vendedor_nombre:    'VENDEDOR',
+      supervisor_nombre:  'SUPERVISOR',
     }
 
     const wb = new ExcelJS.Workbook()
+
+    // Hoja 1: detalle de ventas
     const ws = wb.addWorksheet(nombre)
     ws.addRow(cols.map(c => headers[c]))
     for (const r of tabla) ws.addRow(cols.map(c => r[c] ?? ''))
+
+    // Hoja 2 (solo Softys): presupuesto por SKU y canal
+    if (isSoftys && presupuestoSku.length > 0) {
+      const wsPpto = wb.addWorksheet('Presupuesto SKU')
+      wsPpto.addRow(['COD PRODUCTO', 'DESC ARTICULO', 'CANAL', 'PRESUPUESTO (Bs)'])
+      for (const r of presupuestoSku) {
+        wsPpto.addRow([
+          r.cod_producto   ?? '',
+          r.producto_nombre ?? '',
+          r.canal          ?? '',
+          r.presupuesto    ?? 0,
+        ])
+      }
+    }
 
     const buf  = await wb.xlsx.writeBuffer()
     const blob = new Blob([buf], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" })

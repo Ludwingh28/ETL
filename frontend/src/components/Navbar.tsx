@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect } from "react";
+import { useState, useRef, useEffect, useCallback } from "react";
 import { NavLink, useNavigate } from "react-router-dom";
 import logoNav from "../assets/CRUZIMEX_LOGO_TEXTOpng.png";
 import {
@@ -30,6 +30,7 @@ import {
   SoapDispenserDroplet,
   Download,
   BarChart2,
+  Flag,
   type LucideIcon,
 } from "lucide-react";
 import { useAuth } from "../context/AuthContext";
@@ -106,8 +107,8 @@ const NAV_GROUPS: NavGroup[] = [
     label: "Proveedores",
     items: [
       { to: "/dashboard/pepsico", icon: Popcorn, label: "Dashboard Pepsico", perm: "pepsico" },
-      { to: "/dashboard/softys", icon: PersonStanding, label: "Dashboard Softys", perm: "softys" },
-      { to: "/dashboard/softys-revision", icon: PersonStanding, label: "Dashboard Softys (En Revisión)", perm: "softys-nuevo" },
+      { to: "/dashboard/softys", icon: PersonStanding, label: "Dashboard Softys (Legacy)", perm: "softys" },
+      { to: "/dashboard/softys-revision", icon: PersonStanding, label: "Dashboard Softys", perm: "softys-nuevo" },
       { to: "/dashboard/dmujer", icon: BookHeart, label: "Dashboard DMujer", perm: "dmujer" },
       { to: "/dashboard/apego", icon: Milk, label: "Dashboard Apego", perm: "apego" },
       { to: "/dashboard/colher", icon: SoapDispenserDroplet, label: "Dashboard COLHER", perm: "colher" },
@@ -161,15 +162,21 @@ function DropdownGroup({ group }: { group: NavGroup }) {
 
 const ADMIN_CARGOS = ["Administrador de Sistema", "Subadministrador de Sistemas"];
 
-type MenuItem = { to: string; icon: LucideIcon; label: string };
+type MenuItem = { to: string; icon: LucideIcon; label: string; dot?: boolean };
 
-function buildUserMenuItems(isStaff?: boolean, cargo?: string): MenuItem[] {
+function buildUserMenuItems(isStaff?: boolean, cargo?: string, unreadReports = 0): MenuItem[] {
   const isAdmin = isStaff === true || ADMIN_CARGOS.includes(cargo ?? "");
-  return [...(isAdmin ? [{ to: "/admin/gestion-usuarios", icon: Users2, label: "Gestión de Usuarios" }] : []), { to: "/admin/cambiar-contrasena", icon: KeyRound, label: "Cambiar Contraseña" }];
+  return [
+    ...(isAdmin ? [
+      { to: "/admin/gestion-usuarios",          icon: Users2, label: "Gestión de Usuarios" },
+      { to: "/admin/reportes", icon: Flag, label: "Reportes", dot: unreadReports > 0 },
+    ] : []),
+    { to: "/admin/cambiar-contrasena", icon: KeyRound, label: "Cambiar Contraseña" },
+  ];
 }
 
 // ── User menu (desktop) ──────────────────────────────────────────────────────
-function UserMenu({ onLogout, userMenuItems }: { onLogout: () => void; userMenuItems: MenuItem[] }) {
+function UserMenu({ onLogout, userMenuItems, unreadReports }: { onLogout: () => void; userMenuItems: MenuItem[]; unreadReports: number }) {
   const { user } = useAuth();
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
@@ -185,8 +192,13 @@ function UserMenu({ onLogout, userMenuItems }: { onLogout: () => void; userMenuI
   return (
     <div className="relative" ref={ref}>
       <button onClick={() => setOpen((o) => !o)} className="flex items-center gap-2 px-3 py-1.5 rounded-lg hover:bg-white/10 transition-colors">
-        <div className="w-7 h-7 rounded-full bg-brand-600 flex items-center justify-center">
-          <UserIcon size={13} className="text-white" />
+        <div className="relative">
+          <div className="w-7 h-7 rounded-full bg-brand-600 flex items-center justify-center">
+            <UserIcon size={13} className="text-white" />
+          </div>
+          {unreadReports > 0 && (
+            <span className="absolute -top-0.5 -right-0.5 w-2 h-2 rounded-full bg-red-500 ring-1 ring-slate-900" />
+          )}
         </div>
         <span className="text-sm font-medium text-slate-200 max-w-30 truncate hidden sm:block">{user?.full_name || user?.username}</span>
         <ChevronDown size={13} className={`text-slate-400 transition-transform duration-200 ${open ? "rotate-180" : ""}`} />
@@ -203,7 +215,7 @@ function UserMenu({ onLogout, userMenuItems }: { onLogout: () => void; userMenuI
 
           {/* Opciones de administración */}
           <div className="py-1 border-b border-slate-100">
-            {userMenuItems.map(({ to, icon: Icon, label }) => (
+            {userMenuItems.map(({ to, icon: Icon, label, dot }) => (
               <NavLink
                 key={to}
                 to={to}
@@ -214,7 +226,8 @@ function UserMenu({ onLogout, userMenuItems }: { onLogout: () => void; userMenuI
                 }
               >
                 <Icon size={14} className="shrink-0" />
-                {label}
+                <span className="flex-1">{label}</span>
+                {dot && <span className="w-2 h-2 rounded-full bg-red-500 shrink-0" />}
               </NavLink>
             ))}
           </div>
@@ -232,19 +245,38 @@ function UserMenu({ onLogout, userMenuItems }: { onLogout: () => void; userMenuI
 
 // ── Navbar principal ─────────────────────────────────────────────────────────
 export default function Navbar() {
-  const { logout, user } = useAuth();
+  const { logout, user, apiFetch } = useAuth();
   const navigate = useNavigate();
 
-  const [mobileOpen, setMobileOpen] = useState(false);
+  const [mobileOpen,     setMobileOpen]     = useState(false);
+  const [unreadReports,  setUnreadReports]  = useState(0);
+
+  const isAdmin = user?.is_staff === true || ADMIN_CARGOS.includes(user?.cargo ?? "");
+
+  const fetchUnread = useCallback(async () => {
+    if (!isAdmin) return;
+    try {
+      const d = await apiFetch<{ count: number }>('/reportes/unread-count/');
+      setUnreadReports(d.count);
+    } catch { /* silencioso */ }
+  }, [apiFetch, isAdmin]);
+
+  useEffect(() => {
+    fetchUnread();
+    if (!isAdmin) return;
+    const id = setInterval(fetchUnread, 30_000);
+    return () => clearInterval(id);
+  }, [fetchUnread, isAdmin]);
 
   const userPerms = user?.dashboard_permissions ?? [];
   const userIsAdmin = user?.is_staff === true || ADMIN_CARGOS_NAV.includes(user?.cargo ?? "");
   const visibleGroups = filterGroups(NAV_GROUPS, userPerms, userIsAdmin);
-  const userMenuItems = buildUserMenuItems(user?.is_staff, user?.cargo);
 
-  const handleLogout = async () => {
-    await logout();
-    navigate("/login");
+  const homePath = visibleGroups[0]?.items[0]?.to ?? "/";
+  const userMenuItems = buildUserMenuItems(user?.is_staff, user?.cargo, unreadReports);
+
+  const handleLogout = () => {
+    logout(); // hace hard redirect internamente
   };
 
   return (
@@ -252,9 +284,9 @@ export default function Navbar() {
       <header className="fixed top-0 inset-x-0 z-40 h-16 bg-slate-900 border-b border-white/10 shadow-lg">
         <div className="max-w-7xl mx-auto h-full flex items-center justify-between px-4 sm:px-6">
           {/* Logo */}
-          <div className="flex items-center shrink-0">
+          <button onClick={() => navigate(homePath)} className="flex items-center shrink-0 cursor-pointer">
             <img src={logoNav} alt="Cruzimex" className="h-36" />
-          </div>
+          </button>
 
           {/* Nav grupos – desktop (filtrados por permisos) */}
           <nav className="hidden md:flex items-center gap-1">
@@ -266,7 +298,7 @@ export default function Navbar() {
           {/* Derecha: user + hamburguesa mobile */}
           <div className="flex items-center gap-2">
             <div className="hidden md:block">
-              <UserMenu onLogout={handleLogout} userMenuItems={userMenuItems} />
+              <UserMenu onLogout={handleLogout} userMenuItems={userMenuItems} unreadReports={unreadReports} />
             </div>
             <button onClick={() => setMobileOpen((o) => !o)} className="md:hidden p-2 rounded-lg text-slate-300 hover:bg-white/10 transition-colors" aria-label="Menú">
               {mobileOpen ? <X size={20} /> : <Menu size={20} />}

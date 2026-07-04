@@ -6,6 +6,7 @@ import {
 } from "recharts";
 import { useAuth } from "../context/AuthContext";
 import DashboardLayout from "../components/DashboardLayout";
+import { setActiveFilters } from "../utils/filterStore";
 
 // ─── Tipos ────────────────────────────────────────────────────────────────────
 
@@ -104,6 +105,10 @@ export default function DashboardUnidadesVendidas() {
   const [categoria,        setCategoria]        = useState<Categoria>("Alimentos");
   const [selectedSubgrupo, setSelectedSubgrupo] = useState<string | null>(null);
 
+  // Proveedor
+  const [proveedorFilter, setProveedorFilter] = useState<string>("");
+  const [proveedores,     setProveedores]     = useState<string[]>([]);
+
   // UI – SKU section
   const [selectedSkuCode, setSelectedSkuCode] = useState<string | null>(null);
   const [skuSearch,       setSkuSearch]       = useState("");
@@ -120,6 +125,10 @@ export default function DashboardUnidadesVendidas() {
   const [error,           setError]           = useState<string | null>(null);
 
   const [periodos, setPeriodos] = useState<Periodo[]>([]);
+
+  useEffect(() => {
+    setActiveFilters({ regional, canal, anho, mes, metrica, categoria, selectedSubgrupo });
+  }, [regional, canal, anho, mes, metrica, categoria, selectedSubgrupo]);
 
   // ── Fetch periodos ─────────────────────────────────────────────────────────
   useEffect(() => {
@@ -166,6 +175,22 @@ export default function DashboardUnidadesVendidas() {
     finally { setLoadingKpis(false); }
   }, [apiFetch, baseQS, categoria]);
 
+  // ── Fetch Proveedores ──────────────────────────────────────────────────────
+  const fetchProveedores = useCallback(async () => {
+    if (!anho || !mes) return;
+    try {
+      let url = `/dashboard/unidades/proveedores/?${baseQS}&categoria=${encodeURIComponent(categoria)}`;
+      const j = await apiFetch<{ success: boolean; data: string[] }>(url);
+      if (j.success) {
+        setProveedores(j.data);
+        setProveedorFilter(f => j.data.includes(f) ? f : "");
+      } else {
+        setProveedores([]);
+        setProveedorFilter("");
+      }
+    } catch { setProveedores([]); setProveedorFilter(""); }
+  }, [apiFetch, baseQS, categoria, anho, mes]);
+
   // ── Fetch Subgrupos ────────────────────────────────────────────────────────
   const fetchSubgrupos = useCallback(async () => {
     if (!anho || !mes) return;
@@ -173,13 +198,13 @@ export default function DashboardUnidadesVendidas() {
     setSelectedSubgrupo(null);
     setSkus([]);
     try {
-      const j = await apiFetch<{ success: boolean; data: SubgrupoRow[] }>(
-        `/dashboard/unidades/por-subgrupo/?${baseQS}&categoria=${encodeURIComponent(categoria)}`
-      );
+      let url = `/dashboard/unidades/por-subgrupo/?${baseQS}&categoria=${encodeURIComponent(categoria)}`;
+      if (proveedorFilter) url += `&proveedor=${encodeURIComponent(proveedorFilter)}`;
+      const j = await apiFetch<{ success: boolean; data: SubgrupoRow[] }>(url);
       if (j.success) setSubgrupos(j.data); else setSubgrupos([]);
     } catch { setSubgrupos([]); }
     finally { setLoadingSubgrupo(false); }
-  }, [apiFetch, baseQS, categoria]);
+  }, [apiFetch, baseQS, categoria, proveedorFilter]);
 
   // ── Fetch SKUs ─────────────────────────────────────────────────────────────
   const fetchSkus = useCallback(async () => {
@@ -188,17 +213,18 @@ export default function DashboardUnidadesVendidas() {
     setSelectedSkuCode(null);
     setSkuSearch("");
     try {
-      const j = await apiFetch<{ success: boolean; data: SkuRow[] }>(
-        `/dashboard/unidades/por-sku/?${baseQS}&categoria=${encodeURIComponent(categoria)}&subgrupo=${encodeURIComponent(selectedSubgrupo)}`
-      );
+      let url = `/dashboard/unidades/por-sku/?${baseQS}&categoria=${encodeURIComponent(categoria)}&subgrupo=${encodeURIComponent(selectedSubgrupo)}`;
+      if (proveedorFilter) url += `&proveedor=${encodeURIComponent(proveedorFilter)}`;
+      const j = await apiFetch<{ success: boolean; data: SkuRow[] }>(url);
       if (j.success) setSkus(j.data); else setSkus([]);
     } catch { setSkus([]); }
     finally { setLoadingSku(false); }
-  }, [apiFetch, baseQS, categoria, selectedSubgrupo]);
+  }, [apiFetch, baseQS, categoria, selectedSubgrupo, proveedorFilter]);
 
-  useEffect(() => { void fetchKpis(); },      [fetchKpis]);
-  useEffect(() => { void fetchSubgrupos(); }, [fetchSubgrupos]);
-  useEffect(() => { void fetchSkus(); },      [fetchSkus]);
+  useEffect(() => { void fetchKpis(); },        [fetchKpis]);
+  useEffect(() => { void fetchProveedores(); }, [fetchProveedores]);
+  useEffect(() => { void fetchSubgrupos(); },   [fetchSubgrupos]);
+  useEffect(() => { void fetchSkus(); },        [fetchSkus]);
 
   // ── Derived ────────────────────────────────────────────────────────────────
   const sortedSkus = useMemo(() => {
@@ -365,7 +391,7 @@ export default function DashboardUnidadesVendidas() {
               {CATEGORIAS.map((cat) => {
                 const cc = CAT_CONFIG[cat];
                 return (
-                  <button key={cat} onClick={() => setCategoria(cat)}
+                  <button key={cat} onClick={() => { setCategoria(cat); setProveedorFilter(""); setSelectedSubgrupo(null); }}
                     className={`text-xs font-semibold px-3 py-1.5 rounded-lg border transition-all ${
                       categoria === cat ? `${cc.active} border-transparent shadow-sm` : `${cc.color} ${cc.bg} border-transparent hover:opacity-80`
                     }`}>
@@ -375,6 +401,25 @@ export default function DashboardUnidadesVendidas() {
               })}
             </div>
           </div>
+
+          {/* Proveedor pills */}
+          {proveedores.length > 0 && (
+            <div className="flex flex-wrap gap-1.5 mb-3">
+              {proveedores.map((p) => (
+                <button
+                  key={p}
+                  onClick={() => { setProveedorFilter(proveedorFilter === p ? "" : p); setSelectedSubgrupo(null); }}
+                  className={`text-[10px] font-semibold px-2.5 py-1 rounded-full border transition-all ${
+                    proveedorFilter === p
+                      ? "bg-slate-700 text-white border-slate-700"
+                      : "bg-white text-slate-500 border-slate-200 hover:border-slate-400"
+                  }`}
+                >
+                  {p}
+                </button>
+              ))}
+            </div>
+          )}
 
           {/* Sub-categoría cards planas */}
           {loadingSubgrupo ? (

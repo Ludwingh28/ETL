@@ -4,6 +4,7 @@ import { ResponsiveContainer, LineChart, Line, BarChart, Bar, XAxis, YAxis, Cart
 import type { LucideIcon } from "lucide-react";
 import { useAuth } from "../context/AuthContext";
 import DashboardLayout from "../components/DashboardLayout";
+import { setActiveFilters } from "../utils/filterStore";
 
 // ─── Tipos ────────────────────────────────────────────────────────────────────
 
@@ -276,6 +277,10 @@ export default function DashboardRegionales() {
   const [esPeriodoActual, setEsPeriodoActual] = useState(true);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    setActiveFilters({ regional, anho, mes });
+  }, [regional, anho, mes]);
 
   useEffect(() => {
     if (!isAdmin && user?.regional) setRegional(user.regional as Regional);

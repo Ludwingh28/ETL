@@ -6,6 +6,7 @@ import {
 import { TrendingUp, TrendingDown, Minus, AlertCircle } from "lucide-react";
 import { useAuth } from "../context/AuthContext";
 import DashboardLayout from "../components/DashboardLayout";
+import { setActiveFilters } from "../utils/filterStore";
 import type { AuthContextValue } from "../types";
 
 // ─── Tipos ────────────────────────────────────────────────────────────────────
@@ -205,6 +206,10 @@ export default function DashboardTendenciaEstacional() {
   const diaCorte = corteModo === "completo" ? 0
     : corteModo === "hoy" ? now.getDate()
     : cortePersonalizado;
+
+  useEffect(() => {
+    setActiveFilters({ regional, canal, supervisor, anho, mes, metrica, estacional, corteModo, cortePersonalizado });
+  }, [regional, canal, supervisor, anho, mes, metrica, estacional, corteModo, cortePersonalizado]);
 
   // Init regional/canal desde perfil para no-admin
   useEffect(() => {

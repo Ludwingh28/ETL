@@ -1,4 +1,4 @@
-export const CURRENT_VERSION = "1.2.6";
+export const CURRENT_VERSION = "1.2.7";
 
 export interface ChangelogVersion {
   version: string;
@@ -12,6 +12,39 @@ export interface ChangelogVersion {
 }
 
 export const CHANGELOG: ChangelogVersion[] = [
+  {
+    version: "1.2.7",
+    date: "Julio 2026",
+    fixes: [
+      "Información Rutas — Buscador por ruta/vendedor no funcionaba: la query agrupaba por (ruta, vendedor, supervisor, dia) generando múltiples filas por ruta cuando ésta se trabaja varios días; las key duplicadas en React rompían la reconciliación del DOM e impedían que el buscador actualizara resultados",
+      "Información Rutas — Conteo de clientes inflado: al existir N filas por ruta (una por día), COUNT(cliente) multiplicaba los clientes por la cantidad de días de trabajo; corregido con GROUP BY dc.ruta + STRING_AGG para concatenar días + COUNT(DISTINCT cliente)",
+      "Dashboard Supervisores / Unidades Supervisores — Vendedora 'fija' al cambiar filtros: condición de carrera en fetchData donde una respuesta lenta de la API sobreescribía los datos del filtro nuevo con los del filtro anterior; corregido con patrón fetchIdRef (useRef) que descarta respuestas obsoletas",
+      "Dashboard Supervisores — Vendedora duplicada en todos los filtros: vendedoras con múltiples registros en dim_vendedor (SCD Tipo 2) y facturas distribuidas entre SK antiguo y SK actual aparecían como filas duplicadas; corregido agrupando por vendedor_nombre en sql_ventas y sql_ppto, retornando el SK actual para queries de detalle",
+      "Sistema de Reportes — captura de pantalla fallaba con Tailwind v4 (oklch): html2canvas no soporta la función de color oklch usada por defecto en Tailwind; reemplazado por html-to-image que procesa el DOM directamente sin limitaciones de espacio de color",
+    ],
+    features: [
+      "Gestión de Usuarios — columna 'Última sesión': muestra badge 'Online' (verde pulsante) si el usuario tuvo actividad en los últimos 5 minutos, o tiempo relativo (hace X min/h/días) y fecha si lleva más de una semana sin conectarse",
+      "Sistema de Reportes — botón flotante en todos los dashboards que permite reportar Bug, Error (subtipos: permisos, cálculo, medida, tipo de variable, variación de monto) o Solicitud (nuevo cálculo, afinación, nuevo dashboard); captura automática de pantalla, URL y filtros activos al momento de abrir el panel",
+      "Sistema de Reportes — página independiente /admin/reportes: tabla con todos los tickets filtrable por tipo, estado (Pendiente/En curso/Atendida) y prioridad (Crítica/Alta/Media/Baja), con buscador por usuario/descripción; estado y prioridad editables inline sin recarga",
+      "Sistema de Reportes — prioridad asignada automáticamente según el tipo al crear el ticket (BUG → Alta, ERROR → Media, SOLICITUD → Baja); el usuario no selecciona prioridad",
+      "Sistema de Reportes — lightbox al hacer clic en la captura de pantalla del modal: vista a pantalla completa dentro de la misma página (sin abrir nueva pestaña); se cierra con clic, botón ✕ o tecla ESC",
+      "Sistema de Reportes — captura genérica de filtros activos: todos los dashboards registran sus filtros en tiempo real vía filterStore; al abrir el panel de reporte los filtros seleccionados se incluyen automáticamente en el contexto del ticket",
+      "Sistema de Reportes — notification dot rojo sobre el avatar del usuario con polling cada 30 segundos para administradores; desaparece al visitar la página de Reportes",
+      "Navegación — clic en el logo del Navbar redirige al primer dashboard disponible para el usuario (admins van a Dashboard Nacional; usuarios normales van a su primer dashboard habilitado)",
+      "Gestión de Usuarios — página separada en /admin/gestion-usuarios sin el sistema de tabs anterior; Reportes y Usuarios son ahora páginas completamente independientes",
+      "Dashboard Softys — KPI cards: la métrica 'Cobertura' muestra el conteo real de clientes que compraron al menos 1 producto Softys en el período seleccionado",
+      "Dashboard Softys — tabla de SKUs: nueva columna 'Cob.' con la cantidad de clientes distintos que compraron cada SKU, posicionada antes de 'Venta Bs'",
+      "Dashboard Softys — exportación Excel: eliminada la hoja 'Presupuesto SKU'; el archivo exportado contiene únicamente la hoja de ventas",
+      "Unidades Vendidas Supervisores — filtro de proveedor en sub-categorías: pills que filtran las sub-categorías y SKUs del vendedor al proveedor seleccionado; se resetea al cambiar de categoría; backend agrega nuevo endpoint /proveedores/ y parámetro proveedor en subgrupos y SKUs",
+      "Unidades Vendidas Supervisores — contador de SKUs: badge junto al nombre del vendedor que muestra cuántos SKUs ha vendido en la categoría/sub-categoría activa (formato 'X/Y SKUs' si hay búsqueda activa)",
+      "Unidades Vendidas Supervisores — ordenamiento de SKUs: toggles 'Bs./Cump.' y 'Mayor/Menor' para ordenar el listado de SKUs por venta neta o cumplimiento de presupuesto, en dirección ascendente o descendente",
+      "Unidades Vendidas Supervisores — gráfico de SKUs: colores universales — avance en azul (#3b82f6) y presupuesto en verde claro (#86efac); antes ambas barras eran el mismo verde y no se distinguían",
+      "Unidades Vendidas — filtro de proveedor en sub-categorías: pills equivalentes al dashboard de supervisores; filtra sub-categorías y SKUs al proveedor seleccionado; backend agrega soporte de parámetro proveedor al endpoint /por-sku/",
+      "Comportamiento de Productos — selección de SKU: al elegir una marca ya no se auto-selecciona el primer SKU; el estado por defecto es 'Todos' (muestra la suma de todos los SKUs de la marca en los gráficos); el dropdown incluye una opción 'Todos los SKUs' con checkmark activo que permite volver al estado inicial desde cualquier selección",
+    ],
+    newDashboardPerms: [],
+    newDashboardNames: {},
+  },
   {
     version: "1.2.6",
     date: "Junio 2026",
@@ -33,10 +66,10 @@ export const CHANGELOG: ChangelogVersion[] = [
       "Dashboard Softys — Permisos Proveedor: los usuarios con cargo Proveedor arrancan en vista Nacional y pueden cambiar libremente entre Nacional, Santa Cruz, Cochabamba y La Paz sin poder modificar el filtro de canal",
       "Dashboard Softys — Filtros de período en línea: los controles de período (3M / 6M / 12M / Personalizado) y días comparados se desplazaron al lado del toggle 'Mes Actual / Comparativo Meses' — eliminando la necesidad de scroll para cambiar el rango de comparación",
       "Dashboard Softys — Exportación Excel: botón 'Exportar Excel' descarga los datos crudos del mes seleccionado (fecha, regional, canal, vendedor, cliente, producto, línea Softys, cantidad, venta neta) usando el módulo de descarga estándar del sistema",
-      "Navegación: se agrega 'Dashboard Softys (En Revisión)' como ruta separada para revisión interna por gerencia (permiso: softys-nuevo) — el dashboard original de Softys sigue disponible para el proveedor sin cambios",
+      "Navegación: se agrega 'Dashboard Softys' como ruta separada para revisión interna por gerencia (permiso: softys-nuevo) — el dashboard original de Softys sigue disponible para el proveedor sin cambios",
     ],
     newDashboardPerms: ["softys-nuevo"],
-    newDashboardNames: { "softys-nuevo": "Dashboard Softys (En Revisión)" },
+    newDashboardNames: { "softys-nuevo": "Dashboard Softys" },
   },
   {
     version: "1.2.5",

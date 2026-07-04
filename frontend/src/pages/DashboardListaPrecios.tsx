@@ -1,6 +1,7 @@
-import { useState, useMemo } from "react";
+import { useState, useMemo, useEffect } from "react";
 import { Search, Tag, TrendingUp, TrendingDown } from "lucide-react";
 import DashboardLayout from "../components/DashboardLayout";
+import { setActiveFilters } from "../utils/filterStore";
 
 // ─── Tipos ────────────────────────────────────────────────────────────────────
 
@@ -84,6 +85,10 @@ export default function DashboardListaPrecios() {
   const [filtroEstado,   setFiltroEstado]   = useState<"" | "ACTIVO" | "LIQUIDACION">("");
   const [filtroOrigen,   setFiltroOrigen]   = useState<"" | "LOCAL" | "IMPORTADO">("");
   const [filtroCategoria, setFiltroCategoria] = useState("");
+
+  useEffect(() => {
+    setActiveFilters({ anho, mes, canal, busqueda, filtroEstado, filtroOrigen, filtroCategoria });
+  }, [anho, mes, canal, busqueda, filtroEstado, filtroOrigen, filtroCategoria]);
 
   // ── Datos (vacíos hasta que se conecte el backend) ────────────────────────
   const datos: ProductoPrecio[] = [];

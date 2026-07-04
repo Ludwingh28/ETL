@@ -3,6 +3,7 @@ import { useState, useMemo, useEffect, useCallback, type ComponentType } from "r
 import { LayoutGrid, RefreshCw, Table2, FileDown, FileSpreadsheet, AlertCircle, Loader2 } from "lucide-react";
 import ExcelJS from "exceljs";
 import DashboardLayout from "../components/DashboardLayout";
+import { setActiveFilters } from "../utils/filterStore";
 import { useAuth } from "../context/AuthContext";
 
 const API_BASE =
@@ -275,6 +276,10 @@ export default function DashboardMatriz() {
   const [mes, setMes] = useState(CURRENT_MONTH);
   const [regional, setRegional] = useState("nacional");
   const [canal, setCanal] = useState("");
+
+  useEffect(() => {
+    setActiveFilters({ anho, mes, regional, canal });
+  }, [anho, mes, regional, canal]);
 
   // Lock regional for non-admin
   useEffect(() => {

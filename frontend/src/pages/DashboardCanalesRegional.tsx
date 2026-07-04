@@ -4,6 +4,7 @@ import { ResponsiveContainer, LineChart, Line, BarChart, Bar, XAxis, YAxis, Cart
 import type { LucideIcon } from "lucide-react";
 import { useAuth } from "../context/AuthContext";
 import DashboardLayout from "../components/DashboardLayout";
+import { setActiveFilters } from "../utils/filterStore";
 
 // ─── Tipos ─────────────────────────────────────────────────────────────────────
 
@@ -274,6 +275,10 @@ export default function DashboardCanalesRegional() {
   const [anho, setAnho]         = useState(0);
   const [mes, setMes]           = useState(0);
   const [canal, setCanal]       = useState<string | null>(null);
+
+  useEffect(() => {
+    setActiveFilters({ regional, anho, mes, canal: canal ?? 'Todos' });
+  }, [regional, anho, mes, canal]);
 
   // Inicializar regional/canal desde el perfil del usuario si no es admin
   useEffect(() => {
