@@ -273,10 +273,10 @@ export default function ReportButton() {
 
       {/* Panel expandido */}
       {expanded && (
-        <div className="w-80 bg-white rounded-2xl shadow-2xl border border-slate-200 overflow-hidden">
+        <div className="w-80 bg-white rounded-2xl shadow-2xl border border-slate-200 overflow-hidden flex flex-col max-h-[90vh]">
 
           {/* Header */}
-          <div className="flex items-center justify-between px-4 py-3 bg-slate-800">
+          <div className="flex items-center justify-between px-4 py-3 bg-slate-800 shrink-0">
             <div className="flex items-center gap-2">
               <Flag size={14} className="text-white" />
               <span className="text-sm font-semibold text-white">Reportar</span>
@@ -294,7 +294,8 @@ export default function ReportButton() {
             </div>
           </div>
 
-          <div className="p-4 space-y-3">
+          {/* Scrollable body */}
+          <div className="flex-1 overflow-y-auto p-4 space-y-3 min-h-0">
 
             {/* Éxito */}
             {sent && (
@@ -399,21 +400,25 @@ export default function ReportButton() {
                   </div>
                 ) : null}
 
-                {error && <p className="text-xs text-red-500">{error}</p>}
-
                 <p className="text-[10px] text-slate-400 leading-relaxed">
                   Se captura: dashboard, URL, filtros activos, errores de consola y captura de pantalla.
                   <br />
                   <kbd className="bg-slate-100 px-1 rounded text-slate-500">Ctrl+Shift+F</kbd> para ocultar/mostrar este botón.
                 </p>
-
-                <button onClick={handleSubmit}
-                  className="w-full py-2 text-xs font-semibold rounded-lg bg-slate-800 text-white hover:bg-slate-700 transition-colors flex items-center justify-center gap-1.5">
-                  <Send size={12} /> Continuar
-                </button>
               </>
             )}
           </div>
+
+          {/* Footer fijo — botón Continuar siempre visible */}
+          {!sent && !confirm && (
+            <div className="shrink-0 px-4 pb-4 pt-2 border-t border-slate-100 bg-white">
+              {error && <p className="text-xs text-red-500 mb-2">{error}</p>}
+              <button onClick={handleSubmit}
+                className="w-full py-2 text-xs font-semibold rounded-lg bg-slate-800 text-white hover:bg-slate-700 transition-colors flex items-center justify-center gap-1.5">
+                <Send size={12} /> Continuar
+              </button>
+            </div>
+          )}
         </div>
       )}
 
