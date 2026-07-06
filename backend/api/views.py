@@ -1,4 +1,4 @@
-from django.http import JsonResponse, StreamingHttpResponse
+﻿from django.http import JsonResponse, StreamingHttpResponse
 from django.db import connections, models
 from django.utils import timezone
 from django.contrib.auth import authenticate
@@ -27,9 +27,9 @@ logger = logging.getLogger(__name__)
 
 
 
-# ─────────────────────────────────────────
-#  HELPERS – VALIDACION INPUT / SEGURIDAD
-# ─────────────────────────────────────────
+# â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+#  HELPERS â€“ VALIDACION INPUT / SEGURIDAD
+# â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 def _safe_int(val, default):
     """Convierte val a int de forma segura; retorna default si no es parseable."""
@@ -49,17 +49,17 @@ def _safe_str(val, max_len=100):
 
 
 def _validate_anho_mes(anho, mes=None):
-    """Retorna JsonResponse 400 si los parámetros de período están fuera de rango, None si son válidos."""
+    """Retorna JsonResponse 400 si los parÃ¡metros de perÃ­odo estÃ¡n fuera de rango, None si son vÃ¡lidos."""
     if anho < 2020 or anho > 2100:
-        return JsonResponse({'success': False, 'error': 'Año fuera de rango'}, status=400)
+        return JsonResponse({'success': False, 'error': 'AÃ±o fuera de rango'}, status=400)
     if mes is not None and (mes < 1 or mes > 12):
         return JsonResponse({'success': False, 'error': 'Mes fuera de rango (1-12)'}, status=400)
     return None
 
 
-# ─────────────────────────────────────────
-#  HELPERS – BRUTE FORCE LOGIN
-# ─────────────────────────────────────────
+# â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+#  HELPERS â€“ BRUTE FORCE LOGIN
+# â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 _MAX_ATTEMPTS    = getattr(django_settings, 'LOGIN_MAX_ATTEMPTS',    5)
 _LOCKOUT_SECONDS = getattr(django_settings, 'LOGIN_LOCKOUT_SECONDS', 900)
@@ -69,12 +69,12 @@ def _login_key(username, ip):
     return 'login_fail:' + str(username)[:50] + ':' + str(ip)[:45]
 
 def _login_key_user(username):
-    # Clave independiente de IP — previene bypass rotando X-Forwarded-For
+    # Clave independiente de IP â€” previene bypass rotando X-Forwarded-For
     return 'login_fail_u:' + str(username)[:50]
 
 
 def _is_locked_out(username, ip):
-    # Bloquea si el contador por (usuario+IP) O por usuario-solo alcanza el límite
+    # Bloquea si el contador por (usuario+IP) O por usuario-solo alcanza el lÃ­mite
     return (
         cache.get(_login_key(username, ip), 0) >= _MAX_ATTEMPTS
         or cache.get(_login_key_user(username), 0) >= _MAX_ATTEMPTS
@@ -91,13 +91,13 @@ def _clear_failed_logins(username, ip):
     cache.delete(_login_key_user(username))
 
 
-# ─────────────────────────────────────────
-#  HELPER – PERMISOS DE DASHBOARD
-# ─────────────────────────────────────────
+# â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+#  HELPER â€“ PERMISOS DE DASHBOARD
+# â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 _ADMIN_CARGOS = frozenset(['Administrador de Sistema', 'Subadministrador de Sistemas'])
 
-# Permisos de dashboard por defecto según cargo (espejo del frontend adminConstants)
+# Permisos de dashboard por defecto segÃºn cargo (espejo del frontend adminConstants)
 _PERMISOS_POR_CARGO: dict[str, list[str]] = {
     'Gerente General':    ['nacional', 'regionales', 'canales', 'supervisores', 'preventas-realizadas',
                            'avances-ventas', 'unidades-vendidas', 'unidades-supervisores',
@@ -169,9 +169,9 @@ def _require_any_perm(*perm_ids):
     return decorator
 
 
-# ─────────────────────────────────────────
+# â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 #  AUTH
-# ─────────────────────────────────────────
+# â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 @api_view(['POST'])
 @permission_classes([AllowAny])
@@ -185,14 +185,14 @@ def login(request):
 
     if not username or not password:
         return JsonResponse(
-            {'success': False, 'error': 'Usuario y contraseña requeridos'},
+            {'success': False, 'error': 'Usuario y contraseÃ±a requeridos'},
             status=status.HTTP_400_BAD_REQUEST
         )
 
     if _is_locked_out(username, ip):
         logger.warning("AUTH_LOCKOUT user=%s ip=%s", username, ip)
         return JsonResponse(
-            {'success': False, 'error': 'Cuenta bloqueada temporalmente. Intentá en 15 minutos.'},
+            {'success': False, 'error': 'Cuenta bloqueada temporalmente. IntentÃ¡ en 15 minutos.'},
             status=status.HTTP_429_TOO_MANY_REQUESTS
         )
 
@@ -201,7 +201,7 @@ def login(request):
         _record_failed_login(username, ip)
         logger.warning("AUTH_FAIL user=%s ip=%s", username, ip)
         return JsonResponse(
-            {'success': False, 'error': 'Credenciales inválidas'},
+            {'success': False, 'error': 'Credenciales invÃ¡lidas'},
             status=status.HTTP_401_UNAUTHORIZED
         )
 
@@ -231,7 +231,7 @@ def login(request):
 def logout(request):
     try:
         request.user.auth_token.delete()
-        return JsonResponse({'success': True, 'message': 'Sesión cerrada'})
+        return JsonResponse({'success': True, 'message': 'SesiÃ³n cerrada'})
     except Exception:
         logger.exception("Error interno")
         return JsonResponse({'success': False, 'error': 'Error interno del servidor'}, status=500)
@@ -249,19 +249,19 @@ def me(request):
 @authentication_classes([ExpiringTokenAuthentication])
 @permission_classes([IsAuthenticated])
 def token_refresh(request):
-    """Renueva el token del usuario autenticado (resetea el contador de expiración)."""
+    """Renueva el token del usuario autenticado (resetea el contador de expiraciÃ³n)."""
     user = request.user
     Token.objects.filter(user=user).delete()
     new_token = Token.objects.create(user=user)
     return JsonResponse({'success': True, 'token': new_token.key})
 
 
-# ─────────────────────────────────────────
-#  HELPERS – USUARIOS
-# ─────────────────────────────────────────
+# â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+#  HELPERS â€“ USUARIOS
+# â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 def _get_or_create_profile(user):
-    """Devuelve el perfil del usuario, creándolo si no existe."""
+    """Devuelve el perfil del usuario, creÃ¡ndolo si no existe."""
     profile, _ = UserProfile.objects.get_or_create(user=user)
     return profile
 
@@ -307,8 +307,8 @@ def _is_admin(user):
 
 
 def _is_user_manager(user):
-    """True si el usuario puede gestionar cuentas (crear, editar, resetear contraseñas).
-    Restringido a administradores de sistema — excluye GG/GV/Analista que solo tienen
+    """True si el usuario puede gestionar cuentas (crear, editar, resetear contraseÃ±as).
+    Restringido a administradores de sistema â€” excluye GG/GV/Analista que solo tienen
     acceso ampliado a filtros."""
     if user.is_superuser:
         return True
@@ -318,9 +318,9 @@ def _is_user_manager(user):
         return False
 
 
-# ─────────────────────────────────────────
+# â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 #  HELPER: ejecutar SQL en el DW
-# ─────────────────────────────────────────
+# â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 def _run_dw_query(sql, params=None):
     """Ejecuta una consulta en la BD del DW y retorna columnas + filas como lista de dicts."""
@@ -346,9 +346,9 @@ def _run_dw_query(sql, params=None):
     return columns, rows
 
 
-# ─────────────────────────────────────────
-#  DASHBOARD – VENTAS
-# ─────────────────────────────────────────
+# â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+#  DASHBOARD â€“ VENTAS
+# â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 @api_view(['GET'])
 @authentication_classes([ExpiringTokenAuthentication])
@@ -379,7 +379,7 @@ def dashboard_ventas_kpis(request):
 @permission_classes([IsAuthenticated])
 @_require_perm('nacional')
 def dashboard_ventas_por_mes(request):
-    """Ventas netas agrupadas por mes (últimos 12 meses)."""
+    """Ventas netas agrupadas por mes (Ãºltimos 12 meses)."""
     try:
         sql = """
             SELECT
@@ -429,9 +429,9 @@ def dashboard_ventas_por_canal(request):
         return JsonResponse({'success': False, 'error': 'Error interno del servidor'}, status=500)
 
 
-# ─────────────────────────────────────────
-#  DASHBOARD – VENDEDORES
-# ─────────────────────────────────────────
+# â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+#  DASHBOARD â€“ VENDEDORES
+# â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 @api_view(['GET'])
 @authentication_classes([ExpiringTokenAuthentication])
@@ -465,9 +465,9 @@ def dashboard_vendedores_ranking(request):
         return JsonResponse({'success': False, 'error': 'Error interno del servidor'}, status=500)
 
 
-# ─────────────────────────────────────────
-#  DASHBOARD – PRODUCTOS
-# ─────────────────────────────────────────
+# â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+#  DASHBOARD â€“ PRODUCTOS
+# â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 @api_view(['GET'])
 @authentication_classes([ExpiringTokenAuthentication])
@@ -528,9 +528,9 @@ def dashboard_productos_por_grupo(request):
         return JsonResponse({'success': False, 'error': 'Error interno del servidor'}, status=500)
 
 
-# ─────────────────────────────────────────
+# â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 #  DASHBOARD NACIONAL
-# ─────────────────────────────────────────
+# â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 CIUDADES = {
     'santa_cruz': ['SCZ'],
@@ -546,7 +546,7 @@ _RUTA_PREFIJOS = {
 }
 
 def _ruta_regional_cond(regional_key: str) -> str:
-    """Condición SQL para filtrar dim_cliente_dual.ruta por regional."""
+    """CondiciÃ³n SQL para filtrar dim_cliente_dual.ruta por regional."""
     prefijos = _RUTA_PREFIJOS.get(regional_key)
     if not prefijos:
         return '1=1'
@@ -560,7 +560,7 @@ CIUDAD_LABELS = {
 
 
 def _ciudad_case(campo: str, ciudad_key: str) -> str:
-    """Condición SQL para filtrar por ciudad usando códigos exactos."""
+    """CondiciÃ³n SQL para filtrar por ciudad usando cÃ³digos exactos."""
     vals = CIUDADES[ciudad_key]
     if len(vals) == 1:
         return f"{campo} = '{vals[0]}'"
@@ -624,7 +624,7 @@ def dashboard_nacional_kpis(request):
         _, rows = _run_dw_query(sql_ventas, [anho, mes])
         data = rows[0] if rows else {}
 
-        # Presupuesto desde fact_presupuesto (versión activa)
+        # Presupuesto desde fact_presupuesto (versiÃ³n activa)
         sql_ppto = f"""
             SELECT
                 COALESCE(SUM(fp.venta_neta_presupuestada), 0)                            AS total,
@@ -842,7 +842,7 @@ def dashboard_nacional_por_canal(request):
         except Exception:
             pass
 
-        # Consolidar canales DTS y WHS en ventas también
+        # Consolidar canales DTS y WHS en ventas tambiÃ©n
         canal_consolidado: dict = {}
         for row in rows:
             canal_orig = row["canal"]
@@ -872,9 +872,9 @@ def dashboard_nacional_por_canal(request):
         return JsonResponse({"success": False, "error": "Error interno del servidor"}, status=500)
 
 
-# ─────────────────────────────────────────
-#  AUTH – CAMBIAR CONTRASEÑA PROPIA
-# ─────────────────────────────────────────
+# â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+#  AUTH â€“ CAMBIAR CONTRASEÃ‘A PROPIA
+# â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 @api_view(['POST'])
 @authentication_classes([ExpiringTokenAuthentication])
@@ -891,12 +891,12 @@ def auth_change_password(request):
         )
     if not user.check_password(current_password):
         return JsonResponse(
-            {'success': False, 'error': 'La contraseña actual es incorrecta'},
+            {'success': False, 'error': 'La contraseÃ±a actual es incorrecta'},
             status=status.HTTP_400_BAD_REQUEST
         )
     if len(new_password) < 6:
         return JsonResponse(
-            {'success': False, 'error': 'La nueva contraseña debe tener al menos 6 caracteres'},
+            {'success': False, 'error': 'La nueva contraseÃ±a debe tener al menos 6 caracteres'},
             status=status.HTTP_400_BAD_REQUEST
         )
 
@@ -908,9 +908,9 @@ def auth_change_password(request):
     return JsonResponse({'success': True, 'token': new_token.key})
 
 
-# ─────────────────────────────────────────
-#  ADMIN – GESTIÓN DE USUARIOS
-# ─────────────────────────────────────────
+# â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+#  ADMIN â€“ GESTIÃ“N DE USUARIOS
+# â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 ADMIN_CARGOS = {'Administrador de Sistema', 'Subadministrador de Sistemas'}
 
@@ -955,7 +955,7 @@ def admin_create_user(request):
     if not username:
         return JsonResponse({'success': False, 'error': 'El nombre de usuario es requerido'}, status=400)
     if not password or len(password) < 6:
-        return JsonResponse({'success': False, 'error': 'La contraseña debe tener al menos 6 caracteres'}, status=400)
+        return JsonResponse({'success': False, 'error': 'La contraseÃ±a debe tener al menos 6 caracteres'}, status=400)
     if User.objects.filter(username=username).exists():
         return JsonResponse(
             {'success': False, 'error': f'El usuario "{username}" ya existe'},
@@ -985,7 +985,7 @@ def admin_create_user(request):
 @authentication_classes([ExpiringTokenAuthentication])
 @permission_classes([IsAuthenticated])
 def admin_update_user(request, user_id):
-    """Actualiza datos básicos + cargo/regional de un usuario."""
+    """Actualiza datos bÃ¡sicos + cargo/regional de un usuario."""
     if not _is_user_manager(request.user):
         return JsonResponse({'success': False, 'error': 'Sin permisos'}, status=403)
 
@@ -999,12 +999,12 @@ def admin_update_user(request, user_id):
 
     data = request.data
 
-    # Username: verificar unicidad si cambió
+    # Username: verificar unicidad si cambiÃ³
     new_username = data.get('username', '').strip()
     if new_username and new_username != target.username:
         if User.objects.filter(username=new_username).exclude(pk=target.pk).exists():
             return JsonResponse(
-                {'success': False, 'error': f'El usuario "{new_username}" ya está en uso'},
+                {'success': False, 'error': f'El usuario "{new_username}" ya estÃ¡ en uso'},
                 status=400
             )
         target.username = new_username
@@ -1068,12 +1068,12 @@ def admin_update_permissions(request, user_id):
 @authentication_classes([ExpiringTokenAuthentication])
 @permission_classes([IsAuthenticated])
 def admin_set_password(request, user_id):
-    """Establece nueva contraseña para cualquier usuario (sin requerir la actual)."""
+    """Establece nueva contraseÃ±a para cualquier usuario (sin requerir la actual)."""
     if not _is_user_manager(request.user):
         return JsonResponse({'success': False, 'error': 'Sin permisos'}, status=403)
 
     if request.user.pk == user_id:
-        return JsonResponse({'success': False, 'error': 'Usa /auth/change-password/ para cambiar tu propia contraseña'}, status=403)
+        return JsonResponse({'success': False, 'error': 'Usa /auth/change-password/ para cambiar tu propia contraseÃ±a'}, status=403)
 
     try:
         target = User.objects.get(pk=user_id, is_superuser=False)
@@ -1083,7 +1083,7 @@ def admin_set_password(request, user_id):
     new_password = request.data.get('new_password', '')
     if not new_password or len(new_password) < 6:
         return JsonResponse(
-            {'success': False, 'error': 'La contraseña debe tener al menos 6 caracteres'},
+            {'success': False, 'error': 'La contraseÃ±a debe tener al menos 6 caracteres'},
             status=400
         )
 
@@ -1092,19 +1092,19 @@ def admin_set_password(request, user_id):
     # Invalida sesiones activas del usuario afectado
     Token.objects.filter(user=target).delete()
     logger.warning("ADMIN_SET_PASSWORD actor=%s target=%s", request.user.username, target.username)
-    return JsonResponse({'success': True, 'message': 'Contraseña actualizada correctamente'})
+    return JsonResponse({'success': True, 'message': 'ContraseÃ±a actualizada correctamente'})
 
 
-# ─────────────────────────────────────────
-#  DASHBOARD NACIONAL – POR CATEGORÍA
-# ─────────────────────────────────────────
+# â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+#  DASHBOARD NACIONAL â€“ POR CATEGORÃA
+# â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 @api_view(['GET'])
 @authentication_classes([ExpiringTokenAuthentication])
 @permission_classes([IsAuthenticated])
 @_require_perm('nacional')
 def dashboard_nacional_por_categoria(request):
-    """Ventas vs presupuesto por grupo de categoría a nivel nacional (4 categorías principales, excluyendo Exhibidores). Params: anho, mes."""
+    """Ventas vs presupuesto por grupo de categorÃ­a a nivel nacional (4 categorÃ­as principales, excluyendo Exhibidores). Params: anho, mes."""
     try:
         anho = _safe_int(request.GET.get('anho'), datetime.now().year)
         mes  = _safe_int(request.GET.get('mes'),  datetime.now().month)
@@ -1180,9 +1180,9 @@ def dashboard_nacional_por_categoria(request):
         return JsonResponse({'success': False, 'error': 'Error interno del servidor'}, status=500)
 
 
-# ─────────────────────────────────────────
+# â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 #  HELPERS REGIONALES
-# ─────────────────────────────────────────
+# â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 REGIONALES_VALID = {'santa_cruz', 'cochabamba', 'la_paz', 'nacional'}
 
@@ -1216,9 +1216,9 @@ def _ppto_by_regional(anho, mes, ciudad_cond, canal_filter='', params_extra=None
         return {}
 
 
-# ─────────────────────────────────────────
+# â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 #  DASHBOARD REGIONALES
-# ─────────────────────────────────────────
+# â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 @api_view(['GET'])
 @authentication_classes([ExpiringTokenAuthentication])
@@ -1238,7 +1238,7 @@ def dashboard_regionales_kpis(request):
         err      = _validate_anho_mes(anho, mes)
         if err: return err
         if regional not in REGIONALES_VALID:
-            return JsonResponse({'success': False, 'error': 'Regional inválida'}, status=400)
+            return JsonResponse({'success': False, 'error': 'Regional invÃ¡lida'}, status=400)
 
         ciudad_cond = _regional_filter(regional)
 
@@ -1299,7 +1299,7 @@ def dashboard_regionales_tendencia(request):
         mes      = _safe_int(request.GET.get('mes'),  datetime.now().month)
         hoy      = datetime.now().date()
         if regional not in REGIONALES_VALID:
-            return JsonResponse({'success': False, 'error': 'Regional inválida'}, status=400)
+            return JsonResponse({'success': False, 'error': 'Regional invÃ¡lida'}, status=400)
 
         ciudad_cond  = _regional_filter(regional)
         ciudad_cond2 = _regional_filter(regional, campo='dv2.ciudad')
@@ -1382,7 +1382,7 @@ def dashboard_regionales_por_canal(request):
         anho     = _safe_int(request.GET.get('anho'), datetime.now().year)
         mes      = _safe_int(request.GET.get('mes'),  datetime.now().month)
         if regional not in REGIONALES_VALID:
-            return JsonResponse({'success': False, 'error': 'Regional inválida'}, status=400)
+            return JsonResponse({'success': False, 'error': 'Regional invÃ¡lida'}, status=400)
 
         ciudad_cond = _regional_filter(regional)
         sql = f"""
@@ -1422,7 +1422,7 @@ _CATEGORIA_CASE = """
 @permission_classes([IsAuthenticated])
 @_require_perm('regionales')
 def dashboard_regionales_por_categoria(request):
-    """Ventas vs presupuesto por categoría consolidada de una regional. Params: regional, anho, mes."""
+    """Ventas vs presupuesto por categorÃ­a consolidada de una regional. Params: regional, anho, mes."""
     try:
         is_admin = _is_admin(request.user)
         profile  = _get_or_create_profile(request.user)
@@ -1435,7 +1435,7 @@ def dashboard_regionales_por_categoria(request):
         err      = _validate_anho_mes(anho, mes)
         if err: return err
         if regional not in REGIONALES_VALID:
-            return JsonResponse({'success': False, 'error': 'Regional inválida'}, status=400)
+            return JsonResponse({'success': False, 'error': 'Regional invÃ¡lida'}, status=400)
 
         ciudad_cond = _regional_filter(regional)
 
@@ -1454,7 +1454,7 @@ def dashboard_regionales_por_categoria(request):
         """
         _, rows = _run_dw_query(sql, [anho, mes])
 
-        # Presupuesto por categoría consolidado con filtro regional
+        # Presupuesto por categorÃ­a consolidado con filtro regional
         ppto_map = {}
         try:
             sql_ppto = f"""
@@ -1494,9 +1494,9 @@ def dashboard_regionales_por_categoria(request):
         return JsonResponse({'success': False, 'error': 'Error interno del servidor'}, status=500)
 
 
-# ─────────────────────────────────────────
+# â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 #  DASHBOARD CANALES / REGIONAL
-# ─────────────────────────────────────────
+# â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 @api_view(['GET'])
 @authentication_classes([ExpiringTokenAuthentication])
@@ -1525,7 +1525,7 @@ def dashboard_canales_kpis(request):
         err      = _validate_anho_mes(anho, mes)
         if err: return err
         if regional not in REGIONALES_VALID:
-            return JsonResponse({'success': False, 'error': 'Regional inválida'}, status=400)
+            return JsonResponse({'success': False, 'error': 'Regional invÃ¡lida'}, status=400)
 
         ciudad_cond  = _regional_filter(regional)
         canal_cond   = "AND dv.canal_rrhh = %s" if canal else ""
@@ -1587,7 +1587,7 @@ def dashboard_canales_tendencia(request):
         mes      = _safe_int(request.GET.get('mes'),  datetime.now().month)
         hoy      = datetime.now().date()
         if regional not in REGIONALES_VALID:
-            return JsonResponse({'success': False, 'error': 'Regional inválida'}, status=400)
+            return JsonResponse({'success': False, 'error': 'Regional invÃ¡lida'}, status=400)
 
         ciudad_cond2 = _regional_filter(regional, campo='dv2.ciudad')
         canal_cond2  = "AND dv2.canal_rrhh = %s" if canal else ""
@@ -1652,7 +1652,7 @@ def dashboard_canales_tendencia(request):
 @permission_classes([IsAuthenticated])
 @_require_perm('canales')
 def dashboard_canales_por_categoria(request):
-    """Ventas vs presupuesto por categoría consolidada para canal+regional. Params: regional, canal, anho, mes."""
+    """Ventas vs presupuesto por categorÃ­a consolidada para canal+regional. Params: regional, canal, anho, mes."""
     try:
         is_admin = _is_admin(request.user)
         profile  = _get_or_create_profile(request.user)
@@ -1672,7 +1672,7 @@ def dashboard_canales_por_categoria(request):
         anho     = _safe_int(request.GET.get('anho'), datetime.now().year)
         mes      = _safe_int(request.GET.get('mes'),  datetime.now().month)
         if regional not in REGIONALES_VALID:
-            return JsonResponse({'success': False, 'error': 'Regional inválida'}, status=400)
+            return JsonResponse({'success': False, 'error': 'Regional invÃ¡lida'}, status=400)
 
         ciudad_cond = _regional_filter(regional)
         canal_cond  = "AND dv.canal_rrhh = %s" if canal else ""
@@ -1742,7 +1742,7 @@ def dashboard_canales_por_categoria(request):
 @_require_perm('canales')
 def dashboard_canales_por_sku(request):
     """
-    Top SKUs para canal+categoría+regional.
+    Top SKUs para canal+categorÃ­a+regional.
     Params: regional, canal, categoria, anho, mes, limit
     """
     try:
@@ -1768,7 +1768,7 @@ def dashboard_canales_por_sku(request):
         if err: return err
         limit     = min(_safe_int(request.GET.get('limit'), 500), 1000)
         if regional not in REGIONALES_VALID:
-            return JsonResponse({'success': False, 'error': 'Regional inválida'}, status=400)
+            return JsonResponse({'success': False, 'error': 'Regional invÃ¡lida'}, status=400)
 
         ciudad_cond = _regional_filter(regional)
         canal_cond  = "AND dv.canal_rrhh = %s" if canal else ""
@@ -1788,7 +1788,7 @@ def dashboard_canales_por_sku(request):
             SELECT
                 dp.producto_codigo_erp                           AS codigo,
                 dp.producto_nombre                               AS producto,
-                COALESCE(dp.linea, 'Sin Línea')                  AS categoria,
+                COALESCE(dp.linea, 'Sin LÃ­nea')                  AS categoria,
                 COALESCE(dp.subgrupo_descripcion, '')            AS subgrupo,
                 COALESCE(SUM(fv.cantidad), 0)                    AS cantidad,
                 COALESCE(SUM(fv.venta_neta), 0)                  AS venta_neta,
@@ -1847,40 +1847,40 @@ def dashboard_canales_por_sku(request):
         return JsonResponse({'success': False, 'error': 'Error interno del servidor'}, status=500)
 
 
-# ─────────────────────────────────────────
-#  DASHBOARD SOFTYS – CANALES / REGIONAL
-# ─────────────────────────────────────────
+# â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+#  DASHBOARD SOFTYS â€“ CANALES / REGIONAL
+# â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 _SOFTYS_COND     = "(UPPER(dp.proveedor)  = 'SOFTYS' OR UPPER(dp.cat_comercial)  = 'SOFTYS')"
 _SOFTYS_COND_DP2 = "(UPPER(dp2.proveedor) = 'SOFTYS' OR UPPER(dp2.cat_comercial) = 'SOFTYS')"
 
 _SOFTYS_GRUPO_CASE = """
     CASE
-        WHEN UPPER(dp.producto_nombre) LIKE '%%PAN BABYSEC%%'           THEN 'Pañales'
-        WHEN UPPER(dp.producto_nombre) LIKE '%%PAN COTIDIAN%%'          THEN 'Pañales para Adultos'
-        WHEN UPPER(dp.producto_nombre) LIKE '%%PAPEL HIG.%%'            THEN 'Papel Higiénico'
+        WHEN UPPER(dp.producto_nombre) LIKE '%%PAN BABYSEC%%'           THEN 'PaÃ±ales'
+        WHEN UPPER(dp.producto_nombre) LIKE '%%PAN COTIDIAN%%'          THEN 'PaÃ±ales para Adultos'
+        WHEN UPPER(dp.producto_nombre) LIKE '%%PAPEL HIG.%%'            THEN 'Papel HigiÃ©nico'
         WHEN UPPER(dp.producto_nombre) LIKE '%%LADYSOFT%%'              THEN 'Toallas Femeninas'
-        WHEN UPPER(dp.producto_nombre) LIKE '%%PANUELO ELITE%%'         THEN 'Pañuelos'
+        WHEN UPPER(dp.producto_nombre) LIKE '%%PANUELO ELITE%%'         THEN 'PaÃ±uelos'
         WHEN UPPER(dp.producto_nombre) LIKE '%%TOALLAS DE PAPEL NOVA%%' THEN 'Toallas de Papel'
         ELSE 'Otros'
     END
 """
 
 _SOFTYS_GRUPO_PATTERN: dict[str, dict] = {
-    'Pañales':              {'include': ['PAN BABYSEC']},
+    'PaÃ±ales':              {'include': ['PAN BABYSEC']},
     # Babysec = todos PAN BABYSEC excepto los que son PACKETON
-    'Pañales Babysec':      {'include': ['PAN BABYSEC'], 'exclude': ['PACKETON']},
-    'Pañales Packeton':     {'include': ['PACKETON']},
-    'Pañales para Adultos': {'include': ['PAN COTIDIAN']},
-    'Papel Higiénico':      {'include': ['PAPEL HIG.']},
+    'PaÃ±ales Babysec':      {'include': ['PAN BABYSEC'], 'exclude': ['PACKETON']},
+    'PaÃ±ales Packeton':     {'include': ['PACKETON']},
+    'PaÃ±ales para Adultos': {'include': ['PAN COTIDIAN']},
+    'Papel HigiÃ©nico':      {'include': ['PAPEL HIG.']},
     'Toallas Femeninas':    {'include': ['LADYSOFT']},
-    'Pañuelos':             {'include': ['PANUELO ELITE']},
+    'PaÃ±uelos':             {'include': ['PANUELO ELITE']},
     'Toallas de Papel':     {'include': ['TOALLAS DE PAPEL NOVA']},
 }
 
 
 def _grupo_sql_cond(grupo: str, params: list, field: str = "dp.producto_nombre") -> str:
-    """Construye condición SQL para filtrar por grupo Softys. Soporta include (OR) y exclude (NOT LIKE)."""
+    """Construye condiciÃ³n SQL para filtrar por grupo Softys. Soporta include (OR) y exclude (NOT LIKE)."""
     cfg = _SOFTYS_GRUPO_PATTERN.get(grupo, {})
     include = cfg.get('include', [])
     exclude = cfg.get('exclude', [])
@@ -1922,7 +1922,7 @@ def _ppto_softys_by_canal(anho, mes, ciudad_cond, canal_filter='', params_extra=
 @api_view(['GET'])
 @authentication_classes([ExpiringTokenAuthentication])
 @permission_classes([IsAuthenticated])
-@_require_perm('softys')
+@_require_any_perm('softys', 'softys-nuevo')
 def dashboard_softys_canales_kpis(request):
     """KPI cards por canal para productos Softys. Params: regional, canal, anho, mes."""
     try:
@@ -1946,7 +1946,7 @@ def dashboard_softys_canales_kpis(request):
         err  = _validate_anho_mes(anho, mes)
         if err: return err
         if regional not in REGIONALES_VALID:
-            return JsonResponse({'success': False, 'error': 'Regional inválida'}, status=400)
+            return JsonResponse({'success': False, 'error': 'Regional invÃ¡lida'}, status=400)
         dia  = _safe_int(request.GET.get('dia'),  0)
         dia_cond = f"AND df.dia_numero <= {dia}" if 1 <= dia <= 31 else ""
 
@@ -1988,16 +1988,16 @@ def dashboard_softys_canales_kpis(request):
         ppto_map = _ppto_softys_by_canal(anho, mes, ciudad_cond, canal_filter_ppto, [canal] if canal else None)
 
         # Universe: active clients from dim_cliente_dual per canal (real client portfolio)
-        # Uses ruta prefix to filter by regional — no join to dim_planificacion so no clients excluded
-        # canal_rrhh (dim_vendedor) → cd.canal (dim_cliente_dual) mapping:
-        #   WHS, WHS-LIC, WHS-* → WHS  |  DTS, DTS-* → DTS  |  others: exact match
+        # Uses ruta prefix to filter by regional â€” no join to dim_planificacion so no clients excluded
+        # canal_rrhh (dim_vendedor) â†’ cd.canal (dim_cliente_dual) mapping:
+        #   WHS, WHS-LIC, WHS-* â†’ WHS  |  DTS, DTS-* â†’ DTS  |  others: exact match
         def _rrhh_to_dual(rrhh: str) -> str:
             if rrhh.startswith('WHS'): return 'WHS'
             if rrhh.startswith('DTS'): return 'DTS'
             return rrhh
 
         ruta_cond = _ruta_regional_cond(regional)
-        # When filtering by a specific canal, translate canal_rrhh → cd.canal
+        # When filtering by a specific canal, translate canal_rrhh â†’ cd.canal
         dual_canal_val = _rrhh_to_dual(canal) if canal else None
         canal_dual     = "AND cd.canal = %s" if dual_canal_val else ""
         sql_universo = f"""
@@ -2011,7 +2011,7 @@ def dashboard_softys_canales_kpis(request):
         _, universo_rows = _run_dw_query(sql_universo, ([dual_canal_val] if dual_canal_val else []))
         universo_raw = {r['canal']: int(r['universo'] or 0) for r in universo_rows}
 
-        # Build lookup: canal_rrhh → universe size (using the rrhh→dual mapping)
+        # Build lookup: canal_rrhh â†’ universe size (using the rrhhâ†’dual mapping)
         def _universo_for(rrhh: str) -> int:
             return universo_raw.get(_rrhh_to_dual(rrhh), 0)
 
@@ -2043,7 +2043,7 @@ def dashboard_softys_canales_kpis(request):
 @api_view(['GET'])
 @authentication_classes([ExpiringTokenAuthentication])
 @permission_classes([IsAuthenticated])
-@_require_perm('softys')
+@_require_any_perm('softys', 'softys-nuevo')
 def dashboard_softys_canales_tendencia(request):
     """Tendencia diaria Softys para canal+regional. Params: regional, canal, anho, mes."""
     try:
@@ -2067,7 +2067,7 @@ def dashboard_softys_canales_tendencia(request):
         mes  = _safe_int(request.GET.get('mes'),  datetime.now().month)
         hoy  = datetime.now().date()
         if regional not in REGIONALES_VALID:
-            return JsonResponse({'success': False, 'error': 'Regional inválida'}, status=400)
+            return JsonResponse({'success': False, 'error': 'Regional invÃ¡lida'}, status=400)
 
         ciudad_cond2 = _regional_filter(regional, campo='dv2.ciudad')
         canal_cond2  = "AND dv2.canal_rrhh = %s" if canal else ""
@@ -2135,9 +2135,9 @@ def dashboard_softys_canales_tendencia(request):
 @api_view(['GET'])
 @authentication_classes([ExpiringTokenAuthentication])
 @permission_classes([IsAuthenticated])
-@_require_perm('softys')
+@_require_any_perm('softys', 'softys-nuevo')
 def dashboard_softys_canales_por_categoria(request):
-    """Ventas Softys por categoría para canal+regional. Params: regional, canal, anho, mes."""
+    """Ventas Softys por categorÃ­a para canal+regional. Params: regional, canal, anho, mes."""
     try:
         is_admin = _is_admin(request.user)
         profile  = _get_or_create_profile(request.user)
@@ -2157,7 +2157,7 @@ def dashboard_softys_canales_por_categoria(request):
         anho = _safe_int(request.GET.get('anho'), datetime.now().year)
         mes  = _safe_int(request.GET.get('mes'),  datetime.now().month)
         if regional not in REGIONALES_VALID:
-            return JsonResponse({'success': False, 'error': 'Regional inválida'}, status=400)
+            return JsonResponse({'success': False, 'error': 'Regional invÃ¡lida'}, status=400)
 
         ciudad_cond = _regional_filter(regional)
         canal_cond  = "AND dv.canal_rrhh = %s" if canal else ""
@@ -2226,7 +2226,7 @@ def dashboard_softys_canales_por_categoria(request):
 @api_view(['GET'])
 @authentication_classes([ExpiringTokenAuthentication])
 @permission_classes([IsAuthenticated])
-@_require_perm('softys')
+@_require_any_perm('softys', 'softys-nuevo')
 def dashboard_softys_canales_por_sku(request):
     """Top SKUs Softys para canal+grupo+regional. Params: regional, canal, grupo, anho, mes."""
     try:
@@ -2254,7 +2254,7 @@ def dashboard_softys_canales_por_sku(request):
         dia_cond = f"AND df.dia_numero <= {dia}" if 1 <= dia <= 31 else ""
         limit = min(_safe_int(request.GET.get('limit'), 500), 1000)
         if regional not in REGIONALES_VALID:
-            return JsonResponse({'success': False, 'error': 'Regional inválida'}, status=400)
+            return JsonResponse({'success': False, 'error': 'Regional invÃ¡lida'}, status=400)
 
         ciudad_cond = _regional_filter(regional)
         canal_cond  = "AND dv.canal_rrhh = %s" if canal else ""
@@ -2270,7 +2270,7 @@ def dashboard_softys_canales_por_sku(request):
             SELECT
                 dp.producto_codigo_erp                           AS codigo,
                 dp.producto_nombre                               AS producto,
-                COALESCE(dp.linea, 'Sin Línea')                  AS categoria,
+                COALESCE(dp.linea, 'Sin LÃ­nea')                  AS categoria,
                 COALESCE(dp.subgrupo_descripcion, '')            AS subgrupo,
                 COALESCE(SUM(fv.cantidad), 0)                    AS cantidad,
                 COALESCE(SUM(fv.venta_neta), 0)                  AS venta_neta,
@@ -2333,7 +2333,7 @@ def dashboard_softys_canales_por_sku(request):
 @api_view(['GET'])
 @authentication_classes([ExpiringTokenAuthentication])
 @permission_classes([IsAuthenticated])
-@_require_perm('softys')
+@_require_any_perm('softys', 'softys-nuevo')
 def dashboard_softys_canales_por_regional(request):
     """Ventas Softys desglosadas por regional (para la vista Nacional). Params: anho, mes, canal."""
     try:
@@ -2409,12 +2409,12 @@ def dashboard_softys_canales_por_regional(request):
         return JsonResponse({'success': False, 'error': 'Error interno del servidor'}, status=500)
 
 
-# ─── Helpers histórico ────────────────────────────────────────────────────────
+# â”€â”€â”€ Helpers histÃ³rico â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 _MESES_SHORT = ["Ene","Feb","Mar","Abr","May","Jun","Jul","Ago","Sep","Oct","Nov","Dic"]
 
 def _periodos_anteriores(anho, mes, n):
-    """Lista de (anho, mes) de los últimos n meses en orden cronológico."""
+    """Lista de (anho, mes) de los Ãºltimos n meses en orden cronolÃ³gico."""
     periodos = []
     a, m = anho, mes
     for _ in range(n):
@@ -2434,7 +2434,7 @@ def _month_keys_placeholders(periodos):
     return keys, placeholders
 
 def _auth_regional_canal(request):
-    """Extrae regional_key y canal según rol. Retorna (regional_key, canal)."""
+    """Extrae regional_key y canal segÃºn rol. Retorna (regional_key, canal)."""
     is_admin = _is_admin(request.user)
     profile  = _get_or_create_profile(request.user)
     cargo    = (profile.cargo or '').strip()
@@ -2456,9 +2456,9 @@ def _auth_regional_canal(request):
 @api_view(['GET'])
 @authentication_classes([ExpiringTokenAuthentication])
 @permission_classes([IsAuthenticated])
-@_require_perm('softys')
+@_require_any_perm('softys', 'softys-nuevo')
 def dashboard_softys_canales_por_grupo(request):
-    """Ventas Softys agrupadas por línea de producto (Pañales, Papel Higiénico, etc.). Params: regional, canal, anho, mes, dia."""
+    """Ventas Softys agrupadas por lÃ­nea de producto (PaÃ±ales, Papel HigiÃ©nico, etc.). Params: regional, canal, anho, mes, dia."""
     try:
         regional, canal = _auth_regional_canal(request)
         anho = _safe_int(request.GET.get('anho'), datetime.now().year)
@@ -2467,7 +2467,7 @@ def dashboard_softys_canales_por_grupo(request):
         err  = _validate_anho_mes(anho, mes)
         if err: return err
         if regional not in REGIONALES_VALID:
-            return JsonResponse({'success': False, 'error': 'Regional inválida'}, status=400)
+            return JsonResponse({'success': False, 'error': 'Regional invÃ¡lida'}, status=400)
 
         ciudad_cond = _regional_filter(regional)
         canal_cond  = "AND dv.canal_rrhh = %s" if canal else ""
@@ -2512,7 +2512,7 @@ def dashboard_softys_canales_por_grupo(request):
         except Exception:
             pass
 
-        _ORDEN_G = ["Pañales", "Pañales para Adultos", "Papel Higiénico", "Toallas Femeninas", "Pañuelos", "Toallas de Papel", "Otros"]
+        _ORDEN_G = ["PaÃ±ales", "PaÃ±ales para Adultos", "Papel HigiÃ©nico", "Toallas Femeninas", "PaÃ±uelos", "Toallas de Papel", "Otros"]
         result = []
         for row in rows:
             g    = row['grupo']
@@ -2536,9 +2536,9 @@ def dashboard_softys_canales_por_grupo(request):
 @api_view(['GET'])
 @authentication_classes([ExpiringTokenAuthentication])
 @permission_classes([IsAuthenticated])
-@_require_perm('softys')
+@_require_any_perm('softys', 'softys-nuevo')
 def dashboard_softys_sku_tendencia(request):
-    """Tendencia diaria de ventas para un SKU Softys específico. Params: regional, canal, anho, mes, sku."""
+    """Tendencia diaria de ventas para un SKU Softys especÃ­fico. Params: regional, canal, anho, mes, sku."""
     try:
         import calendar
         regional, canal = _auth_regional_canal(request)
@@ -2546,11 +2546,11 @@ def dashboard_softys_sku_tendencia(request):
         mes  = _safe_int(request.GET.get('mes'),  datetime.now().month)
         sku  = _safe_str(request.GET.get('sku', ''))
         if not sku:
-            return JsonResponse({'success': False, 'error': 'Parámetro sku requerido'}, status=400)
+            return JsonResponse({'success': False, 'error': 'ParÃ¡metro sku requerido'}, status=400)
         err = _validate_anho_mes(anho, mes)
         if err: return err
         if regional not in REGIONALES_VALID:
-            return JsonResponse({'success': False, 'error': 'Regional inválida'}, status=400)
+            return JsonResponse({'success': False, 'error': 'Regional invÃ¡lida'}, status=400)
 
         ciudad_cond  = _regional_filter(regional)
         ciudad_cond2 = _regional_filter(regional, campo='dv2.ciudad')
@@ -2652,7 +2652,7 @@ def dashboard_softys_sku_tendencia(request):
 @api_view(['GET'])
 @authentication_classes([ExpiringTokenAuthentication])
 @permission_classes([IsAuthenticated])
-@_require_perm('softys')
+@_require_any_perm('softys', 'softys-nuevo')
 def dashboard_softys_historico_canales(request):
     """Ventas Softys por canal mes a mes. Params: regional, canal, anho, mes, meses."""
     try:
@@ -2664,7 +2664,7 @@ def dashboard_softys_historico_canales(request):
         dia_ref = _safe_int(request.GET.get('dia_ref'), 0)
         dia_hist_cond = f"AND df.dia_numero <= {dia_ref}" if modo in ('mismo_rango', 'personalizado') and 1 <= dia_ref <= 31 else ""
         if regional not in REGIONALES_VALID:
-            return JsonResponse({'success': False, 'error': 'Regional inválida'}, status=400)
+            return JsonResponse({'success': False, 'error': 'Regional invÃ¡lida'}, status=400)
 
         periodos = _periodos_anteriores(anho, mes, meses_n)
         keys, placeholders = _month_keys_placeholders(periodos)
@@ -2707,9 +2707,9 @@ def dashboard_softys_historico_canales(request):
 @api_view(['GET'])
 @authentication_classes([ExpiringTokenAuthentication])
 @permission_classes([IsAuthenticated])
-@_require_perm('softys')
+@_require_any_perm('softys', 'softys-nuevo')
 def dashboard_softys_historico_grupos(request):
-    """Ventas Softys por línea de producto mes a mes. Params: regional, canal, anho, mes, meses, modo, dia_ref."""
+    """Ventas Softys por lÃ­nea de producto mes a mes. Params: regional, canal, anho, mes, meses, modo, dia_ref."""
     try:
         regional, canal = _auth_regional_canal(request)
         anho    = _safe_int(request.GET.get('anho'), datetime.now().year)
@@ -2719,7 +2719,7 @@ def dashboard_softys_historico_grupos(request):
         dia_ref = _safe_int(request.GET.get('dia_ref'), 0)
         dia_hist_cond = f"AND df.dia_numero <= {dia_ref}" if modo in ('mismo_rango', 'personalizado') and 1 <= dia_ref <= 31 else ""
         if regional not in REGIONALES_VALID:
-            return JsonResponse({'success': False, 'error': 'Regional inválida'}, status=400)
+            return JsonResponse({'success': False, 'error': 'Regional invÃ¡lida'}, status=400)
 
         periodos = _periodos_anteriores(anho, mes, meses_n)
         keys, placeholders = _month_keys_placeholders(periodos)
@@ -2747,15 +2747,15 @@ def dashboard_softys_historico_grupos(request):
 
         def _grupo(nombre):
             n = (nombre or '').upper()
-            if 'PAN BABYSEC'         in n: return 'Pañales'
-            if 'PAN COTIDIAN'        in n: return 'Pañales para Adultos'
-            if 'PAPEL HIG.'          in n: return 'Papel Higiénico'
+            if 'PAN BABYSEC'         in n: return 'PaÃ±ales'
+            if 'PAN COTIDIAN'        in n: return 'PaÃ±ales para Adultos'
+            if 'PAPEL HIG.'          in n: return 'Papel HigiÃ©nico'
             if 'LADYSOFT'            in n: return 'Toallas Femeninas'
-            if 'PANUELO ELITE'       in n: return 'Pañuelos'
+            if 'PANUELO ELITE'       in n: return 'PaÃ±uelos'
             if 'TOALLAS DE PAPEL NOVA' in n: return 'Toallas de Papel'
-            return None  # excluir "Otros" de la vista de categorías
+            return None  # excluir "Otros" de la vista de categorÃ­as
 
-        _ORDEN_G = ['Pañales', 'Pañales para Adultos', 'Papel Higiénico', 'Toallas Femeninas', 'Pañuelos', 'Toallas de Papel']
+        _ORDEN_G = ['PaÃ±ales', 'PaÃ±ales para Adultos', 'Papel HigiÃ©nico', 'Toallas Femeninas', 'PaÃ±uelos', 'Toallas de Papel']
         grid = {g: {p: 0.0 for p in periodos} for g in _ORDEN_G}
 
         for r in rows:
@@ -2780,7 +2780,7 @@ def dashboard_softys_historico_grupos(request):
 @api_view(['GET'])
 @authentication_classes([ExpiringTokenAuthentication])
 @permission_classes([IsAuthenticated])
-@_require_perm('softys')
+@_require_any_perm('softys', 'softys-nuevo')
 def dashboard_softys_historico_skus(request):
     """Top 10 SKUs Softys mes a mes. Params: regional, canal, anho, mes, meses, grupo."""
     try:
@@ -2794,7 +2794,7 @@ def dashboard_softys_historico_skus(request):
         grupo   = _safe_str(request.GET.get('grupo', ''))
         sku_codigo = _safe_str(request.GET.get('sku', ''))
         if regional not in REGIONALES_VALID:
-            return JsonResponse({'success': False, 'error': 'Regional inválida'}, status=400)
+            return JsonResponse({'success': False, 'error': 'Regional invÃ¡lida'}, status=400)
 
         periodos = _periodos_anteriores(anho, mes, meses_n)
         keys, placeholders = _month_keys_placeholders(periodos)
@@ -2852,14 +2852,14 @@ def dashboard_softys_historico_skus(request):
         return JsonResponse({'success': False, 'error': 'Error interno del servidor'}, status=500)
 
 
-# ─────────────────────────────────────────
-#  SOFTYS – CLIENTES POR VENDEDOR
-# ─────────────────────────────────────────
+# â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+#  SOFTYS â€“ CLIENTES POR VENDEDOR
+# â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 @api_view(['GET'])
 @authentication_classes([ExpiringTokenAuthentication])
 @permission_classes([IsAuthenticated])
-@_require_perm('softys')
+@_require_any_perm('softys', 'softys-nuevo')
 def dashboard_softys_vendedores(request):
     """Lista vendedores Softys del periodo. Params: regional, canal, anho, mes, dia, grupo."""
     try:
@@ -2871,7 +2871,7 @@ def dashboard_softys_vendedores(request):
         err   = _validate_anho_mes(anho, mes)
         if err: return err
         if regional not in REGIONALES_VALID:
-            return JsonResponse({'success': False, 'error': 'Regional inválida'}, status=400)
+            return JsonResponse({'success': False, 'error': 'Regional invÃ¡lida'}, status=400)
 
         ciudad_cond = _regional_filter(regional)
         canal_cond  = "AND dv.canal_rrhh = %s" if canal else ""
@@ -2909,7 +2909,7 @@ def dashboard_softys_vendedores(request):
 @api_view(['GET'])
 @authentication_classes([ExpiringTokenAuthentication])
 @permission_classes([IsAuthenticated])
-@_require_perm('softys')
+@_require_any_perm('softys', 'softys-nuevo')
 def dashboard_softys_clientes_semana(request):
     """Clientes de un vendedor con ventas Softys por semana. Params: regional, canal, anho, mes, dia, vendedor, grupo."""
     try:
@@ -2922,7 +2922,7 @@ def dashboard_softys_clientes_semana(request):
         err      = _validate_anho_mes(anho, mes)
         if err: return err
         if regional not in REGIONALES_VALID:
-            return JsonResponse({'success': False, 'error': 'Regional inválida'}, status=400)
+            return JsonResponse({'success': False, 'error': 'Regional invÃ¡lida'}, status=400)
 
         ciudad_cond   = _regional_filter(regional)
         canal_cond    = "AND dv.canal_rrhh = %s" if canal else ""
@@ -2980,9 +2980,9 @@ def dashboard_softys_clientes_semana(request):
 @api_view(['GET'])
 @authentication_classes([ExpiringTokenAuthentication])
 @permission_classes([IsAuthenticated])
-@_require_perm('softys')
+@_require_any_perm('softys', 'softys-nuevo')
 def dashboard_softys_sku_por_cliente(request):
-    """SKUs Softys de un cliente específico. Params: regional, canal, anho, mes, dia, cliente, semana (1-5|0=todo), grupo, vendedor, meses (>0 = rango histórico)."""
+    """SKUs Softys de un cliente especÃ­fico. Params: regional, canal, anho, mes, dia, cliente, semana (1-5|0=todo), grupo, vendedor, meses (>0 = rango histÃ³rico)."""
     try:
         regional, canal = _auth_regional_canal(request)
         anho           = _safe_int(request.GET.get('anho'), datetime.now().year)
@@ -2996,9 +2996,9 @@ def dashboard_softys_sku_por_cliente(request):
         err            = _validate_anho_mes(anho, mes)
         if err: return err
         if not cliente_codigo:
-            return JsonResponse({'success': False, 'error': 'Parámetro cliente requerido'}, status=400)
+            return JsonResponse({'success': False, 'error': 'ParÃ¡metro cliente requerido'}, status=400)
         if regional not in REGIONALES_VALID:
-            return JsonResponse({'success': False, 'error': 'Regional inválida'}, status=400)
+            return JsonResponse({'success': False, 'error': 'Regional invÃ¡lida'}, status=400)
 
         ciudad_cond   = _regional_filter(regional)
         canal_cond    = "AND dv.canal_rrhh = %s" if canal else ""
@@ -3069,7 +3069,7 @@ def dashboard_softys_sku_por_cliente(request):
 @api_view(['GET'])
 @authentication_classes([ExpiringTokenAuthentication])
 @permission_classes([IsAuthenticated])
-@_require_perm('softys')
+@_require_any_perm('softys', 'softys-nuevo')
 def dashboard_softys_clientes_mes(request):
     """Clientes Softys con ventas por mes (comparativo). Params: regional, canal, anho, mes, meses, modo, dia_ref, vendedor, grupo."""
     try:
@@ -3085,7 +3085,7 @@ def dashboard_softys_clientes_mes(request):
         err = _validate_anho_mes(anho, mes)
         if err: return err
         if regional not in REGIONALES_VALID:
-            return JsonResponse({'success': False, 'error': 'Regional inválida'}, status=400)
+            return JsonResponse({'success': False, 'error': 'Regional invÃ¡lida'}, status=400)
 
         periodos = _periodos_anteriores(anho, mes, meses_n)
         keys, placeholders = _month_keys_placeholders(periodos)
@@ -3149,11 +3149,11 @@ def dashboard_softys_clientes_mes(request):
 @api_view(['GET'])
 @authentication_classes([ExpiringTokenAuthentication])
 @permission_classes([IsAuthenticated])
-@_require_perm('softys')
+@_require_any_perm('softys', 'softys-nuevo')
 def dashboard_softys_export(request):
-    """Exporta detalle plano de ventas Softys (una fila por línea de pedido).
+    """Exporta detalle plano de ventas Softys (una fila por lÃ­nea de pedido).
     Params: regional, canal, grupo, anho, mes, dia.
-    Pensado para descarga Excel — limitado a 150 000 filas."""
+    Pensado para descarga Excel â€” limitado a 150 000 filas."""
     try:
         is_admin = _is_admin(request.user)
         profile  = _get_or_create_profile(request.user)
@@ -3178,7 +3178,7 @@ def dashboard_softys_export(request):
         if err: return err
         dia   = _safe_int(request.GET.get('dia'), 0)
         if regional not in REGIONALES_VALID:
-            return JsonResponse({'success': False, 'error': 'Regional inválida'}, status=400)
+            return JsonResponse({'success': False, 'error': 'Regional invÃ¡lida'}, status=400)
 
         ciudad_cond = _regional_filter(regional)
         canal_cond  = "AND dv.canal_rrhh = %s" if canal else ""
@@ -3200,7 +3200,7 @@ def dashboard_softys_export(request):
                     WHEN dv.ciudad IN ('SCZ')       THEN 'Santa Cruz'
                     WHEN dv.ciudad IN ('CBA')       THEN 'Cochabamba'
                     WHEN dv.ciudad IN ('LPZ','EAL') THEN 'La Paz'
-                    ELSE COALESCE(dv.ciudad, '—')
+                    ELSE COALESCE(dv.ciudad, 'â€”')
                 END                                                        AS regional,
                 dv.canal_rrhh                                              AS canal,
                 INITCAP(dv.supervisor)                                     AS supervisor,
@@ -3210,7 +3210,7 @@ def dashboard_softys_export(request):
                 dp.producto_codigo_erp                                     AS cod_producto,
                 dp.producto_nombre                                         AS producto,
                 {_SOFTYS_GRUPO_CASE}                                       AS linea_softys,
-                COALESCE(dp.subgrupo_descripcion, '—')                    AS subcategoria,
+                COALESCE(dp.subgrupo_descripcion, 'â€”')                    AS subcategoria,
                 fv.cantidad                                                AS cantidad,
                 fv.venta_neta                                              AS venta_neta,
                 fv.numero_venta                                            AS nro_pedido
@@ -3271,9 +3271,9 @@ def dashboard_softys_export(request):
         return JsonResponse({'success': False, 'error': 'Error interno del servidor'}, status=500)
 
 
-# ─────────────────────────────────────────
+# â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 #  DASHBOARD SUPERVISORES
-# ─────────────────────────────────────────
+# â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 _REGIONAL_NAME_TO_KEY = {
     'Santa Cruz': 'santa_cruz',
@@ -3282,7 +3282,7 @@ _REGIONAL_NAME_TO_KEY = {
     'Nacional':   'nacional',
 }
 
-# Mapeo categoría → valor de dp.linea en el DW
+# Mapeo categorÃ­a â†’ valor de dp.linea en el DW
 _LINEA_ALIMENTOS = 'ALIMENTOS'
 _LINEA_APEGO     = 'APEGO'
 _LINEA_LICORES   = 'BEBIDAS ALC'
@@ -3295,7 +3295,7 @@ _LINEA_HPC       = 'HOME Y PERSONAL CARE'
 @_require_any_perm('supervisores', 'unidades-supervisores')
 def dashboard_supervisores_vendedores(request):
     """
-    Avance por vendedor desglosado por categoría.
+    Avance por vendedor desglosado por categorÃ­a.
     - Admins: filtran por regional/canal/supervisor via query params.
     - Gerente Regional: regional+canal del perfil, supervisor libre via query param.
     - Supervisores: regional+canal del perfil, supervisor = su propio nombre.
@@ -3327,16 +3327,16 @@ def dashboard_supervisores_vendedores(request):
         if err: return err
 
         if regional_key not in REGIONALES_VALID:
-            return JsonResponse({'success': False, 'error': 'Regional inválida'}, status=400)
+            return JsonResponse({'success': False, 'error': 'Regional invÃ¡lida'}, status=400)
 
         ciudad_cond     = _regional_filter(regional_key)
         canal_cond      = "AND dv.canal_rrhh = %s" if canal else ""
         supervisor_cond = "AND UPPER(dv.supervisor) = UPPER(%s)" if supervisor_filter else ""
         params_base     = [anho, mes] + ([canal] if canal else []) + ([supervisor_filter] if supervisor_filter else [])
 
-        # ── Ventas por vendedor y categoría (CASE WHEN pivot) ──────────────────
-        # Agrupamos por vendedor_nombre para consolidar vendedores con múltiples
-        # SKs históricos (SCD2). El SK devuelto es el actual (es_vendedor_actual=true);
+        # â”€â”€ Ventas por vendedor y categorÃ­a (CASE WHEN pivot) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+        # Agrupamos por vendedor_nombre para consolidar vendedores con mÃºltiples
+        # SKs histÃ³ricos (SCD2). El SK devuelto es el actual (es_vendedor_actual=true);
         # si no existe uno actual se usa el mayor SK disponible (fallback).
         sql_ventas = f"""
             SELECT
@@ -3368,7 +3368,7 @@ def dashboard_supervisores_vendedores(request):
         """
         _, ventas_rows = _run_dw_query(sql_ventas, params_base)
 
-        # ── Presupuesto por vendedor y categoría ───────────────────────────────
+        # â”€â”€ Presupuesto por vendedor y categorÃ­a â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
         ppto_map = {}
         ppto_rows = []
         try:
@@ -3505,7 +3505,7 @@ def dashboard_supervisores_liquidaciones(request):
         if err: return err
 
         if regional_key not in REGIONALES_VALID:
-            return JsonResponse({'success': False, 'error': 'Regional inválida'}, status=400)
+            return JsonResponse({'success': False, 'error': 'Regional invÃ¡lida'}, status=400)
 
         ciudad_cond     = _regional_filter(regional_key)
         canal_cond      = "AND dv.canal_rrhh = %s" if canal else ""
@@ -3553,7 +3553,7 @@ def dashboard_supervisores_liquidaciones(request):
 @_require_any_perm('supervisores', 'tendencia-estacional', 'preventas-realizadas',
                    'unidades-supervisores', 'informacion-rutas', 'canales', 'regionales')
 def dashboard_supervisores_supervisor_lista(request):
-    """Retorna lista de supervisores distintos para el regional/canal/año/mes dado."""
+    """Retorna lista de supervisores distintos para el regional/canal/aÃ±o/mes dado."""
     try:
         is_admin = _is_admin(request.user)
         profile  = _get_or_create_profile(request.user)
@@ -3574,7 +3574,7 @@ def dashboard_supervisores_supervisor_lista(request):
         if err: return err
 
         if regional_key not in REGIONALES_VALID:
-            return JsonResponse({'success': False, 'error': 'Regional inválida'}, status=400)
+            return JsonResponse({'success': False, 'error': 'Regional invÃ¡lida'}, status=400)
 
         ciudad_cond = _regional_filter(regional_key)
         canal_cond  = "AND dv.canal_rrhh = %s" if canal else ""
@@ -3597,9 +3597,9 @@ def dashboard_supervisores_supervisor_lista(request):
         return JsonResponse({'success': False, 'error': 'Error interno del servidor'}, status=500)
 
 
-# ─────────────────────────────────────────
+# â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 #  DASHBOARD PREVENTAS REALIZADAS
-# ─────────────────────────────────────────
+# â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 import calendar as _cal_mod
 
@@ -3648,7 +3648,7 @@ def dashboard_preventas_kpis(request):
             supervisor   = _safe_str(request.GET.get('supervisor', ''))
         fecha_desde, fecha_hasta = _preventas_fecha_rango(request)
         if regional_key not in REGIONALES_VALID:
-            return JsonResponse({'success': False, 'error': 'Regional inválida'}, status=400)
+            return JsonResponse({'success': False, 'error': 'Regional invÃ¡lida'}, status=400)
         ciudad_cond     = _regional_filter(regional_key, campo='dv.ciudad')
         canal_cond      = "AND dv.canal_rrhh = %s" if canal else ""
         supervisor_cond = "AND UPPER(dv.supervisor) = UPPER(%s)" if supervisor else ""
@@ -3711,11 +3711,11 @@ def dashboard_preventas_por_canal(request):
             supervisor   = _safe_str(request.GET.get('supervisor', ''))
         fecha_desde, fecha_hasta = _preventas_fecha_rango(request)
         if regional_key not in REGIONALES_VALID:
-            return JsonResponse({'success': False, 'error': 'Regional inválida'}, status=400)
+            return JsonResponse({'success': False, 'error': 'Regional invÃ¡lida'}, status=400)
         ciudad_cond     = _regional_filter(regional_key, campo='dv.ciudad')
         canal_cond      = "AND dv.canal_rrhh = %s" if canal else ""
         supervisor_cond = "AND UPPER(dv.supervisor) = UPPER(%s)" if supervisor else ""
-        # supervisor activo → agrupa por vendedor; canal activo → por supervisor; sin filtros → por canal
+        # supervisor activo â†’ agrupa por vendedor; canal activo â†’ por supervisor; sin filtros â†’ por canal
         if supervisor:
             grupo_col        = "dp.nombre_usuario"
             agrupado_por_val = "vendedor"
@@ -3782,7 +3782,7 @@ def dashboard_preventas_por_vendedor(request):
             supervisor   = _safe_str(request.GET.get('supervisor', ''))
         fecha_desde, fecha_hasta = _preventas_fecha_rango(request)
         if regional_key not in REGIONALES_VALID:
-            return JsonResponse({'success': False, 'error': 'Regional inválida'}, status=400)
+            return JsonResponse({'success': False, 'error': 'Regional invÃ¡lida'}, status=400)
         ciudad_cond     = _regional_filter(regional_key, campo='dv.ciudad')
         canal_cond      = "AND dv.canal_rrhh = %s" if canal else ""
         supervisor_cond = "AND UPPER(dv.supervisor) = UPPER(%s)" if supervisor else ""
@@ -3885,7 +3885,7 @@ def dashboard_preventas_top_faltantes(request):
         fecha_desde, fecha_hasta = _preventas_fecha_rango(request)
         supervisor = _safe_str(request.GET.get('supervisor', ''))
         if regional_key not in REGIONALES_VALID:
-            return JsonResponse({'success': False, 'error': 'Regional inválida'}, status=400)
+            return JsonResponse({'success': False, 'error': 'Regional invÃ¡lida'}, status=400)
         ciudad_cond     = _regional_filter(regional_key, campo='dv.ciudad')
         canal_cond      = "AND dv.canal_rrhh = %s" if canal else ""
         supervisor_cond = "AND UPPER(dv.supervisor) = UPPER(%s)" if supervisor else ""
@@ -3946,7 +3946,7 @@ def dashboard_preventas_supervisores_lista(request):
             canal        = (profile.canal or '').strip()
         fecha_desde, fecha_hasta = _preventas_fecha_rango(request)
         if regional_key not in REGIONALES_VALID:
-            return JsonResponse({'success': False, 'error': 'Regional inválida'}, status=400)
+            return JsonResponse({'success': False, 'error': 'Regional invÃ¡lida'}, status=400)
         ciudad_cond = _regional_filter(regional_key, campo='dv.ciudad')
         canal_cond  = "AND dv.canal_rrhh = %s" if canal else ""
         params      = [fecha_desde, fecha_hasta] + ([canal] if canal else [])
@@ -3967,9 +3967,9 @@ def dashboard_preventas_supervisores_lista(request):
         return JsonResponse({'success': False, 'error': 'Error interno del servidor'}, status=500)
 
 
-# ─────────────────────────────────────────
+# â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 #  DASHBOARD UNIDADES VENDIDAS
-# ─────────────────────────────────────────
+# â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 _UNIDADES_CAT_LINEA = {
     'Alimentos':            'ALIMENTOS',
@@ -4004,7 +4004,7 @@ def dashboard_unidades_kpis(request):
         anho      = _safe_int(request.GET.get('anho'), datetime.now().year)
         mes       = _safe_int(request.GET.get('mes'),  datetime.now().month)
         if regional not in REGIONALES_VALID:
-            return JsonResponse({'success': False, 'error': 'Regional inválida'}, status=400)
+            return JsonResponse({'success': False, 'error': 'Regional invÃ¡lida'}, status=400)
 
         ciudad_cond = _regional_filter(regional)
         canal_cond  = "AND dv.canal_rrhh = %s" if canal else ""
@@ -4074,7 +4074,7 @@ def dashboard_unidades_kpis(request):
 @_require_any_perm('unidades-vendidas', 'unidades-supervisores')
 def dashboard_unidades_por_subgrupo(request):
     """
-    Ventas+presupuesto agrupados por subgrupo dentro de la categoría seleccionada.
+    Ventas+presupuesto agrupados por subgrupo dentro de la categorÃ­a seleccionada.
     Params: regional, canal, categoria (requerido), anho, mes, proveedor
     """
     try:
@@ -4085,7 +4085,7 @@ def dashboard_unidades_por_subgrupo(request):
         anho      = _safe_int(request.GET.get('anho'), datetime.now().year)
         mes       = _safe_int(request.GET.get('mes'),  datetime.now().month)
         if regional not in REGIONALES_VALID:
-            return JsonResponse({'success': False, 'error': 'Regional inválida'}, status=400)
+            return JsonResponse({'success': False, 'error': 'Regional invÃ¡lida'}, status=400)
 
         ciudad_cond    = _regional_filter(regional)
         canal_cond     = "AND dv.canal_rrhh = %s" if canal else ""
@@ -4164,7 +4164,7 @@ def dashboard_unidades_por_subgrupo(request):
 @_require_any_perm('unidades-vendidas', 'unidades-supervisores')
 def dashboard_unidades_proveedores(request):
     """
-    Proveedores distintos que tienen ventas en la categoría dada.
+    Proveedores distintos que tienen ventas en la categorÃ­a dada.
     Params: regional, canal, categoria, anho, mes
     """
     try:
@@ -4174,7 +4174,7 @@ def dashboard_unidades_proveedores(request):
         anho      = _safe_int(request.GET.get('anho'), datetime.now().year)
         mes       = _safe_int(request.GET.get('mes'),  datetime.now().month)
         if regional not in REGIONALES_VALID:
-            return JsonResponse({'success': False, 'error': 'Regional inválida'}, status=400)
+            return JsonResponse({'success': False, 'error': 'Regional invÃ¡lida'}, status=400)
 
         ciudad_cond = _regional_filter(regional)
         canal_cond  = "AND dv.canal_rrhh = %s" if canal else ""
@@ -4205,7 +4205,7 @@ def dashboard_unidades_proveedores(request):
 @_require_perm('unidades-vendidas')
 def dashboard_unidades_por_sku(request):
     """
-    SKU-level data filtrado por categoría + subgrupo.
+    SKU-level data filtrado por categorÃ­a + subgrupo.
     Params: regional, canal, categoria, subgrupo, anho, mes, limit
     """
     try:
@@ -4220,7 +4220,7 @@ def dashboard_unidades_por_sku(request):
         if err: return err
         limit     = min(_safe_int(request.GET.get('limit'), 500), 1000)
         if regional not in REGIONALES_VALID:
-            return JsonResponse({'success': False, 'error': 'Regional inválida'}, status=400)
+            return JsonResponse({'success': False, 'error': 'Regional invÃ¡lida'}, status=400)
 
         ciudad_cond    = _regional_filter(regional)
         canal_cond     = "AND dv.canal_rrhh = %s" if canal else ""
@@ -4301,7 +4301,7 @@ def dashboard_unidades_por_sku(request):
 @_require_any_perm('unidades-vendidas', 'unidades-supervisores')
 def dashboard_unidades_vendedor_sku(request):
     """
-    SKUs vendidos por un vendedor específico, filtrado por categoría y opcionalmente subgrupo.
+    SKUs vendidos por un vendedor especÃ­fico, filtrado por categorÃ­a y opcionalmente subgrupo.
     Params: regional, canal, vendedor_sk (int), categoria, subgrupo, anho, mes, limit
     """
     try:
@@ -4316,7 +4316,7 @@ def dashboard_unidades_vendedor_sku(request):
         limit       = min(_safe_int(request.GET.get('limit'), 300), 500)
 
         if regional not in REGIONALES_VALID:
-            return JsonResponse({'success': False, 'error': 'Regional inválida'}, status=400)
+            return JsonResponse({'success': False, 'error': 'Regional invÃ¡lida'}, status=400)
         if not vendedor_sk:
             return JsonResponse({'success': False, 'error': 'vendedor_sk requerido'}, status=400)
 
@@ -4403,7 +4403,7 @@ def dashboard_unidades_vendedor_sku(request):
 @_require_perm('unidades-vendidas')
 def dashboard_unidades_por_vendedor(request):
     """
-    Vendedores que vendieron en una sub-categoría (o categoría) dada.
+    Vendedores que vendieron en una sub-categorÃ­a (o categorÃ­a) dada.
     Params: regional, canal, categoria, subgrupo, anho, mes
     """
     try:
@@ -4414,7 +4414,7 @@ def dashboard_unidades_por_vendedor(request):
         anho      = _safe_int(request.GET.get('anho'), datetime.now().year)
         mes       = _safe_int(request.GET.get('mes'),  datetime.now().month)
         if regional not in REGIONALES_VALID:
-            return JsonResponse({'success': False, 'error': 'Regional inválida'}, status=400)
+            return JsonResponse({'success': False, 'error': 'Regional invÃ¡lida'}, status=400)
 
         ciudad_cond = _regional_filter(regional)
         canal_cond  = "AND dv.canal_rrhh = %s" if canal else ""
@@ -4456,9 +4456,9 @@ def dashboard_unidades_por_vendedor(request):
         return JsonResponse({'success': False, 'error': 'Error interno del servidor'}, status=500)
 
 
-# ─────────────────────────────────────────
-#  DASHBOARD – PROVEEDORES
-# ─────────────────────────────────────────
+# â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+#  DASHBOARD â€“ PROVEEDORES
+# â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 _PROV_PERM_MAP = {
     'PEPSICO': 'pepsico',
@@ -4490,7 +4490,7 @@ def dashboard_proveedor_kpis(request):
         if err: return err
 
         if not proveedor:
-            return JsonResponse({'success': False, 'error': 'Parámetro proveedor requerido'}, status=400)
+            return JsonResponse({'success': False, 'error': 'ParÃ¡metro proveedor requerido'}, status=400)
         if not _check_proveedor_perm(request, proveedor):
             return JsonResponse({'success': False, 'error': 'Sin acceso a este dashboard'}, status=403)
 
@@ -4553,7 +4553,7 @@ def dashboard_proveedor_por_marca(request):
         if err: return err
 
         if not proveedor:
-            return JsonResponse({'success': False, 'error': 'Parámetro proveedor requerido'}, status=400)
+            return JsonResponse({'success': False, 'error': 'ParÃ¡metro proveedor requerido'}, status=400)
         if not _check_proveedor_perm(request, proveedor):
             return JsonResponse({'success': False, 'error': 'Sin acceso a este dashboard'}, status=403)
 
@@ -4592,7 +4592,7 @@ def dashboard_proveedor_tabla(request):
         if err: return err
 
         if not proveedor:
-            return JsonResponse({'success': False, 'error': 'Parámetro proveedor requerido'}, status=400)
+            return JsonResponse({'success': False, 'error': 'ParÃ¡metro proveedor requerido'}, status=400)
         if not _check_proveedor_perm(request, proveedor):
             return JsonResponse({'success': False, 'error': 'Sin acceso a este dashboard'}, status=403)
 
@@ -4657,9 +4657,9 @@ def dashboard_proveedor_tabla(request):
         return JsonResponse({'success': False, 'error': 'Error interno del servidor'}, status=500)
 
 
-# ─────────────────────────────────────────
+# â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 #  EXPORTACIONES XLSX
-# ─────────────────────────────────────────
+# â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 _XLSX_HEADERS = [
     "No.Venta", "Fecha", "Cliente", "Nombre Cliente",
@@ -4701,7 +4701,7 @@ def exportar_ventas_combo_armado(request):
         if not token_obj.user.is_active:
             return JsonResponse({"error": "Usuario inactivo"}, status=401)
     except Exception:
-        return JsonResponse({"error": "Token inválido"}, status=401)
+        return JsonResponse({"error": "Token invÃ¡lido"}, status=401)
 
     if not _has_dashboard_perm(token_obj.user, 'descargas'):
         return JsonResponse({"error": "Sin acceso a descargas"}, status=403)
@@ -4710,13 +4710,13 @@ def exportar_ventas_combo_armado(request):
     fecha_hasta = request.GET.get("fecha_hasta", "")
 
     if not fecha_desde or not fecha_hasta:
-        return JsonResponse({"success": False, "error": "Parámetros fecha_desde y fecha_hasta requeridos"}, status=400)
+        return JsonResponse({"success": False, "error": "ParÃ¡metros fecha_desde y fecha_hasta requeridos"}, status=400)
 
     try:
         datetime.strptime(fecha_desde, "%Y-%m-%d")
         datetime.strptime(fecha_hasta, "%Y-%m-%d")
     except ValueError:
-        return JsonResponse({"success": False, "error": "Formato de fecha inválido. Use YYYY-MM-DD"}, status=400)
+        return JsonResponse({"success": False, "error": "Formato de fecha invÃ¡lido. Use YYYY-MM-DD"}, status=400)
 
     sql = """
         SELECT
@@ -4816,9 +4816,9 @@ def exportar_ventas_combo_armado(request):
     return response
 
 
-# ─────────────────────────────────────────────────────────────────────────────
+# â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 #  CANALES DISPONIBLES (lista para selectores)
-# ─────────────────────────────────────────────────────────────────────────────
+# â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 @api_view(['GET'])
 @authentication_classes([ExpiringTokenAuthentication])
@@ -4841,9 +4841,9 @@ def dashboard_canales_lista(request):
         return JsonResponse({'success': False, 'error': 'Error interno del servidor'}, status=500)
 
 
-# ─────────────────────────────────────────────────────────────────────────────
-#  DASHBOARD INFORMACIÓN RUTAS
-# ─────────────────────────────────────────────────────────────────────────────
+# â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+#  DASHBOARD INFORMACIÃ“N RUTAS
+# â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 @api_view(['GET'])
 @authentication_classes([ExpiringTokenAuthentication])
@@ -4997,7 +4997,7 @@ def dashboard_informacion_rutas(request):
 @_require_perm('informacion-rutas')
 def dashboard_informacion_rutas_detalle(request):
     """
-    Ventas y pedidos semanales de una ruta específica.
+    Ventas y pedidos semanales de una ruta especÃ­fica.
     Params: ruta, canal, marca, anho, mes
     """
     ruta  = _safe_str(request.GET.get('ruta',  ''), 100)
@@ -5007,7 +5007,7 @@ def dashboard_informacion_rutas_detalle(request):
     mes   = _safe_int(request.GET.get('mes'),  datetime.now().month)
 
     if not ruta:
-        return JsonResponse({'success': False, 'error': 'Parámetro ruta requerido'}, status=400)
+        return JsonResponse({'success': False, 'error': 'ParÃ¡metro ruta requerido'}, status=400)
 
     try:
         canal_cond = "AND dv.canal_rrhh = %s" if canal else ""
@@ -5056,7 +5056,7 @@ def dashboard_informacion_rutas_clientes(request):
     mes   = _safe_int(request.GET.get('mes'),  datetime.now().month)
 
     if not ruta:
-        return JsonResponse({'success': False, 'error': 'Parámetro ruta requerido'}, status=400)
+        return JsonResponse({'success': False, 'error': 'ParÃ¡metro ruta requerido'}, status=400)
 
     try:
         canal_cond = "AND dv.canal_rrhh = %s" if canal else ""
@@ -5121,7 +5121,7 @@ def dashboard_informacion_rutas_cliente_detalle(request):
     semana         = _safe_int(semana_raw, None) if semana_raw else None
 
     if not ruta or not codigo_cliente:
-        return JsonResponse({'success': False, 'error': 'Parámetros ruta y codigo_cliente requeridos'}, status=400)
+        return JsonResponse({'success': False, 'error': 'ParÃ¡metros ruta y codigo_cliente requeridos'}, status=400)
 
     try:
         fecha_cond = ""
@@ -5162,7 +5162,7 @@ def dashboard_informacion_rutas_cliente_detalle(request):
 @_require_perm('informacion-rutas')
 def dashboard_informacion_rutas_categorias(request):
     """
-    Ventas por categoría para una ruta, con % del total.
+    Ventas por categorÃ­a para una ruta, con % del total.
     Params: ruta, canal, marca, anho, mes
     """
     ruta  = _safe_str(request.GET.get('ruta',  ''), 100)
@@ -5172,7 +5172,7 @@ def dashboard_informacion_rutas_categorias(request):
     mes   = _safe_int(request.GET.get('mes'),  datetime.now().month)
 
     if not ruta:
-        return JsonResponse({'success': False, 'error': 'Parámetro ruta requerido'}, status=400)
+        return JsonResponse({'success': False, 'error': 'ParÃ¡metro ruta requerido'}, status=400)
 
     try:
         canal_cond = "AND dv.canal_rrhh = %s" if canal else ""
@@ -5214,7 +5214,7 @@ def dashboard_informacion_rutas_categorias(request):
 @_require_perm('informacion-rutas')
 def dashboard_informacion_rutas_skus(request):
     """
-    Top SKUs de una categoría para una ruta, con % cobertura de clientes.
+    Top SKUs de una categorÃ­a para una ruta, con % cobertura de clientes.
     Params: ruta, canal, categoria, marca, anho, mes
     """
     ruta      = _safe_str(request.GET.get('ruta',      ''), 100)
@@ -5225,7 +5225,7 @@ def dashboard_informacion_rutas_skus(request):
     mes       = _safe_int(request.GET.get('mes'),  datetime.now().month)
 
     if not ruta:
-        return JsonResponse({'success': False, 'error': 'Parámetro ruta requerido'}, status=400)
+        return JsonResponse({'success': False, 'error': 'ParÃ¡metro ruta requerido'}, status=400)
 
     canal_cond = "AND dv.canal_rrhh = %s" if canal else ""
     marca_cond = "AND dp.marca = %s"       if marca else ""
@@ -5284,9 +5284,9 @@ def dashboard_informacion_rutas_skus(request):
         return JsonResponse({'success': False, 'error': 'Error interno del servidor'}, status=500)
 
 
-# ─────────────────────────────────────────────────────────────────────────────
+# â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 #  DASHBOARD MATRIZ
-# ─────────────────────────────────────────────────────────────────────────────
+# â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 @api_view(['GET'])
 @authentication_classes([ExpiringTokenAuthentication])
@@ -5295,9 +5295,9 @@ def dashboard_informacion_rutas_skus(request):
 def dashboard_matriz_datos(request):
     """
     Datos granulares para la Tabla Matriz (pivot table interactiva).
-    Grain: Regional × Canal × Supervisor × Vendedor × Ruta × Categoría × SKU × Período
+    Grain: Regional Ã— Canal Ã— Supervisor Ã— Vendedor Ã— Ruta Ã— CategorÃ­a Ã— SKU Ã— PerÃ­odo
     Presupuesto asignado proporcionalmente al mix de ventas del vendedor.
-    Cajas 9L = cantidad × dp.u_L / 9000  (solo BEBIDAS ALC).
+    Cajas 9L = cantidad Ã— dp.u_L / 9000  (solo BEBIDAS ALC).
     Params: anho, mes, regional (role-based), canal (opt)
     """
     import calendar as _cal
@@ -5419,9 +5419,9 @@ def dashboard_matriz_datos(request):
                 WHEN 'BEBIDAS ALC'          THEN 'Licores'
                 WHEN 'HOME Y PERSONAL CARE' THEN 'Home & Personal Care'
                 ELSE                             'Sin Clasificar'
-            END                                                                  AS "Categoría",
+            END                                                                  AS "CategorÃ­a",
             dp.producto_nombre                                                   AS "SKU",
-            TO_CHAR(MAKE_DATE({anho}, {mes}, 1), 'Mon YYYY')                     AS "Período",
+            TO_CHAR(MAKE_DATE({anho}, {mes}, 1), 'Mon YYYY')                     AS "PerÃ­odo",
             ROUND(vs.bs::NUMERIC,        0)                                      AS "Bs Vendidos",
             ROUND(vs.uds::NUMERIC,       0)                                      AS "Unidades",
             ROUND(vs.cajas_9l::NUMERIC,  2)                                      AS "Cajas 9L",
@@ -5437,12 +5437,12 @@ def dashboard_matriz_datos(request):
         LEFT JOIN ppto          p  ON p.vendedor_sk  = vs.vendedor_sk
         LEFT JOIN total_vend   tv  ON tv.vendedor_sk = vs.vendedor_sk
         CROSS JOIN dia_corte   dc
-        ORDER BY "Regional", "Canal", "Supervisor", "Vendedor", "Ruta", "Categoría", "SKU"
+        ORDER BY "Regional", "Canal", "Supervisor", "Vendedor", "Ruta", "CategorÃ­a", "SKU"
         """
 
         _, rows = _run_dw_query(sql, params)
 
-        # GAP y Desviación % calculados en Python
+        # GAP y DesviaciÃ³n % calculados en Python
         result = []
         for r in rows:
             bs   = float(r.get('Bs Vendidos') or 0)
@@ -5452,7 +5452,7 @@ def dashboard_matriz_datos(request):
             result.append({
                 **{k: (float(v) if isinstance(v, (int, float)) else v) for k, v in r.items()},
                 'GAP':          gap,
-                'Desviación %': dev,
+                'DesviaciÃ³n %': dev,
             })
 
         return JsonResponse({'success': True, 'data': result, 'total_filas': len(result)})
@@ -5481,7 +5481,7 @@ def exportar_clientes_sin_compra(request):
         if not token_obj.user.is_active:
             return JsonResponse({"error": "Usuario inactivo"}, status=401)
     except Exception:
-        return JsonResponse({"error": "Token inválido"}, status=401)
+        return JsonResponse({"error": "Token invÃ¡lido"}, status=401)
 
     if not _has_dashboard_perm(token_obj.user, 'informacion-rutas'):
         return JsonResponse({"error": "Sin acceso a este dashboard"}, status=403)
@@ -5530,8 +5530,8 @@ def exportar_clientes_sin_compra(request):
         SELECT
             dc.ruta,
             COALESCE(dp.vendedor,   'Sin asignar') AS vendedor,
-            COALESCE(dv.supervisor, '—')           AS supervisor,
-            COALESCE(dp.dia,        '—')           AS dia,
+            COALESCE(dv.supervisor, 'â€”')           AS supervisor,
+            COALESCE(dp.dia,        'â€”')           AS dia,
             dc.codigo_cliente,
             dc.nombre_compania,
             COALESCE(dv.canal_rrhh, dc.canal)      AS canal,
@@ -5556,7 +5556,7 @@ def exportar_clientes_sin_compra(request):
         ORDER BY dc.ruta, dc.nombre_compania
     """
 
-    headers = ["Ruta", "Vendedor", "Supervisor", "Día", "Cód. Cliente", "Nombre", "Canal", "Última Compra"]
+    headers = ["Ruta", "Vendedor", "Supervisor", "DÃ­a", "CÃ³d. Cliente", "Nombre", "Canal", "Ãšltima Compra"]
 
     wb = openpyxl.Workbook(write_only=True)
     ws = wb.create_sheet(title="Clientes Sin Compra")
@@ -5605,9 +5605,9 @@ def exportar_clientes_sin_compra(request):
     return response
 
 
-# ─────────────────────────────────────────────────────────────────────────────
+# â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 #  DASHBOARD TENDENCIA ESTACIONAL
-# ─────────────────────────────────────────────────────────────────────────────
+# â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 @api_view(['GET'])
 @authentication_classes([ExpiringTokenAuthentication])
@@ -5615,14 +5615,14 @@ def exportar_clientes_sin_compra(request):
 @_require_perm('tendencia-estacional')
 def dashboard_tendencia_estacional(request):
     """
-    Comparación estacional (mismo mes entre gestiones) o últimos 6 meses.
+    ComparaciÃ³n estacional (mismo mes entre gestiones) o Ãºltimos 6 meses.
     Params:
       regional  : Nacional | Santa Cruz | Cochabamba | La Paz
       canal     : Todos | WHS | DTS | PROV | SPM
       anho      : int
       mes       : int  (1-12)
       modo      : estacional | ultimos6
-      dia_corte : 0 = mes completo, N = primeros N días del mes
+      dia_corte : 0 = mes completo, N = primeros N dÃ­as del mes
     """
     is_admin = _is_admin(request.user)
     profile  = _get_or_create_profile(request.user)
@@ -5670,9 +5670,9 @@ def dashboard_tendencia_estacional(request):
         extra_params.append(supervisor)
     extra_where = " AND " + " AND ".join(extra_conds)
 
-    # Helper: ejecuta queries de desglose por categoría y canal para un WHERE+params dado
+    # Helper: ejecuta queries de desglose por categorÃ­a y canal para un WHERE+params dado
     def _desgloses(where_conds, params_base):
-        # Categorías
+        # CategorÃ­as
         sql_cat = f"""
             SELECT {_CATEGORIA_CASE} AS categoria,
                    df.anho, df.mes_numero,
@@ -5774,9 +5774,9 @@ def dashboard_tendencia_estacional(request):
         return JsonResponse({'success': False, 'error': 'Error interno del servidor'}, status=500)
 
 
-# ─────────────────────────────────────────────────────────────────────────────
+# â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 #  DASHBOARD FICHA DE SKU
-# ─────────────────────────────────────────────────────────────────────────────
+# â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 _TRIM_MESES = {
     '1': (1,  3),
@@ -5885,7 +5885,7 @@ def dashboard_ficha_sku_marcas(request):
 @_require_perm('ficha-sku')
 def dashboard_ficha_sku_buscar(request):
     """
-    Búsqueda de productos por texto (nombre o código).
+    BÃºsqueda de productos por texto (nombre o cÃ³digo).
     Params: q, categoria, marca
     """
     q         = _safe_str(request.GET.get('q', ''), 100).strip()
@@ -5963,9 +5963,9 @@ def dashboard_ficha_sku_ventas(request):
     canal        = _safe_str(request.GET.get('canal', ''), 30)
 
     if not codigo:
-        return JsonResponse({'success': False, 'error': 'Parámetro codigo requerido'}, status=400)
+        return JsonResponse({'success': False, 'error': 'ParÃ¡metro codigo requerido'}, status=400)
     if regional_key not in REGIONALES_VALID:
-        return JsonResponse({'success': False, 'error': 'Regional inválida'}, status=400)
+        return JsonResponse({'success': False, 'error': 'Regional invÃ¡lida'}, status=400)
 
     if trimestre in _TRIM_MESES:
         mes_desde, mes_hasta = _TRIM_MESES[trimestre]
@@ -6028,7 +6028,7 @@ def dashboard_ficha_sku_precios(request):
     """
     codigo = _safe_str(request.GET.get('codigo', ''), 50)
     if not codigo:
-        return JsonResponse({'success': False, 'error': 'Parámetro codigo requerido'}, status=400)
+        return JsonResponse({'success': False, 'error': 'ParÃ¡metro codigo requerido'}, status=400)
 
     sql = """
         SELECT
@@ -6071,7 +6071,7 @@ def dashboard_ficha_sku_inventario(request):
     """
     Stock real desde fact_inventario para un SKU.
     Params: codigo, anho, mes (o trimestre), almacen (codigo_erp opcional)
-    Devuelve: stock_actual (último registro), fecha_stock, y snapshots del período.
+    Devuelve: stock_actual (Ãºltimo registro), fecha_stock, y snapshots del perÃ­odo.
     """
     codigo    = _safe_str(request.GET.get('codigo', ''), 50)
     anho      = _safe_int(request.GET.get('anho'), datetime.now().year)
@@ -6080,7 +6080,7 @@ def dashboard_ficha_sku_inventario(request):
     almacen   = _safe_str(request.GET.get('almacen', ''), 50)
 
     if not codigo:
-        return JsonResponse({'success': False, 'error': 'código requerido'}, status=400)
+        return JsonResponse({'success': False, 'error': 'cÃ³digo requerido'}, status=400)
 
     if trimestre in _TRIM_MESES:
         mes_desde, mes_hasta = _TRIM_MESES[trimestre]
@@ -6096,7 +6096,7 @@ def dashboard_ficha_sku_inventario(request):
     almacen_join = "JOIN dw.dim_almacen da ON da.almacen_sk = fi.almacen_sk" if almacen else ""
     almacen_cond = "AND da.almacen_codigo_erp = %s"                          if almacen else ""
 
-    # Snapshots dentro del período
+    # Snapshots dentro del perÃ­odo
     sql_period = f"""
         SELECT
             fi.fecha_inventario::TEXT               AS fecha,
@@ -6112,7 +6112,7 @@ def dashboard_ficha_sku_inventario(request):
         ORDER BY fi.fecha_inventario
     """
 
-    # Stock más reciente (puede ser fuera del período)
+    # Stock mÃ¡s reciente (puede ser fuera del perÃ­odo)
     sql_latest = f"""
         SELECT
             fi.fecha_inventario::TEXT               AS fecha,
@@ -6156,7 +6156,7 @@ def dashboard_ficha_sku_inventario(request):
         return JsonResponse({'success': False, 'error': 'Error interno del servidor'}, status=500)
 
 
-# ─── Distribución de Rutas ────────────────────────────────────────────────────
+# â”€â”€â”€ DistribuciÃ³n de Rutas â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 @api_view(['GET'])
 @authentication_classes([ExpiringTokenAuthentication])
@@ -6164,7 +6164,7 @@ def dashboard_ficha_sku_inventario(request):
 @_require_perm('inventario-almacen')
 def dashboard_inventario_almacen(request):
     """
-    Stock por producto y almacén para una fecha dada.
+    Stock por producto y almacÃ©n para una fecha dada.
     Params: fecha (YYYY-MM-DD), regional, almacen (codigo_erp)
     """
     fecha        = _safe_str(request.GET.get('fecha', ''), 10)
@@ -6172,7 +6172,7 @@ def dashboard_inventario_almacen(request):
     almacen      = _safe_str(request.GET.get('almacen', ''), 50)
 
     if not fecha:
-        return JsonResponse({'success': False, 'error': 'Parámetro fecha requerido'}, status=400)
+        return JsonResponse({'success': False, 'error': 'ParÃ¡metro fecha requerido'}, status=400)
 
     CIUDADES_ALMACEN = {
         'santa_cruz': ['SANTA CRUZ'],
@@ -6238,7 +6238,7 @@ def dashboard_inventario_almacen(request):
 @permission_classes([IsAuthenticated])
 @_require_perm('distribucion-rutas')
 def dashboard_rutas_opciones(request):
-    """Supervisores y días disponibles, filtrados por canal y/o regional."""
+    """Supervisores y dÃ­as disponibles, filtrados por canal y/o regional."""
     canal        = _safe_str(request.GET.get('canal', ''), 30).strip()
     regional_key = _safe_str(request.GET.get('regional', ''), 20).lower().replace(' ', '_')
     conds  = ["dv.es_vendedor_actual = true", "dv.supervisor IS NOT NULL", "TRIM(dv.supervisor) <> ''"]
@@ -6282,7 +6282,7 @@ def dashboard_rutas_opciones(request):
 @_require_perm('distribucion-rutas')
 def dashboard_rutas_buscar(request):
     """
-    Búsqueda dinámica de rutas filtradas por supervisor, canal, día y texto.
+    BÃºsqueda dinÃ¡mica de rutas filtradas por supervisor, canal, dÃ­a y texto.
     Params: q, canal, supervisor, dia
     """
     q            = _safe_str(request.GET.get('q', ''),            100).strip()
@@ -6353,15 +6353,15 @@ def dashboard_rutas_buscar(request):
 @_require_perm('distribucion-rutas')
 def dashboard_rutas_info(request):
     """
-    Polígono (coordenadas en secuencia) + estadísticas de una ruta.
+    PolÃ­gono (coordenadas en secuencia) + estadÃ­sticas de una ruta.
     Params: ruta
     """
     ruta = _safe_str(request.GET.get('ruta', ''), 100).strip()
     if not ruta:
-        return JsonResponse({'success': False, 'error': 'Parámetro ruta requerido'}, status=400)
+        return JsonResponse({'success': False, 'error': 'ParÃ¡metro ruta requerido'}, status=400)
 
     try:
-        # Tomar solo la versión más reciente; id_zona se repite por sucursal
+        # Tomar solo la versiÃ³n mÃ¡s reciente; id_zona se repite por sucursal
         sql_poly = """
             SELECT dzp.latitud, dzp.longitud
             FROM dual.dim_zona_posicion dzp
@@ -6415,7 +6415,7 @@ def dashboard_rutas_info(request):
         else:
             vendedor_corto = vendedor_full
 
-        # Detectar columnas de coordenadas y clasificación
+        # Detectar columnas de coordenadas y clasificaciÃ³n
         sql_cols = """
             SELECT column_name
             FROM information_schema.columns
@@ -6473,7 +6473,7 @@ def dashboard_rutas_info(request):
 @permission_classes([IsAuthenticated])
 @_require_perm('distribucion-rutas')
 def dashboard_rutas_todos_poligonos(request):
-    """Polígonos de todas las rutas que coinciden con los filtros."""
+    """PolÃ­gonos de todas las rutas que coinciden con los filtros."""
     regional_key = _safe_str(request.GET.get('regional', ''), 20).lower().replace(' ', '_')
     canal        = _safe_str(request.GET.get('canal', ''), 30).strip()
     supervisor   = _safe_str(request.GET.get('supervisor', ''), 100).strip()
@@ -6633,7 +6633,7 @@ def dashboard_comportamiento_opciones(request):
         _, rows_v = _run_dw_query(sql_v, params_v)
         vendedores = [r['vendedor'] for r in rows_v if r['vendedor']]
     except Exception:
-        logger.exception("Error interno — vendedores opciones")
+        logger.exception("Error interno â€” vendedores opciones")
         return JsonResponse({'success': False, 'error': 'Error interno del servidor'}, status=500)
 
     sql_m = """
@@ -6648,7 +6648,7 @@ def dashboard_comportamiento_opciones(request):
         _, rows_m = _run_dw_query(sql_m, [])
         marcas = [r['marca'] for r in rows_m if r['marca']]
     except Exception:
-        logger.exception("Error interno — marcas opciones")
+        logger.exception("Error interno â€” marcas opciones")
         return JsonResponse({'success': False, 'error': 'Error interno del servidor'}, status=500)
 
     return JsonResponse({'success': True, 'vendedores': vendedores, 'marcas': marcas})
@@ -6970,7 +6970,7 @@ def dashboard_comportamiento_tabla(request):
             for r in rows1
         ]
     except Exception:
-        logger.exception("Error interno — por_anho_mes")
+        logger.exception("Error interno â€” por_anho_mes")
         return JsonResponse({'success': False, 'error': 'Error interno del servidor'}, status=500)
 
     try:
@@ -6987,7 +6987,7 @@ def dashboard_comportamiento_tabla(request):
             for r in rows2
         ]
     except Exception:
-        logger.exception("Error interno — por_canal_anho_mes")
+        logger.exception("Error interno â€” por_canal_anho_mes")
         return JsonResponse({'success': False, 'error': 'Error interno del servidor'}, status=500)
 
     return JsonResponse({
@@ -6997,9 +6997,9 @@ def dashboard_comportamiento_tabla(request):
     })
 
 
-# ─────────────────────────────────────────────────────────────────────────────
+# â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 #  REPORTES / TICKETS
-# ─────────────────────────────────────────────────────────────────────────────
+# â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 def _serialize_reporte(r):
     return {
@@ -7032,9 +7032,9 @@ def reporte_create(request):
     context     = data.get('context', {})
 
     if tipo not in ('BUG', 'ERROR', 'SOLICITUD'):
-        return JsonResponse({'success': False, 'error': 'Tipo inválido'}, status=400)
+        return JsonResponse({'success': False, 'error': 'Tipo invÃ¡lido'}, status=400)
     if not descripcion:
-        return JsonResponse({'success': False, 'error': 'La descripción es requerida'}, status=400)
+        return JsonResponse({'success': False, 'error': 'La descripciÃ³n es requerida'}, status=400)
 
     r = Reporte.objects.create(
         user=request.user,
@@ -7115,7 +7115,7 @@ def reporte_update(request, reporte_id):
 @authentication_classes([ExpiringTokenAuthentication])
 @permission_classes([IsAuthenticated])
 def reporte_unread_count(request):
-    """Devuelve cuántos reportes nuevos hay desde la última vez que el admin revisó."""
+    """Devuelve cuÃ¡ntos reportes nuevos hay desde la Ãºltima vez que el admin revisÃ³."""
     if not _is_user_manager(request.user):
         return JsonResponse({'count': 0})
 
