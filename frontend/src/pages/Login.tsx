@@ -3,6 +3,7 @@ import { useNavigate, Navigate } from "react-router-dom";
 import { Eye, EyeOff, LogIn, AlertCircle, Clock } from "lucide-react";
 import { useAuth } from "../context/AuthContext";
 import logoLogin from "../assets/CRUIZMEX_LOGO_LOGIN.png";
+import { getFirstDashboardRoute } from "../constants/routes";
 
 interface FormState {
   username: string;
@@ -20,7 +21,7 @@ export default function Login() {
 
   const sessionExpired = sessionStorage.getItem("session_expired") === "1";
 
-  if (!loading && user) return <Navigate to="/dashboard/nacional" replace />;
+  if (!loading && user) return <Navigate to={getFirstDashboardRoute(user)} replace />;
 
   const handleChange = (e: ChangeEvent<HTMLInputElement>) => {
     const { name, value } = e.target;
@@ -36,9 +37,9 @@ export default function Login() {
     }
     setSubmitting(true);
     try {
-      await login(form.username.trim(), form.password);
+      const loggedUser = await login(form.username.trim(), form.password);
       sessionStorage.removeItem("session_expired");
-      navigate("/dashboard/nacional", { replace: true });
+      navigate(getFirstDashboardRoute(loggedUser), { replace: true });
     } catch (err) {
       setError(err instanceof Error ? err.message : "Error al iniciar sesión");
     } finally {
