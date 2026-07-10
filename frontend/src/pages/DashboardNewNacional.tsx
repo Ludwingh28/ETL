@@ -4,7 +4,7 @@ import {
 } from "react";
 import {
   TrendingUp, RefreshCw, AlertCircle, FlaskConical,
-  ChevronDown, Search, ArrowUpDown, ArrowUp, ArrowDown,
+  ChevronDown, Search, ArrowUp, ArrowDown,
 } from "lucide-react";
 import {
   ResponsiveContainer, LineChart, Line, BarChart, Bar,
@@ -73,15 +73,7 @@ const fmtAbbr = (n: number) => {
   if (abs >= 1_000)     return `${sign}${(abs / 1_000).toFixed(0)}K`;
   return NUM.format(n);
 };
-const pctColor = (p: number | null | undefined, invert = false) => {
-  if (p == null) return "text-slate-300";
-  const good = invert ? p <= 0 : p >= 0;
-  return p >= (invert ? 0 : 100) || (!invert && p >= 100)
-    ? "text-emerald-600"
-    : p >= (invert ? -10 : 80)
-      ? "text-amber-500"
-      : "text-red-500";
-};
+
 const cumplColor = (p: number | null | undefined) =>
   p == null ? "text-slate-300" : p >= 100 ? "text-emerald-600" : p >= 80 ? "text-amber-500" : "text-red-500";
 const deltaColor = (p: number | null | undefined) =>
@@ -525,7 +517,6 @@ export default function DashboardNewNacional() {
   useEffect(() => { setCanal(""); }, [selectedRegional]);
 
   // ── Derivados ─────────────────────────────────────────────────────────────────
-  const canalList = useMemo(() => canales.map((c) => c.canal), [canales]);
 
   const sortedSkus = useMemo(() => {
     const sorted = [...skus].sort((a, b) => {
@@ -702,7 +693,7 @@ export default function DashboardNewNacional() {
             <>
               <ResponsiveContainer width="100%" height={Math.max(160, canales.length * 34)}>
                 <BarChart layout="vertical" data={canales} margin={{ top: 2, right: 48, left: 4, bottom: 2 }}
-                  onClick={(d) => { if (d?.activePayload?.[0]) { const c = (d.activePayload[0].payload as CanalRow).canal; setCanal((prev) => prev === c ? "" : c); } }}>
+                  onClick={(d: { activePayload?: { payload: CanalRow }[] } | null) => { if (d?.activePayload?.[0]) { const c = d.activePayload[0].payload.canal; setCanal((prev) => prev === c ? "" : c); } }}>
                   <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" horizontal={false} />
                   <XAxis type="number" tick={{ fontSize: 10 }} tickFormatter={fmtAbbr} />
                   <YAxis dataKey="canal" type="category" tick={{ fontSize: 10, fontWeight: 700 }} width={60} />
