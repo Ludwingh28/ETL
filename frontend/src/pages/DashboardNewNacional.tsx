@@ -693,7 +693,8 @@ export default function DashboardNewNacional() {
             <>
               <ResponsiveContainer width="100%" height={Math.max(160, canales.length * 34)}>
                 <BarChart layout="vertical" data={canales} margin={{ top: 2, right: 48, left: 4, bottom: 2 }}
-                  onClick={(d: { activePayload?: { payload: CanalRow }[] } | null) => { if (d?.activePayload?.[0]) { const c = d.activePayload[0].payload.canal; setCanal((prev) => prev === c ? "" : c); } }}>
+                  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+                  onClick={(d: any) => { if (d?.activePayload?.[0]) { const c = (d.activePayload[0].payload as CanalRow).canal; setCanal((prev) => prev === c ? "" : c); } }}>
                   <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" horizontal={false} />
                   <XAxis type="number" tick={{ fontSize: 10 }} tickFormatter={fmtAbbr} />
                   <YAxis dataKey="canal" type="category" tick={{ fontSize: 10, fontWeight: 700 }} width={60} />
