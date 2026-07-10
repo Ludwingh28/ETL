@@ -392,6 +392,10 @@ export default function DashboardComportamientoProductos() {
   const [vendedorSearch,    setVendedorSearch]    = useState("")
   const vendedorRef = useRef<HTMLDivElement>(null)
 
+  // Proveedor
+  const [proveedor,     setProveedor]     = useState("")
+  const [proveedorOpts, setProveedorOpts] = useState<string[]>([])
+
   // Marca
   const [marca,     setMarca]     = useState("")
   const [marcaOpts, setMarcaOpts] = useState<string[]>([])
@@ -420,8 +424,8 @@ export default function DashboardComportamientoProductos() {
   const [error,        setError]        = useState<string | null>(null)
 
   useEffect(() => {
-    setActiveFilters({ regional, canal, anho, mes, metrica, vendedorQ, marca })
-  }, [regional, canal, anho, mes, metrica, vendedorQ, marca])
+    setActiveFilters({ regional, canal, anho, mes, metrica, vendedorQ, proveedor, marca })
+  }, [regional, canal, anho, mes, metrica, vendedorQ, proveedor, marca])
 
   const tieneAlgunLicor = useMemo(
     () => productosSeleccionados.some(p => p.es_licor),
@@ -461,19 +465,27 @@ export default function DashboardComportamientoProductos() {
   const fetchOpciones = useCallback(async () => {
     const qs = new URLSearchParams({ regional: regional.toLowerCase().replace(/ /g, "_") })
     if (canal && canal !== "Todos") qs.set("canal", canal)
+    if (proveedor) qs.set("proveedor", proveedor)
     try {
-      const r = await apiFetch<{ success: boolean; vendedores: string[]; marcas: string[] }>(
+      const r = await apiFetch<{ success: boolean; vendedores: string[]; proveedores: string[]; marcas: string[] }>(
         `/dashboard/comportamiento-productos/opciones/?${qs}`
       )
       if (r.success) {
         setVendedorOpts(r.vendedores)
+        setProveedorOpts(r.proveedores ?? [])
         setMarcaOpts(r.marcas)
         if (marca && !r.marcas.includes(marca)) setMarca("")
       }
     } catch { /* silent */ }
-  }, [regional, canal]) // eslint-disable-line react-hooks/exhaustive-deps
+  }, [regional, canal, proveedor]) // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => { void fetchOpciones() }, [fetchOpciones])
+
+  useEffect(() => {
+    setMarca("")
+    setProductosSeleccionados([])
+    setProductosOpts([])
+  }, [proveedor]) // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     setProductosSeleccionados([])
@@ -484,6 +496,7 @@ export default function DashboardComportamientoProductos() {
     if (!marca) return
     // Cargar productos de la marca — sin auto-seleccionar (estado "Todos" por defecto)
     const qs = new URLSearchParams({ marca })
+    if (proveedor) qs.set("proveedor", proveedor)
     apiFetch<{ success: boolean; data: ProductoOption[] }>(
       `/dashboard/comportamiento-productos/productos/?${qs}`
     ).then(r => {
@@ -494,9 +507,10 @@ export default function DashboardComportamientoProductos() {
   }, [marca]) // eslint-disable-line react-hooks/exhaustive-deps
 
   const fetchProductos = useCallback(async () => {
-    if (!marca && productoSearch.length < 2) { setProductosOpts([]); return }
+    if (!proveedor && !marca && productoSearch.length < 2) { setProductosOpts([]); return }
     setLoadingProductos(true)
     const qs = new URLSearchParams()
+    if (proveedor)      qs.set("proveedor", proveedor)
     if (marca)          qs.set("marca", marca)
     if (productoSearch) qs.set("q", productoSearch)
     try {
@@ -506,7 +520,7 @@ export default function DashboardComportamientoProductos() {
       if (r.success) setProductosOpts(r.data)
     } catch { setProductosOpts([]) }
     finally { setLoadingProductos(false) }
-  }, [marca, productoSearch]) // eslint-disable-line react-hooks/exhaustive-deps
+  }, [proveedor, marca, productoSearch]) // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     if (!productoComboOpen) return
@@ -544,17 +558,18 @@ export default function DashboardComportamientoProductos() {
   }, [productosSeleccionados]) // eslint-disable-line react-hooks/exhaustive-deps
 
   const fetchG1 = useCallback(async () => {
-    if (!marca && productosSeleccionados.length === 0) { setDataG1([]); return }
+    if (!proveedor && !marca && productosSeleccionados.length === 0) { setDataG1([]); return }
     setLoadingG1(true); setError(null)
     const qs = new URLSearchParams({
       regional: regional.toLowerCase().replace(/ /g, "_"),
       anho: String(anho), mes: String(mes),
     })
     if (canal && canal !== "Todos") qs.set("canal", canal)
-    if (vendedorQ) qs.set("vendedor", vendedorQ)
+    if (vendedorQ)  qs.set("vendedor", vendedorQ)
     const codigos = productosSeleccionados.map(p => p.codigo).join(",")
-    if (codigos) qs.set("codigos", codigos)
-    if (marca)   qs.set("marca", marca)
+    if (codigos)    qs.set("codigos", codigos)
+    if (proveedor)  qs.set("proveedor", proveedor)
+    if (marca)      qs.set("marca", marca)
     try {
       const r = await apiFetch<{ success: boolean; data: DatoG1[]; modo: "vendedor" | "canal" }>(
         `/dashboard/comportamiento-productos/grafico1/?${qs}`
@@ -562,20 +577,21 @@ export default function DashboardComportamientoProductos() {
       if (r.success) { setDataG1(r.data ?? []); setG1Modo(r.modo ?? "canal") }
     } catch (e) { setError(e instanceof Error ? e.message : "Error al cargar datos") }
     finally { setLoadingG1(false) }
-  }, [regional, canal, vendedorQ, anho, mes, productosSeleccionados, marca]) // eslint-disable-line react-hooks/exhaustive-deps
+  }, [regional, canal, vendedorQ, anho, mes, productosSeleccionados, proveedor, marca]) // eslint-disable-line react-hooks/exhaustive-deps
 
   const fetchG2 = useCallback(async () => {
-    if (!marca && productosSeleccionados.length === 0) { setDataG2([]); return }
+    if (!proveedor && !marca && productosSeleccionados.length === 0) { setDataG2([]); return }
     setLoadingG2(true)
     const qs = new URLSearchParams({
       regional: regional.toLowerCase().replace(/ /g, "_"),
       anho: String(anho), mes: String(mes),
     })
     if (canal && canal !== "Todos") qs.set("canal", canal)
-    if (vendedorQ) qs.set("vendedor", vendedorQ)
+    if (vendedorQ)  qs.set("vendedor", vendedorQ)
     const codigos = productosSeleccionados.map(p => p.codigo).join(",")
-    if (codigos) qs.set("codigos", codigos)
-    if (marca)   qs.set("marca", marca)
+    if (codigos)    qs.set("codigos", codigos)
+    if (proveedor)  qs.set("proveedor", proveedor)
+    if (marca)      qs.set("marca", marca)
     try {
       const r = await apiFetch<{ success: boolean; data: DatoG2[] }>(
         `/dashboard/comportamiento-productos/grafico2/?${qs}`
@@ -583,7 +599,7 @@ export default function DashboardComportamientoProductos() {
       if (r.success) setDataG2(r.data ?? [])
     } catch { setDataG2([]) }
     finally { setLoadingG2(false) }
-  }, [regional, canal, vendedorQ, anho, mes, productosSeleccionados, marca]) // eslint-disable-line react-hooks/exhaustive-deps
+  }, [regional, canal, vendedorQ, anho, mes, productosSeleccionados, proveedor, marca]) // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => { void fetchG1(); void fetchG2() }, [fetchG1, fetchG2])
 
@@ -885,7 +901,7 @@ export default function DashboardComportamientoProductos() {
   const anhos        = [...new Set(periodos.map(p => p.anho))].sort((a, b) => b - a)
   const mesesDelAnho = periodos.filter(p => p.anho === anho)
   const selectCls    = "text-sm border border-slate-200 rounded-lg px-3 py-2 bg-white text-slate-700 focus:outline-none focus:ring-2 focus:ring-brand-500 focus:border-brand-500 cursor-pointer"
-  const hayFiltro    = !!(marca || productosSeleccionados.length > 0)
+  const hayFiltro    = !!(proveedor || marca || productosSeleccionados.length > 0)
 
   const tablaProductoNombre = productosSeleccionados.find(p => p.codigo === tablaProductoCodigo)?.nombre ?? ""
   const tablaProductoEsLicor = productosSeleccionados.find(p => p.codigo === tablaProductoCodigo)?.es_licor ?? false
@@ -899,6 +915,7 @@ export default function DashboardComportamientoProductos() {
           <h1 className="text-2xl font-bold text-slate-800">Comportamiento Productos</h1>
           <p className="text-slate-500 text-sm mt-0.5">
             {MESES[mes]} {anho}
+            {proveedor ? ` · ${proveedor}` : ""}
             {marca ? ` · ${marca}` : ""}
           </p>
         </div>
@@ -1006,10 +1023,19 @@ export default function DashboardComportamientoProductos() {
               </select>
             </div>
 
+            {/* Proveedor */}
+            <div className="flex flex-col gap-1">
+              <label className="text-[10px] uppercase tracking-widest text-slate-400 font-semibold">Proveedor</label>
+              <select value={proveedor} onChange={(e: ChangeEvent<HTMLSelectElement>) => setProveedor(e.target.value)} className={selectCls}>
+                <option value="">Todos</option>
+                {proveedorOpts.map(p => <option key={p} value={p}>{p}</option>)}
+              </select>
+            </div>
+
             {/* Marca */}
             <div className="flex flex-col gap-1">
               <label className="text-[10px] uppercase tracking-widest text-slate-400 font-semibold">Marca</label>
-              <select value={marca} onChange={(e: ChangeEvent<HTMLSelectElement>) => setMarca(e.target.value)} className={selectCls}>
+              <select value={marca} onChange={(e: ChangeEvent<HTMLSelectElement>) => setMarca(e.target.value)} className={selectCls} disabled={marcaOpts.length === 0 && !proveedor}>
                 <option value="">Todas</option>
                 {marcaOpts.map(m => <option key={m} value={m}>{m}</option>)}
               </select>
@@ -1034,7 +1060,7 @@ export default function DashboardComportamientoProductos() {
                 >
                   <Search size={14} className="text-slate-400 shrink-0" />
                   <input type="text"
-                    placeholder={productosSeleccionados.length ? `${productosSeleccionados.length} seleccionado(s)` : marca ? `Todos — ${productosOpts.length > 0 ? productosOpts.length + " SKUs" : "todos los SKUs"}` : "Buscar producto…"}
+                    placeholder={productosSeleccionados.length ? `${productosSeleccionados.length} seleccionado(s)` : marca ? `Todos — ${productosOpts.length > 0 ? productosOpts.length + " SKUs" : "todos los SKUs"}` : proveedor ? `Todos los SKUs de ${proveedor}` : "Buscar producto…"}
                     value={productoSearch}
                     onChange={e => { setProductoSearch(e.target.value); setProductoComboOpen(true) }}
                     onFocus={() => setProductoComboOpen(true)}
@@ -1062,8 +1088,8 @@ export default function DashboardComportamientoProductos() {
                       </div>
                     )}
                     <div className="max-h-56 overflow-y-auto">
-                      {/* Opción Todos — visible cuando hay marca y sin búsqueda activa */}
-                      {marca && !productoSearch && (
+                      {/* Opción Todos — visible cuando hay proveedor o marca y sin búsqueda activa */}
+                      {(marca || proveedor) && !productoSearch && (
                         <button
                           className={`w-full text-left px-4 py-2.5 text-sm transition-colors flex items-center gap-2.5 border-b border-slate-100 ${productosSeleccionados.length === 0 ? "bg-brand-50" : "hover:bg-slate-50"}`}
                           onMouseDown={e => { e.preventDefault(); setProductosSeleccionados([]); setProductoComboOpen(false) }}>
@@ -1072,7 +1098,7 @@ export default function DashboardComportamientoProductos() {
                           </span>
                           <span>
                             <span className={`block text-xs font-semibold ${productosSeleccionados.length === 0 ? "text-brand-700" : "text-slate-700"}`}>Todos los SKUs</span>
-                            <span className="block text-[10px] text-slate-400">{productosOpts.length} productos de {marca}</span>
+                            <span className="block text-[10px] text-slate-400">{productosOpts.length} productos de {marca || proveedor}</span>
                           </span>
                         </button>
                       )}
@@ -1082,7 +1108,7 @@ export default function DashboardComportamientoProductos() {
                         </div>
                       ) : productosOpts.length === 0 ? (
                         <p className="text-xs text-slate-400 px-4 py-3">
-                          {marca || productoSearch.length >= 2 ? "Sin resultados" : "Selecciona una marca o escribe para buscar"}
+                          {marca || proveedor || productoSearch.length >= 2 ? "Sin resultados" : "Selecciona un proveedor o escribe para buscar"}
                         </p>
                       ) : productosOpts.map(p => {
                           const sel = !!productosSeleccionados.find(x => x.codigo === p.codigo)

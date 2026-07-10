@@ -21,6 +21,8 @@ import AdminCambiarContrasena from "./pages/AdminCambiarContrasena";
 import AdminRoute from "./components/AdminRoute";
 import DashboardProveedor from "./pages/DashboardProveedor";
 import DashboardSoftysCanales from "./pages/DashboardSoftysCanales";
+import DashboardNewNacional from "./pages/DashboardNewNacional";
+import LegacyPage from "./pages/LegacyPage";
 import DashboardTendenciaEstacional from "./pages/DashboardTendenciaEstacional";
 import DashboardFichaSku from "./pages/DashboardFichaSku";
 import DashboardDistribucionRutas from "./pages/DashboardDistribucionRutas";
@@ -137,6 +139,16 @@ export default function App() {
           />
           <Route path="/dashboard/colher"
             element={<Dash perm="colher"><DashboardProveedor perm="colher" nombre="COLHER" /></Dash>}
+          />
+
+          {/* ── Mock-ups ────────────────────────────────────────────────────── */}
+          <Route path="/dashboard/new-nacional"
+            element={<Dash perm="new-nacional"><DashboardNewNacional /></Dash>}
+          />
+
+          {/* ── Legacy (solo Administradores) ──────────────────────────────── */}
+          <Route path="/admin/legacy"
+            element={<Protected><AdminRoute><LegacyPage /></AdminRoute></Protected>}
           />
 
           {/* ── Administración (solo Administradores) ───────────────────────── */}

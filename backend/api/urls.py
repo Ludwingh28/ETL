@@ -90,6 +90,11 @@ urlpatterns = [
     path('dashboard/unidades/vendedor-sku/',  views.dashboard_unidades_vendedor_sku,  name='unidades-vendedor-sku'),
     path('dashboard/unidades/por-vendedor/',  views.dashboard_unidades_por_vendedor,  name='unidades-por-vendedor'),
 
+    # Dashboard Mock-up Nacional
+    path('dashboard/new-nacional/opciones/',     views.dashboard_new_nacional_opciones,     name='new-nacional-opciones'),
+    path('dashboard/new-nacional/comparacion/',  views.dashboard_new_nacional_comparacion,  name='new-nacional-comparacion'),
+    path('dashboard/new-nacional/skus/',         views.dashboard_new_nacional_skus,         name='new-nacional-skus'),
+
     # Dashboard Proveedores  (param: proveedor=PEPSICO|SOFTYS|DMUJER|APEGO|COLHER)
     path('dashboard/proveedor/kpis/',      views.dashboard_proveedor_kpis,      name='proveedor-kpis'),
     path('dashboard/proveedor/por-marca/', views.dashboard_proveedor_por_marca,  name='proveedor-por-marca'),

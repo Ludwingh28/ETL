@@ -62,6 +62,7 @@ export const DASHBOARD_GROUPS: DashboardGroup[] = [
       { id: 'informacion-rutas',       label: 'Información Rutas'              },
       { id: 'tendencia-estacional',   label: 'Tendencia Estacional'          },
       { id: 'ticket-promedio',        label: 'Ticket Promedio'               },
+      { id: 'comportamiento-productos',    label: 'Comportamiento Productos'  },
     ],
   },
   {
@@ -69,7 +70,6 @@ export const DASHBOARD_GROUPS: DashboardGroup[] = [
     items: [
       { id: 'ficha-sku',                   label: 'Ficha de SKU'              },
       { id: 'distribucion-rutas',          label: 'Distribución de Rutas'     },
-      { id: 'comportamiento-productos',    label: 'Comportamiento Productos'  },
       { id: 'lista-precios',               label: 'Lista de Precios'          },
       { id: 'inventario-almacen',          label: 'Inventario por Almacén'    },
       { id: 'fechas-vencimiento',          label: 'Fechas de Vencimiento'     },
@@ -91,12 +91,23 @@ export const DASHBOARD_GROUPS: DashboardGroup[] = [
   {
     grupo: 'Proveedores',
     items: [
-      { id: 'pepsico',      label: 'Dashboard Pepsico'              },
-      { id: 'softys',       label: 'Dashboard Softys (Legacy)'      },
-      { id: 'softys-nuevo', label: 'Dashboard Softys'               },
-      { id: 'dmujer',       label: 'Dashboard DMujer'               },
-      { id: 'apego',        label: 'Dashboard Apego'                },
-      { id: 'colher',       label: 'Dashboard COLHER'               },
+      { id: 'pepsico',      label: 'Dashboard Pepsico'  },
+      { id: 'softys-nuevo', label: 'Dashboard Softys'   },
+      { id: 'dmujer',       label: 'Dashboard DMujer'   },
+      { id: 'apego',        label: 'Dashboard Apego'    },
+      { id: 'colher',       label: 'Dashboard COLHER'   },
+    ],
+  },
+  {
+    grupo: 'Mock-ups',
+    items: [
+      { id: 'new-nacional', label: 'Ventas Nacional (Mock-up)' },
+    ],
+  },
+  {
+    grupo: 'Legacy',
+    items: [
+      { id: 'softys', label: 'Dashboard Softys (v1)' },
     ],
   },
 ]

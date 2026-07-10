@@ -168,7 +168,7 @@ function SearchableSelect({
                 type="text"
                 value={query}
                 onChange={e => setQuery(e.target.value)}
-                placeholder="Buscar marca…"
+                placeholder="Buscar clase…"
                 className="w-full pl-7 pr-2 py-1.5 text-xs border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-brand-500"
               />
             </div>
@@ -575,7 +575,7 @@ export default function DashboardInformacionRutas() {
           </div>
           <div className="flex flex-col gap-1">
             <label className="text-[10px] uppercase tracking-widest text-slate-400 font-semibold">
-              Marca{marca && <span className="ml-1 text-brand-500">·</span>}
+              Clase{marca && <span className="ml-1 text-brand-500">·</span>}
             </label>
             <SearchableSelect value={marca} onChange={setMarca} options={marcas} />
           </div>

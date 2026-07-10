@@ -42,11 +42,11 @@ interface SkuRow {
 interface Periodo { anho: number; mes_numero: number; }
 
 type Regional  = "Nacional" | "Santa Cruz" | "Cochabamba" | "La Paz";
-type Categoria = "Alimentos" | "Apego" | "Licores" | "Home & Personal Care" | "Sin Clasificar";
+type Categoria = "Total" | "Alimentos" | "Apego" | "Licores" | "Home & Personal Care" | "Sin Clasificar";
 type Metrica   = "bs" | "uds";
 
 const REGIONALES: Regional[]  = ["Nacional", "Santa Cruz", "Cochabamba", "La Paz"];
-const CATEGORIAS: Categoria[] = ["Alimentos", "Apego", "Licores", "Home & Personal Care", "Sin Clasificar"];
+const CATEGORIAS: Categoria[] = ["Total", "Alimentos", "Apego", "Licores", "Home & Personal Care", "Sin Clasificar"];
 
 const REGIONAL_KEY: Record<Regional, string> = {
   Nacional:     "nacional",
@@ -63,11 +63,12 @@ const REGIONAL_CONFIG: Record<Regional, { badge: string }> = {
 };
 
 const CAT_CONFIG: Record<Categoria, { color: string; bg: string; active: string }> = {
-  Alimentos:              { color: "text-green-700", bg: "bg-green-50",  active: "bg-green-500 text-white" },
-  Apego:                  { color: "text-pink-700",  bg: "bg-pink-50",   active: "bg-pink-500 text-white"  },
-  Licores:                { color: "text-rose-700",  bg: "bg-rose-50",   active: "bg-rose-500 text-white"  },
-  "Home & Personal Care": { color: "text-sky-700",   bg: "bg-sky-50",    active: "bg-sky-500 text-white"   },
-  "Sin Clasificar":       { color: "text-orange-700", bg: "bg-orange-50", active: "bg-orange-500 text-white" },
+  Total:                  { color: "text-slate-700",  bg: "bg-slate-50",   active: "bg-slate-700 text-white"  },
+  Alimentos:              { color: "text-green-700",  bg: "bg-green-50",   active: "bg-green-500 text-white"  },
+  Apego:                  { color: "text-pink-700",   bg: "bg-pink-50",    active: "bg-pink-500 text-white"   },
+  Licores:                { color: "text-rose-700",   bg: "bg-rose-50",    active: "bg-rose-500 text-white"   },
+  "Home & Personal Care": { color: "text-sky-700",    bg: "bg-sky-50",     active: "bg-sky-500 text-white"    },
+  "Sin Clasificar":       { color: "text-orange-700", bg: "bg-orange-50",  active: "bg-orange-500 text-white" },
 };
 
 const MESES = ["","Enero","Febrero","Marzo","Abril","Mayo","Junio",
@@ -102,7 +103,7 @@ export default function DashboardUnidadesVendidas() {
   const [metrica, setMetrica] = useState<Metrica>("bs");
 
   // Segmentador
-  const [categoria,        setCategoria]        = useState<Categoria>("Alimentos");
+  const [categoria,        setCategoria]        = useState<Categoria>("Total");
   const [selectedSubgrupo, setSelectedSubgrupo] = useState<string | null>(null);
 
   // Proveedor
@@ -168,7 +169,7 @@ export default function DashboardUnidadesVendidas() {
     setLoadingKpis(true);
     try {
       const j = await apiFetch<KpisData & { success: boolean }>(
-        `/dashboard/unidades/kpis/?${baseQS}&categoria=${encodeURIComponent(categoria)}`
+        `/dashboard/unidades/kpis/?${baseQS}&categoria=${encodeURIComponent(categoria === "Total" ? "" : categoria)}`
       );
       if (j.success) setKpis(j);
     } catch (e) { setError(String(e)); }
@@ -179,7 +180,7 @@ export default function DashboardUnidadesVendidas() {
   const fetchProveedores = useCallback(async () => {
     if (!anho || !mes) return;
     try {
-      let url = `/dashboard/unidades/proveedores/?${baseQS}&categoria=${encodeURIComponent(categoria)}`;
+      let url = `/dashboard/unidades/proveedores/?${baseQS}&categoria=${encodeURIComponent(categoria === "Total" ? "" : categoria)}`;
       const j = await apiFetch<{ success: boolean; data: string[] }>(url);
       if (j.success) {
         setProveedores(j.data);
@@ -198,7 +199,7 @@ export default function DashboardUnidadesVendidas() {
     setSelectedSubgrupo(null);
     setSkus([]);
     try {
-      let url = `/dashboard/unidades/por-subgrupo/?${baseQS}&categoria=${encodeURIComponent(categoria)}`;
+      let url = `/dashboard/unidades/por-subgrupo/?${baseQS}&categoria=${encodeURIComponent(categoria === "Total" ? "" : categoria)}`;
       if (proveedorFilter) url += `&proveedor=${encodeURIComponent(proveedorFilter)}`;
       const j = await apiFetch<{ success: boolean; data: SubgrupoRow[] }>(url);
       if (j.success) setSubgrupos(j.data); else setSubgrupos([]);
@@ -213,7 +214,7 @@ export default function DashboardUnidadesVendidas() {
     setSelectedSkuCode(null);
     setSkuSearch("");
     try {
-      let url = `/dashboard/unidades/por-sku/?${baseQS}&categoria=${encodeURIComponent(categoria)}&subgrupo=${encodeURIComponent(selectedSubgrupo)}`;
+      let url = `/dashboard/unidades/por-sku/?${baseQS}&categoria=${encodeURIComponent(categoria === "Total" ? "" : categoria)}&subgrupo=${encodeURIComponent(selectedSubgrupo)}`;
       if (proveedorFilter) url += `&proveedor=${encodeURIComponent(proveedorFilter)}`;
       const j = await apiFetch<{ success: boolean; data: SkuRow[] }>(url);
       if (j.success) setSkus(j.data); else setSkus([]);

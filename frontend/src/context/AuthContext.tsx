@@ -141,7 +141,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
   }, []);
 
-  const apiFetch = async <T = unknown,>(path: string, options: RequestInit = {}): Promise<T> => {
+  const apiFetch = useCallback(async <T = unknown,>(path: string, options: RequestInit = {}): Promise<T> => {
     const res = await fetch(`${API_BASE}${path}`, {
       ...options,
       headers: {
@@ -155,7 +155,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       throw new Error("Sesión expirada");
     }
     return res.json() as Promise<T>;
-  };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [token, doExpiredLogout]);
 
   return <AuthContext.Provider value={{ user, token, loading, login, logout, apiFetch, refreshUser }}>{children}</AuthContext.Provider>;
 }

@@ -31,6 +31,8 @@ import {
   Download,
   BarChart2,
   Flag,
+  FlaskConical,
+  History,
   type LucideIcon,
 } from "lucide-react";
 import { useAuth } from "../context/AuthContext";
@@ -50,7 +52,7 @@ interface NavGroup {
 const ADMIN_CARGOS_NAV = ["Administrador de Sistema", "Subadministrador de Sistemas"];
 
 function filterGroups(groups: NavGroup[], perms: string[], isAdmin: boolean): NavGroup[] {
-  if (isAdmin) return groups;
+  if (isAdmin) return groups.filter((g) => g.items.length > 0);
   return groups.map((g) => ({ ...g, items: g.items.filter((i) => perms.includes(i.perm)) })).filter((g) => g.items.length > 0);
 }
 
@@ -79,6 +81,7 @@ const NAV_GROUPS: NavGroup[] = [
       { to: "/dashboard/informacion-rutas", icon: MapPin, label: "Información Rutas", perm: "informacion-rutas" },
       { to: "/dashboard/tendencia-estacional", icon: TrendingUp, label: "Tendencia Estacional", perm: "tendencia-estacional" },
       { to: "/dashboard/ticket-promedio", icon: Tag, label: "Ticket Promedio", perm: "ticket-promedio" },
+      { to: "/dashboard/comportamiento-productos", icon: Package,    label: "Comportamiento Productos",   perm: "comportamiento-productos" },
     ],
   },
   {
@@ -86,7 +89,6 @@ const NAV_GROUPS: NavGroup[] = [
     items: [
       { to: "/dashboard/ficha-sku",                icon: BarChart2,  label: "Ficha de SKU",                perm: "ficha-sku"                },
       { to: "/dashboard/distribucion-rutas",      icon: MapPin,     label: "Distribución de Rutas",      perm: "distribucion-rutas"       },
-      { to: "/dashboard/comportamiento-productos", icon: Package,    label: "Comportamiento Productos",   perm: "comportamiento-productos" },
       { to: "/dashboard/lista-precios",           icon: List,       label: "Lista de Precios",           perm: "lista-precios"            },
       { to: "/dashboard/inventario-almacen",  icon: Archive,    label: "Inventario por Almacén",  perm: "inventario-almacen"  },
       { to: "/dashboard/fechas-vencimiento",  icon: CalendarX,  label: "Fechas de Vencimiento",   perm: "fechas-vencimiento"  },
@@ -106,12 +108,17 @@ const NAV_GROUPS: NavGroup[] = [
   {
     label: "Proveedores",
     items: [
-      { to: "/dashboard/pepsico", icon: Popcorn, label: "Dashboard Pepsico", perm: "pepsico" },
-      { to: "/dashboard/softys", icon: PersonStanding, label: "Dashboard Softys (Legacy)", perm: "softys" },
-      { to: "/dashboard/softys-revision", icon: PersonStanding, label: "Dashboard Softys", perm: "softys-nuevo" },
-      { to: "/dashboard/dmujer", icon: BookHeart, label: "Dashboard DMujer", perm: "dmujer" },
-      { to: "/dashboard/apego", icon: Milk, label: "Dashboard Apego", perm: "apego" },
-      { to: "/dashboard/colher", icon: SoapDispenserDroplet, label: "Dashboard COLHER", perm: "colher" },
+      { to: "/dashboard/pepsico",          icon: Popcorn,            label: "Dashboard Pepsico",  perm: "pepsico"      },
+      { to: "/dashboard/softys-revision",  icon: PersonStanding,     label: "Dashboard Softys",   perm: "softys-nuevo" },
+      { to: "/dashboard/dmujer",           icon: BookHeart,          label: "Dashboard DMujer",   perm: "dmujer"       },
+      { to: "/dashboard/apego",            icon: Milk,               label: "Dashboard Apego",    perm: "apego"        },
+      { to: "/dashboard/colher",           icon: SoapDispenserDroplet, label: "Dashboard COLHER", perm: "colher"       },
+    ],
+  },
+  {
+    label: "Mock-ups",
+    items: [
+      { to: "/dashboard/new-nacional", icon: FlaskConical, label: "Ventas Nacional", perm: "new-nacional" },
     ],
   },
 ];
@@ -164,19 +171,26 @@ const ADMIN_CARGOS = ["Administrador de Sistema", "Subadministrador de Sistemas"
 
 type MenuItem = { to: string; icon: LucideIcon; label: string; dot?: boolean };
 
-function buildUserMenuItems(isStaff?: boolean, cargo?: string, unreadReports = 0): MenuItem[] {
+const LEGACY_NAV: MenuItem[] = [
+  { to: "/admin/legacy", icon: History, label: "Accesos Legacy" },
+];
+
+function buildUserMenuItems(isStaff?: boolean, cargo?: string, unreadReports = 0): { regular: MenuItem[]; legacy: MenuItem[] } {
   const isAdmin = isStaff === true || ADMIN_CARGOS.includes(cargo ?? "");
-  return [
-    ...(isAdmin ? [
-      { to: "/admin/gestion-usuarios",          icon: Users2, label: "Gestión de Usuarios" },
-      { to: "/admin/reportes", icon: Flag, label: "Reportes", dot: unreadReports > 0 },
-    ] : []),
-    { to: "/admin/cambiar-contrasena", icon: KeyRound, label: "Cambiar Contraseña" },
-  ];
+  return {
+    regular: [
+      ...(isAdmin ? [
+        { to: "/admin/gestion-usuarios", icon: Users2, label: "Gestión de Usuarios" },
+        { to: "/admin/reportes",         icon: Flag,   label: "Reportes", dot: unreadReports > 0 },
+      ] : []),
+      { to: "/admin/cambiar-contrasena", icon: KeyRound, label: "Cambiar Contraseña" },
+    ],
+    legacy: isAdmin ? LEGACY_NAV : [],
+  };
 }
 
 // ── User menu (desktop) ──────────────────────────────────────────────────────
-function UserMenu({ onLogout, userMenuItems, unreadReports }: { onLogout: () => void; userMenuItems: MenuItem[]; unreadReports: number }) {
+function UserMenu({ onLogout, userMenuItems, legacyItems, unreadReports }: { onLogout: () => void; userMenuItems: MenuItem[]; legacyItems: MenuItem[]; unreadReports: number }) {
   const { user } = useAuth();
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
@@ -232,6 +246,25 @@ function UserMenu({ onLogout, userMenuItems, unreadReports }: { onLogout: () => 
             ))}
           </div>
 
+          {/* Legacy (solo admins) */}
+          {legacyItems.length > 0 && (
+            <div className="py-1 border-b border-slate-100">
+              <p className="text-[10px] uppercase tracking-widest text-slate-400 font-semibold px-4 pt-2 pb-1 flex items-center gap-1.5">
+                <History size={11} />Legacy
+              </p>
+              {legacyItems.map(({ to, icon: Icon, label }) => (
+                <NavLink key={to} to={to} onClick={() => setOpen(false)}
+                  className={({ isActive }) =>
+                    `flex items-center gap-2.5 w-full px-4 py-2.5 text-sm transition-colors
+                    ${isActive ? "bg-brand-50 text-brand-700 font-semibold" : "text-slate-500 hover:bg-slate-50 hover:text-slate-700"}`
+                  }>
+                  <Icon size={14} className="shrink-0" />
+                  <span className="flex-1">{label}</span>
+                </NavLink>
+              ))}
+            </div>
+          )}
+
           {/* Cerrar sesión */}
           <button onClick={onLogout} className="flex items-center gap-2.5 w-full px-4 py-2.5 text-sm text-red-600 hover:bg-red-50 transition-colors">
             <LogOut size={14} />
@@ -273,7 +306,7 @@ export default function Navbar() {
   const visibleGroups = filterGroups(NAV_GROUPS, userPerms, userIsAdmin);
 
   const homePath = visibleGroups[0]?.items[0]?.to ?? "/";
-  const userMenuItems = buildUserMenuItems(user?.is_staff, user?.cargo, unreadReports);
+  const { regular: userMenuItems, legacy: legacyItems } = buildUserMenuItems(user?.is_staff, user?.cargo, unreadReports);
 
   const handleLogout = () => {
     logout(); // hace hard redirect internamente
@@ -298,7 +331,7 @@ export default function Navbar() {
           {/* Derecha: user + hamburguesa mobile */}
           <div className="flex items-center gap-2">
             <div className="hidden md:block">
-              <UserMenu onLogout={handleLogout} userMenuItems={userMenuItems} unreadReports={unreadReports} />
+              <UserMenu onLogout={handleLogout} userMenuItems={userMenuItems} legacyItems={legacyItems} unreadReports={unreadReports} />
             </div>
             <button onClick={() => setMobileOpen((o) => !o)} className="md:hidden p-2 rounded-lg text-slate-300 hover:bg-white/10 transition-colors" aria-label="Menú">
               {mobileOpen ? <X size={20} /> : <Menu size={20} />}
@@ -358,6 +391,18 @@ export default function Navbar() {
                 {label}
               </NavLink>
             ))}
+            {legacyItems.length > 0 && (
+              <>
+                <p className="text-[10px] uppercase tracking-widest text-slate-500 font-semibold px-3 py-1.5 mt-1 flex items-center gap-1.5"><History size={11} />Legacy</p>
+                {legacyItems.map(({ to, icon: Icon, label }) => (
+                  <NavLink key={to} to={to} onClick={() => setMobileOpen(false)}
+                    className={({ isActive }) => `flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-colors
+                      ${isActive ? "bg-brand-600 text-white" : "text-slate-400 hover:bg-white/10 hover:text-white"}`}>
+                    <Icon size={16} />{label}
+                  </NavLink>
+                ))}
+              </>
+            )}
             <button onClick={handleLogout} className="flex items-center gap-3 w-full px-3 py-2.5 rounded-lg text-sm text-red-400 hover:bg-white/10 transition-colors mt-1">
               <LogOut size={16} />
               Cerrar sesión

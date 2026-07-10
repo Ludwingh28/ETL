@@ -150,7 +150,7 @@ export default function DashboardUnidadesSupervisores() {
   const [metrica, setMetrica] = useState<"bs" | "uds">("bs");
 
   // Segmentador categoría
-  const [catKey, setCatKey] = useState<CatKey>("alimentos");
+  const [catKey, setCatKey] = useState<CatKey>("total");
 
   // Selección de vendedor
   const [selVendedor, setSelVendedor] = useState<VendedorRow | null>(null);
@@ -286,7 +286,7 @@ export default function DashboardUnidadesSupervisores() {
 
   // ── Subgrupos ─────────────────────────────────────────────────────────────
   const fetchSubgrupos = useCallback(async () => {
-    if (!effectiveRegional) return;
+    if (!effectiveRegional || !anho || !mes) return;
     setLoadingSubgrupo(true); setSelectedSubgrupo(null);
     try {
       const catLabel = catKey !== "total" ? CAT_CFG[catKey].label : "";

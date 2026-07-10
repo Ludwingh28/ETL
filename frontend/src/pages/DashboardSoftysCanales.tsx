@@ -104,6 +104,7 @@ const SOFTYS_GRUPOS = [
   "Toallas Femeninas",
   "Pañuelos",
   "Toallas de Papel",
+  "Servilletas",
 ] as const;
 
 const PANALES_SUBGRUPOS = ["Pañales Babysec", "Pañales Packeton"] as const;
@@ -120,6 +121,7 @@ const SOFTYS_GRUPO_CONFIG: Record<SoftysGrupo, { color: string; bg: string; acti
   "Toallas Femeninas":    { color: "text-pink-700",   bg: "bg-pink-50",   active: "bg-pink-500   text-white" },
   "Pañuelos":             { color: "text-violet-700", bg: "bg-violet-50", active: "bg-violet-500 text-white" },
   "Toallas de Papel":     { color: "text-amber-700",  bg: "bg-amber-50",  active: "bg-amber-500  text-white" },
+  "Servilletas":          { color: "text-orange-700", bg: "bg-orange-50", active: "bg-orange-500 text-white" },
 };
 
 // Conversion rates (pending confirmation)

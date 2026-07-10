@@ -1,4 +1,4 @@
-export const CURRENT_VERSION = "1.2.7";
+export const CURRENT_VERSION = "1.2.8";
 
 export interface ChangelogVersion {
   version: string;
@@ -12,6 +12,38 @@ export interface ChangelogVersion {
 }
 
 export const CHANGELOG: ChangelogVersion[] = [
+  {
+    version: "1.2.8",
+    date: "Julio 2026",
+    fixes: [
+      "Modal de Reportes — botón 'Continuar' quedaba fuera del viewport al incluir captura de pantalla; el panel ahora tiene altura máxima del 90% de la pantalla, el formulario es scrollable y el botón queda fijo en la parte inferior siempre visible",
+      "Unidades Vendidas Supervisores — sub-categorías a veces no cargaban al entrar al dashboard (principalmente en 'Total') y había que recargar la página; causa: fetchSubgrupos disparaba con año/mes en cero antes de que cargaran los periodos, y la respuesta tardía sobreescribía los datos correctos; corregido agregando guard !anho || !mes idéntico al de fetchData",
+      "Unidades Vendidas Supervisores — categoría por defecto cambiada de 'Alimentos' a 'Total'",
+      "Login — todos los usuarios eran redirigidos a /dashboard/nacional tras iniciar sesión; usuarios sin ese permiso (ej: Gerente Regional) entraban en un ciclo de re-renders en React que corrompía el DOM y lanzaba el error 'insertBefore'; corregido navegando directamente al primer dashboard permitido del usuario; el mapeo perm→ruta se extrajo a constants/routes.ts como fuente única compartida con DashboardRoute",
+      "Navegador — error 'removeChild/insertBefore' causado por Google Translate o Chrome auto-translate que modifica nodos de texto en el DOM mientras React intenta reconciliarlos; corregido agregando translate=\"no\" y class=\"notranslate\" al elemento raíz html, y cambiando lang=\"en\" a lang=\"es\" para que Chrome no ofrezca traducir la página",
+      "Ventas Nacional (Mock-up) — peticiones infinitas a /opciones/, /comparacion/ y /skus/: apiFetch se recreaba en cada render de AuthProvider generando un ciclo sin fin; corregido con patrón useRef para referencias estables en los callbacks y useCallback en AuthContext",
+      "Ventas Nacional (Mock-up) — gráfico de Tendencia mostraba 'Sin datos': _run_dw_query serializa date/datetime a string ISO y el código llamaba .day sobre ese string causando AttributeError; corregido parseando con _date.fromisoformat()",
+      "Ventas Nacional (Mock-up) — gráfico de Tendencia: línea de Avance se extendía hasta la fecha del sistema aunque los datos solo llegan hasta ayer por desfase del ETL; corregido enviando null para días posteriores a fecha_corte y para domingos",
+      "Ventas Nacional (Mock-up) — gráfico de Tendencia: cuando el query de fecha_corte fallaba, el presupuesto se proyectaba hasta el día 31 superponiéndose con la Proyección; agregado fallback que deriva fecha_corte del último día con ventas reales",
+    ],
+    features: [
+      "Navegación — 'Comportamiento Productos' movido del grupo 'Varios' al grupo 'Evolución Mes'",
+      "Información Rutas — filtro 'Marca' renombrado a 'Clase' y cambiado a la columna clase_descripcion de dim_producto (antes usaba marca); se excluyen entradas con valor 'PENDIENTES'",
+      "Unidades Vendidas — nueva categoría 'Total' que agrega todas las líneas sin filtro; es la categoría por defecto al entrar al dashboard",
+      "Comportamiento Productos — nuevo filtro 'Proveedor' antes del filtro 'Marca'; al seleccionar un proveedor el desplegable de Marca muestra únicamente las marcas (dp.marca) de ese proveedor; el filtro de Marca ahora filtra por dp.marca en lugar de dp.proveedor; los datos y el buscador de productos también propagan ambos filtros al backend",
+      "Dashboard Softys — filtro de subcategoría (SKUs) corregido: el diccionario _SOFTYS_GRUPO_PATTERN tenía claves con doble-encoding UTF-8 (mojibake) que nunca coincidían con el parámetro enviado por el frontend, por lo que el filtro nunca aplicaba; reescrito completo para usar dp.clase_descripcion con match exacto (BABYSEC/COTIDIAN/LADYSOFT/PAPEL NOVA) y UPPER(producto_nombre) LIKE para subcategorías bajo clase ELITE (Papel Higiénico, Pañuelos, Servilletas); la distinción Babysec/Packeton se mantiene por UPPER(dp.producto_nombre) LIKE '%PACKETON%'; añadida nueva subcategoría 'Servilletas'",
+      "Dashboard Softys — SKUs ahora incluye productos sin ventas en el período: cambiado de INNER JOIN a LEFT JOIN entre dim_producto y fact_ventas para mostrar todos los SKUs activos de Softys aunque no hayan tenido movimiento",
+      "Dashboard Softys — _grupo_sql_cond ahora devuelve AND false cuando recibe un nombre de subcategoría no registrado en el diccionario, evitando que se muestren todos los SKUs sin filtrar; además registra un logger.warning con el nombre del grupo no reconocido",
+      "Ventas Nacional (Mock-up) — renombrado: el dashboard aparece como 'Ventas Nacional' tanto en el menú como en el encabezado de la página",
+      "Ventas Nacional (Mock-up) — filtros activos (Categoría, Proveedor, Sub-categoría, Marca, Canal y Regional) ahora aplican también a los KPI cards regionales, al card Total y al gráfico de Tendencia; el presupuesto en las cards también se filtra por producto para mantener coherencia en el % de cumplimiento",
+      "Ventas Nacional (Mock-up) — gráfico de Tendencia: la regional seleccionada afecta los datos y el label del gráfico muestra la regional activa",
+      "Ventas Nacional (Mock-up) — gráfico de Tendencia: Presupuesto ignora domingos y se detiene en la última fecha con datos reales; Proyección en naranja punteado claramente diferenciada del Presupuesto verde punteado",
+      "Ventas Nacional (Mock-up) — tooltip de Tendencia muestra Avance, Presupuesto y Proyección por separado más % de cumplimiento cuando ambos están disponibles",
+      "Navegación — sección 'Legacy' eliminada del menú principal; nueva entrada 'Accesos Legacy' en el dropdown del usuario (solo admins/subadmins) que abre la página /admin/legacy con cards de acceso a cada dashboard legacy",
+    ],
+    newDashboardPerms: [],
+    newDashboardNames: {},
+  },
   {
     version: "1.2.7",
     date: "Julio 2026",
