@@ -63,3 +63,4 @@ data/
 *.csv
 *.xlsx
 *.xls
+*.ps1
