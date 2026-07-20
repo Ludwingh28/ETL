@@ -81,7 +81,7 @@ DATABASES = {
         'CONN_HEALTH_CHECKS': True,   # verificar conexión antes de reutilizar
         'OPTIONS': {
             'client_encoding': 'UTF8',
-            'options': '-c search_path=dw,public,staging',
+            'options': '-c search_path=dw,public,staging -c lc_messages=C',
         },
     }
 }
