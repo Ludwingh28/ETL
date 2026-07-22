@@ -609,6 +609,7 @@ def dashboard_nacional_kpis(request):
         proveedores = [s for s in request.GET.getlist('proveedor') if s]
         subgrupos   = [s for s in request.GET.getlist('subgrupo')  if s]
         marcas      = [s for s in request.GET.getlist('marca')     if s]
+        productos   = [s for s in request.GET.getlist('producto')  if s]
 
         canal_cond  = "AND dv.canal_rrhh = %s" if canal else ""
         canal_param = [canal] if canal else []
@@ -616,9 +617,10 @@ def dashboard_nacional_kpis(request):
         prov_cond, prov_params = _multi_prov_cond(proveedores)
         sub_cond,  sub_params  = _multi_sub_cond(subgrupos)
         marc_cond, marc_params = _multi_marc_cond(marcas)
-        prod_cond  = f"{cat_cond} {prov_cond} {sub_cond} {marc_cond}"
-        prod_params = cat_params + prov_params + sub_params + marc_params
-        has_prod   = bool(categorias or proveedores or subgrupos or marcas)
+        nom_cond,  nom_params  = _multi_prod_cond(productos)
+        prod_cond  = f"{cat_cond} {prov_cond} {sub_cond} {marc_cond} {nom_cond}"
+        prod_params = cat_params + prov_params + sub_params + marc_params + nom_params
+        has_prod   = bool(categorias or proveedores or subgrupos or marcas or productos)
         prod_join  = "JOIN dw.dim_producto dp ON fv.producto_sk = dp.producto_sk" if has_prod else ""
 
         scz  = _ciudad_case('dv.ciudad', 'santa_cruz')
@@ -702,6 +704,7 @@ def dashboard_nacional_tendencia(request):
         proveedores = [s for s in request.GET.getlist('proveedor') if s]
         subgrupos   = [s for s in request.GET.getlist('subgrupo')  if s]
         marcas      = [s for s in request.GET.getlist('marca')     if s]
+        productos   = [s for s in request.GET.getlist('producto')  if s]
         if regional not in REGIONALES_VALID:
             regional = 'nacional'
 
@@ -712,9 +715,10 @@ def dashboard_nacional_tendencia(request):
         prov_cond, prov_params = _multi_prov_cond(proveedores)
         sub_cond,  sub_params  = _multi_sub_cond(subgrupos)
         marc_cond, marc_params = _multi_marc_cond(marcas)
-        prod_cond  = f"{cat_cond} {prov_cond} {sub_cond} {marc_cond}"
-        prod_params = cat_params + prov_params + sub_params + marc_params
-        has_filters = bool(regional != 'nacional' or canal or categorias or proveedores or subgrupos or marcas)
+        nom_cond,  nom_params  = _multi_prod_cond(productos)
+        prod_cond  = f"{cat_cond} {prov_cond} {sub_cond} {marc_cond} {nom_cond}"
+        prod_params = cat_params + prov_params + sub_params + marc_params + nom_params
+        has_filters = bool(regional != 'nacional' or canal or categorias or proveedores or subgrupos or marcas or productos)
 
         if has_filters:
             # Subquery para pre-filtrar fact_ventas; LEFT JOIN exterior preserva todos los días
@@ -760,7 +764,7 @@ def dashboard_nacional_tendencia(request):
 
         _, avance_rows = _run_dw_query(sql_avance, avance_params)
 
-        ppto_prod_join = "JOIN dw.dim_producto dp ON fp.producto_sk = dp.producto_sk" if (categorias or proveedores or subgrupos or marcas) else ""
+        ppto_prod_join = "JOIN dw.dim_producto dp ON fp.producto_sk = dp.producto_sk" if (categorias or proveedores or subgrupos or marcas or productos) else ""
         presupuesto_mes = 0.0
         try:
             _, p = _run_dw_query(
@@ -781,7 +785,7 @@ def dashboard_nacional_tendencia(request):
         # Nota: _run_dw_query convierte fechas a str ISO, por eso se parsea con fromisoformat
         fecha_corte = None
         try:
-            fc_prod_join = "JOIN dw.dim_producto dp ON fv.producto_sk = dp.producto_sk" if (categorias or proveedores or subgrupos or marcas) else ""
+            fc_prod_join = "JOIN dw.dim_producto dp ON fv.producto_sk = dp.producto_sk" if (categorias or proveedores or subgrupos or marcas or productos) else ""
             _, fc_rows = _run_dw_query(
                 f"""SELECT MAX(df.fecha_completa) AS fc
                    FROM dw.dim_fecha df
@@ -831,8 +835,8 @@ def dashboard_nacional_tendencia(request):
             if not es_domingo:
                 dias_lab_ac += 1
 
-            # Presupuesto: None en domingos y a partir del día siguiente a fecha_corte
-            if es_domingo or (es_periodo_actual and fecha_corte and fecha_dia > fecha_corte):
+            # Presupuesto: None solo en domingos — siempre llega hasta fin de mes
+            if es_domingo:
                 ppto_ac = None
             elif ppto_por_dia_lab > 0:
                 ppto_ac = round(ppto_por_dia_lab * dias_lab_ac, 2)
@@ -4173,15 +4177,15 @@ def _multi_cat_cond(categorias):
 
 
 def _multi_prov_cond(proveedores):
-    """Multi-select proveedor → UPPER(dp.proveedor) IN (...)."""
+    """Multi-select proveedor (clase_descripcion) → IN (...)."""
     if not proveedores:
         return "", []
     phs = ", ".join(["%s"] * len(proveedores))
-    return f"AND UPPER(dp.proveedor) IN ({phs})", [p.upper() for p in proveedores]
+    return f"AND dp.clase_descripcion IN ({phs})", list(proveedores)
 
 
 def _multi_sub_cond(subgrupos):
-    """Multi-select subgrupo_descripcion → IN (...)."""
+    """Multi-select sub-categoría (subgrupo_descripcion) → IN (...)."""
     if not subgrupos:
         return "", []
     phs = ", ".join(["%s"] * len(subgrupos))
@@ -4194,6 +4198,14 @@ def _multi_marc_cond(marcas):
         return "", []
     phs = ", ".join(["%s"] * len(marcas))
     return f"AND dp.marca IN ({phs})", list(marcas)
+
+
+def _multi_prod_cond(productos):
+    """Multi-select producto_nombre → IN (...)."""
+    if not productos:
+        return "", []
+    phs = ", ".join(["%s"] * len(productos))
+    return f"AND dp.producto_nombre IN ({phs})", list(productos)
 
 
 def _prev_period(anho, mes):
@@ -4525,45 +4537,31 @@ def dashboard_unidades_por_sku(request):
 @_require_perm('new-nacional')
 def dashboard_new_nacional_opciones(request):
     """
-    Opciones en cascada (multi-select) para los filtros del mock-up.
-    Params (multi-value): categoria[], proveedor[], subgrupo[]
-    Params: regional, canal, anho, mes
+    Opciones en cascada: Categoría → Sub-cat → Proveedor → Marca → Productos.
+    Canal es filtro operacional — NO afecta el catálogo.
+    Params (multi-value): categoria[], proveedor[], subgrupo[], marca[]
+    Params: regional, anho, mes
     """
     try:
-        regional    = request.GET.get('regional', 'nacional').lower().replace(' ', '_')
-        canal       = _safe_str(request.GET.get('canal', ''))
+        regional   = request.GET.get('regional', 'nacional').lower().replace(' ', '_')
         categorias  = [s for s in request.GET.getlist('categoria') if s]
         proveedores = [s for s in request.GET.getlist('proveedor') if s]
-        subgrupos   = [s for s in request.GET.getlist('subgrupo') if s]
-        anho        = _safe_int(request.GET.get('anho'), datetime.now().year)
-        mes         = _safe_int(request.GET.get('mes'),  datetime.now().month)
+        subgrupos   = [s for s in request.GET.getlist('subgrupo')  if s]
+        marcas      = [s for s in request.GET.getlist('marca')     if s]
+        anho       = _safe_int(request.GET.get('anho'), datetime.now().year)
+        mes        = _safe_int(request.GET.get('mes'),  datetime.now().month)
         if regional not in REGIONALES_VALID:
             regional = 'nacional'
 
         ciudad_cond = _regional_filter(regional)
-        canal_cond  = "AND dv.canal_rrhh = %s" if canal else ""
-        canal_param = [canal] if canal else []
-        base_params = [anho, mes] + canal_param
 
         cat_cond,  cat_params  = _multi_cat_cond(categorias)
         prov_cond, prov_params = _multi_prov_cond(proveedores)
         sub_cond,  sub_params  = _multi_sub_cond(subgrupos)
+        marc_cond, marc_params = _multi_marc_cond(marcas)
+        base_params = [anho, mes]
 
-        # 1) Proveedores: filtrado solo por categorías
-        sql_prov = f"""
-            SELECT DISTINCT UPPER(dp.proveedor) AS proveedor
-            FROM dw.fact_ventas fv
-            JOIN dw.dim_fecha    df ON fv.fecha_sk    = df.fecha_sk
-            JOIN dw.dim_vendedor dv ON fv.vendedor_sk = dv.vendedor_sk
-            JOIN dw.dim_producto dp ON fv.producto_sk = dp.producto_sk
-            WHERE df.anho = %s AND df.mes_numero = %s
-              AND ({ciudad_cond}) {canal_cond} {cat_cond}
-              AND dp.proveedor IS NOT NULL AND dp.proveedor <> ''
-            ORDER BY proveedor
-        """
-        _, prov_rows = _run_dw_query(sql_prov, base_params + cat_params)
-
-        # 2) Subgrupos: filtrado por categorías + proveedores
+        # 1) Sub-categoría — filtrada solo por categorías
         sql_sub = f"""
             SELECT DISTINCT dp.subgrupo_descripcion AS subgrupo
             FROM dw.fact_ventas fv
@@ -4571,13 +4569,27 @@ def dashboard_new_nacional_opciones(request):
             JOIN dw.dim_vendedor dv ON fv.vendedor_sk = dv.vendedor_sk
             JOIN dw.dim_producto dp ON fv.producto_sk = dp.producto_sk
             WHERE df.anho = %s AND df.mes_numero = %s
-              AND ({ciudad_cond}) {canal_cond} {cat_cond} {prov_cond}
+              AND ({ciudad_cond}) {cat_cond}
               AND dp.subgrupo_descripcion IS NOT NULL AND dp.subgrupo_descripcion <> ''
             ORDER BY subgrupo
         """
-        _, sub_rows = _run_dw_query(sql_sub, base_params + cat_params + prov_params)
+        _, sub_rows = _run_dw_query(sql_sub, base_params + cat_params)
 
-        # 3) Marcas: filtrado por categorías + proveedores + subgrupos
+        # 2) Proveedor — filtrado por categorías + sub-categoría
+        sql_prov = f"""
+            SELECT DISTINCT dp.clase_descripcion AS proveedor
+            FROM dw.fact_ventas fv
+            JOIN dw.dim_fecha    df ON fv.fecha_sk    = df.fecha_sk
+            JOIN dw.dim_vendedor dv ON fv.vendedor_sk = dv.vendedor_sk
+            JOIN dw.dim_producto dp ON fv.producto_sk = dp.producto_sk
+            WHERE df.anho = %s AND df.mes_numero = %s
+              AND ({ciudad_cond}) {cat_cond} {sub_cond}
+              AND dp.clase_descripcion IS NOT NULL AND dp.clase_descripcion <> ''
+            ORDER BY proveedor
+        """
+        _, prov_rows = _run_dw_query(sql_prov, base_params + cat_params + sub_params)
+
+        # 3) Marcas — filtradas por categorías + sub-categoría + proveedor
         sql_marc = f"""
             SELECT DISTINCT dp.marca AS marca
             FROM dw.fact_ventas fv
@@ -4585,21 +4597,59 @@ def dashboard_new_nacional_opciones(request):
             JOIN dw.dim_vendedor dv ON fv.vendedor_sk = dv.vendedor_sk
             JOIN dw.dim_producto dp ON fv.producto_sk = dp.producto_sk
             WHERE df.anho = %s AND df.mes_numero = %s
-              AND ({ciudad_cond}) {canal_cond} {cat_cond} {prov_cond} {sub_cond}
+              AND ({ciudad_cond}) {cat_cond} {sub_cond} {prov_cond}
               AND dp.marca IS NOT NULL AND dp.marca <> ''
             ORDER BY marca
         """
-        _, marc_rows = _run_dw_query(sql_marc, base_params + cat_params + prov_params + sub_params)
+        _, marc_rows = _run_dw_query(sql_marc, base_params + cat_params + sub_params + prov_params)
+
+        # 4) Productos — filtrados por toda la jerarquía seleccionada
+        sql_prod = f"""
+            SELECT DISTINCT dp.producto_nombre AS producto
+            FROM dw.fact_ventas fv
+            JOIN dw.dim_fecha    df ON fv.fecha_sk    = df.fecha_sk
+            JOIN dw.dim_vendedor dv ON fv.vendedor_sk = dv.vendedor_sk
+            JOIN dw.dim_producto dp ON fv.producto_sk = dp.producto_sk
+            WHERE df.anho = %s AND df.mes_numero = %s
+              AND ({ciudad_cond}) {cat_cond} {sub_cond} {prov_cond} {marc_cond}
+              AND dp.producto_nombre IS NOT NULL AND dp.producto_nombre <> ''
+            ORDER BY producto
+        """
+        _, prod_rows = _run_dw_query(sql_prod, base_params + cat_params + sub_params + prov_params + marc_params)
+
+        # Canales — independiente de selecciones
+        try:
+            _, can_rows = _run_dw_query("""
+                SELECT DISTINCT canal FROM dual.dim_cliente_dual
+                WHERE canal IS NOT NULL AND canal <> ''
+                ORDER BY canal
+            """, [])
+        except Exception:
+            can_rows = []
 
         return JsonResponse({
             'success':     True,
-            'proveedores': [r['proveedor'] for r in prov_rows],
             'subgrupos':   [r['subgrupo']  for r in sub_rows],
+            'proveedores': [r['proveedor'] for r in prov_rows],
             'marcas':      [r['marca']     for r in marc_rows],
+            'productos':   [r['producto']  for r in prod_rows],
+            'canales':     [r['canal']     for r in can_rows],
         })
     except Exception:
-        logger.exception("Error interno")
-        return JsonResponse({'success': False, 'error': 'Error interno del servidor'}, status=500)
+        logger.exception("Error interno - opciones")
+        try:
+            _, can_rows = _run_dw_query("""
+                SELECT DISTINCT canal FROM dual.dim_cliente_dual
+                WHERE canal IS NOT NULL AND canal <> ''
+                ORDER BY canal
+            """, [])
+            return JsonResponse({
+                'success': True,
+                'subgrupos': [], 'proveedores': [], 'marcas': [], 'productos': [],
+                'canales': [r['canal'] for r in can_rows],
+            })
+        except Exception:
+            return JsonResponse({'success': False, 'error': 'Error interno del servidor'}, status=500)
 
 
 @api_view(['GET'])
@@ -4630,10 +4680,13 @@ def dashboard_new_nacional_comparacion(request):
         canal_cond  = "AND dv.canal_rrhh = %s" if canal else ""
         canal_param = [canal] if canal else []
 
+        productos   = [s for s in request.GET.getlist('producto') if s]
+
         cat_cond,  cat_params  = _multi_cat_cond(categorias)
         prov_cond, prov_params = _multi_prov_cond(proveedores)
         sub_cond,  sub_params  = _multi_sub_cond(subgrupos)
         marc_cond, marc_params = _multi_marc_cond(marcas)
+        prod_cond, prod_params = _multi_prod_cond(productos)
 
         # Dimensión de agrupamiento (más específica primero)
         if marcas:
@@ -4685,8 +4738,8 @@ def dashboard_new_nacional_comparacion(request):
             up_params  = []
             group_by   = "categoria"
 
-        all_cond      = f"{up_cond} {grp_cond}"
-        all_params    = up_params + grp_params
+        all_cond      = f"{up_cond} {grp_cond} {prod_cond}"
+        all_params    = up_params + grp_params + prod_params
         grp_by_clause = f"GROUP BY {grp_expr}"
         order_clause  = "ORDER BY venta_neta DESC"
 
@@ -4817,12 +4870,15 @@ def dashboard_new_nacional_skus(request):
         canal_cond  = "AND dv.canal_rrhh = %s" if canal else ""
         canal_param = [canal] if canal else []
 
+        productos   = [s for s in request.GET.getlist('producto') if s]
+
         cat_cond,  cat_params  = _multi_cat_cond(categorias)
         prov_cond, prov_params = _multi_prov_cond(proveedores)
         sub_cond,  sub_params  = _multi_sub_cond(subgrupos)
         marc_cond, marc_params = _multi_marc_cond(marcas)
-        filter_cond   = f"{cat_cond} {prov_cond} {sub_cond} {marc_cond}"
-        filter_params = cat_params + prov_params + sub_params + marc_params
+        prod_cond, prod_params = _multi_prod_cond(productos)
+        filter_cond   = f"{cat_cond} {prov_cond} {sub_cond} {marc_cond} {prod_cond}"
+        filter_params = cat_params + prov_params + sub_params + marc_params + prod_params
 
         # Ventas mes actual
         sql_v = f"""
@@ -7797,3 +7853,158 @@ def reporte_unread_count(request):
     ).count() if since else Reporte.objects.count()
 
     return JsonResponse({'count': count})
+
+
+def dashboard_new_nacional_rutas_mapa(request):
+    """Devuelve rutas con centroide lat/lng y venta acumulada del mes para el mapa."""
+    regional = request.GET.get("regional", "")
+    canal    = request.GET.get("canal", "")
+    anho     = int(request.GET.get("anho", 0) or 0)
+    mes      = int(request.GET.get("mes",  0) or 0)
+
+    SUCURSAL_MAP = {
+        "santa_cruz": "SCZ",
+        "cochabamba": "CBB",
+        "la_paz":     "LPZ",
+    }
+    sucursal = SUCURSAL_MAP.get(regional)
+    if not sucursal or not anho or not mes:
+        return JsonResponse({"success": False, "rutas": [], "error": "regional, anho y mes requeridos"})
+
+    canal_cond = "AND dcd.canal = %s" if canal else ""
+    params_canal = [canal] if canal else []
+
+    sql = f"""
+        WITH ventas_cliente AS (
+            SELECT dc.cliente_codigo_erp, SUM(fv.venta_neta) AS venta
+            FROM dw.fact_ventas fv
+            JOIN dw.dim_cliente dc ON dc.cliente_sk = fv.cliente_sk
+            JOIN dw.dim_fecha df   ON df.fecha_sk   = fv.fecha_sk
+            WHERE df.anho = %s AND df.mes_numero = %s
+            GROUP BY dc.cliente_codigo_erp
+        )
+        SELECT
+            dp.ruta,
+            dp.zona,
+            ROUND(AVG(dcd.latitud::numeric),  6) AS lat,
+            ROUND(AVG(dcd.longitud::numeric), 6) AS lng,
+            COALESCE(SUM(vc.venta), 0)           AS venta_acumulada,
+            COUNT(dcd.codigo_cliente)             AS n_clientes
+        FROM dual.dim_planificacion dp
+        JOIN dual.dim_cliente_dual dcd
+             ON dcd.ruta = dp.ruta AND dcd.es_actual = true
+        LEFT JOIN ventas_cliente vc
+             ON vc.cliente_codigo_erp = dcd.codigo_cliente
+        WHERE dp.es_actual = true
+          AND dp.sucursal_origen = %s
+          AND dcd.latitud IS NOT NULL
+          {canal_cond}
+        GROUP BY dp.ruta, dp.zona
+        ORDER BY venta_acumulada DESC
+    """
+    params = [anho, mes, sucursal] + params_canal
+
+    try:
+        with connections["dw"].cursor() as cursor:
+            cursor.execute(sql, params)
+            cols = [c.description[0] for c in cursor.description]
+            rutas = [dict(zip(cols, row)) for row in cursor.fetchall()]
+        for r in rutas:
+            r["venta_acumulada"] = float(r["venta_acumulada"])
+            r["lat"] = float(r["lat"]) if r["lat"] is not None else None
+            r["lng"] = float(r["lng"]) if r["lng"] is not None else None
+        return JsonResponse({"success": True, "rutas": rutas})
+    except Exception as e:
+        return JsonResponse({"success": False, "rutas": [], "error": str(e)})
+
+
+@api_view(['GET'])
+@authentication_classes([ExpiringTokenAuthentication])
+@permission_classes([IsAuthenticated])
+def dashboard_new_nacional_canales_mini(request):
+    """Mini-cards de canales para el dashboard nacional con soporte de filtros de producto."""
+    try:
+        anho     = _safe_int(request.GET.get('anho'), datetime.now().year)
+        mes      = _safe_int(request.GET.get('mes'),  datetime.now().month)
+        regional = request.GET.get('regional', 'nacional').lower().replace(' ', '_')
+        err      = _validate_anho_mes(anho, mes)
+        if err: return err
+        if regional not in REGIONALES_VALID:
+            regional = 'nacional'
+
+        categorias  = [s for s in request.GET.getlist('categoria') if s]
+        proveedores = [s for s in request.GET.getlist('proveedor') if s]
+        subgrupos   = [s for s in request.GET.getlist('subgrupo')  if s]
+        marcas      = [s for s in request.GET.getlist('marca')     if s]
+        productos   = [s for s in request.GET.getlist('producto')  if s]
+
+        cat_cond,  cat_params  = _multi_cat_cond(categorias)
+        prov_cond, prov_params = _multi_prov_cond(proveedores)
+        sub_cond,  sub_params  = _multi_sub_cond(subgrupos)
+        marc_cond, marc_params = _multi_marc_cond(marcas)
+        nom_cond,  nom_params  = _multi_prod_cond(productos)
+        prod_cond   = f"{cat_cond} {prov_cond} {sub_cond} {marc_cond} {nom_cond}"
+        prod_params = cat_params + prov_params + sub_params + marc_params + nom_params
+        has_prod    = bool(categorias or proveedores or subgrupos or marcas or productos)
+        prod_join   = "JOIN dw.dim_producto dp ON fv.producto_sk = dp.producto_sk" if has_prod else ""
+        ppto_prod_join = "JOIN dw.dim_producto dp ON fp.producto_sk = dp.producto_sk" if has_prod else ""
+
+        ciudad_cond = _regional_filter(regional)
+
+        sql_ventas = f"""
+            SELECT
+                dv.canal_rrhh                           AS canal,
+                COALESCE(SUM(fv.venta_neta), 0)         AS avance,
+                COALESCE(SUM(fv.cantidad), 0)           AS cantidad,
+                COUNT(DISTINCT fv.cliente_sk)           AS clientes
+            FROM dw.fact_ventas fv
+            JOIN dw.dim_fecha    df ON fv.fecha_sk    = df.fecha_sk
+            JOIN dw.dim_vendedor dv ON fv.vendedor_sk = dv.vendedor_sk
+            {prod_join}
+            WHERE df.anho = %s AND df.mes_numero = %s
+              AND dv.canal_rrhh IS NOT NULL AND ({ciudad_cond})
+              {prod_cond}
+            GROUP BY dv.canal_rrhh ORDER BY avance DESC
+        """
+        _, ventas_rows = _run_dw_query(sql_ventas, [anho, mes] + prod_params)
+
+        sql_ppto = f"""
+            SELECT
+                dv.canal_rrhh AS canal,
+                COALESCE(SUM(fp.venta_neta_presupuestada), 0) AS presupuesto,
+                COALESCE(SUM(fp.cantidad_presupuestada), 0)   AS presupuesto_uds
+            FROM dw.fact_presupuesto fp
+            JOIN dw.dim_vendedor dv ON fp.vendedor_sk = dv.vendedor_sk
+            {ppto_prod_join}
+            WHERE fp.anho = %s AND fp.mes = %s
+              AND dv.canal_rrhh IS NOT NULL AND ({ciudad_cond})
+              {prod_cond}
+              AND fp.version_sk = (SELECT MAX(version_sk) FROM dw.dim_presupuesto_version WHERE anho = %s AND mes = %s)
+            GROUP BY dv.canal_rrhh
+        """
+        ppto_map = {}
+        try:
+            _, ppto_rows = _run_dw_query(sql_ppto, [anho, mes] + prod_params + [anho, mes])
+            ppto_map = {r['canal']: (float(r['presupuesto'] or 0), float(r['presupuesto_uds'] or 0)) for r in ppto_rows}
+        except Exception:
+            pass
+
+        result = []
+        for row in ventas_rows:
+            ppto_bs, ppto_uds = ppto_map.get(row['canal'], (0, 0))
+            avance   = float(row['avance']   or 0)
+            cantidad = float(row['cantidad'] or 0)
+            result.append({
+                'canal':            row['canal'],
+                'avance':           avance,
+                'cantidad':         cantidad,
+                'clientes':         int(row['clientes'] or 0),
+                'presupuesto':      ppto_bs,
+                'presupuesto_uds':  ppto_uds,
+                'porcentaje':       round(avance   / ppto_bs  * 100, 1) if ppto_bs  > 0 else None,
+                'porcentaje_uds':   round(cantidad / ppto_uds * 100, 1) if ppto_uds > 0 else None,
+            })
+        return JsonResponse({'success': True, 'data': result})
+    except Exception:
+        logger.exception("Error interno")
+        return JsonResponse({'success': False, 'error': 'Error interno del servidor'}, status=500)

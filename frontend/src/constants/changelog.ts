@@ -1,4 +1,4 @@
-export const CURRENT_VERSION = "1.2.8";
+export const CURRENT_VERSION = "1.2.8.2";
 
 export interface ChangelogVersion {
   version: string;
@@ -12,6 +12,25 @@ export interface ChangelogVersion {
 }
 
 export const CHANGELOG: ChangelogVersion[] = [
+  {
+    version: "1.2.8.2",
+    date: "Julio 2026",
+    fixes: [
+      "Mock-up — filtro de canal ya no se resetea al cambiar entre cards regionales (Nacional / Santa Cruz / Cochabamba / La Paz)",
+      "Mock-up — comparativo de marca/producto se quedaba cargando indefinidamente: faltaba bloque finally { setLoadingComp(false) } que se perdió en una edición anterior; restaurado",
+      "Dashboard Nacional / Mock-up — gráfico de Tendencia: presupuesto no se filtraba por marca ni producto al seleccionar esos filtros; el endpoint dashboard_nacional_tendencia ahora aplica _multi_marc_cond y _multi_prod_cond tanto al query de ventas reales como al query de presupuesto (ppto_prod_join)",
+      "Dashboard Nacional / Mock-up — KPI cards: presupuesto solo llegaba hasta nivel proveedor; el endpoint dashboard_nacional_kpis no parseaba los parámetros marca y producto; corregido añadiendo _multi_marc_cond y _multi_prod_cond",
+    ],
+    features: [
+      "Mock-up — nuevo filtro 'Productos' (SKU) como último nivel de la cascada de producto: Categoría → Sub-categoría → Proveedor → Marca → Productos; los SKUs disponibles se calculan en base a todos los filtros activos del nivel superior",
+      "Mock-up — mini-cards de canal debajo de las cards regionales: muestran nombre del canal, % de cumplimiento (Avance vs Presupuesto), avance y clientes coberturados; desaparecen automáticamente cuando se selecciona un canal en el filtro de la sección de filtros",
+      "Mock-up — mini-cards de canal: toggle Bs / Unidades para alternar entre venta neta vs presupuesto monetario y cantidad vendida vs cantidad presupuestada; el % se recalcula según el modo activo",
+      "Mock-up — mini-cards de canal: respetan todos los filtros activos de la sección de filtros (categoría, sub-categoría, proveedor, marca, productos); nuevo endpoint /dashboard/new-nacional/canales-mini/ dedicado con soporte completo de filtros de producto",
+      "Mock-up — mini-cards de canal: no son clickeables; la selección de canal se hace exclusivamente desde el filtro de la sección de filtros",
+    ],
+    newDashboardPerms: [],
+    newDashboardNames: {},
+  },
   {
     version: "1.2.8",
     date: "Julio 2026",
