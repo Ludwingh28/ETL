@@ -4177,11 +4177,11 @@ def _multi_cat_cond(categorias):
 
 
 def _multi_prov_cond(proveedores):
-    """Multi-select proveedor (clase_descripcion) → IN (...)."""
+    """Multi-select proveedor (dp.proveedor) → IN (...)."""
     if not proveedores:
         return "", []
     phs = ", ".join(["%s"] * len(proveedores))
-    return f"AND dp.clase_descripcion IN ({phs})", list(proveedores)
+    return f"AND dp.proveedor IN ({phs})", list(proveedores)
 
 
 def _multi_sub_cond(subgrupos):
@@ -4577,14 +4577,14 @@ def dashboard_new_nacional_opciones(request):
 
         # 2) Proveedor — filtrado por categorías + sub-categoría
         sql_prov = f"""
-            SELECT DISTINCT dp.clase_descripcion AS proveedor
+            SELECT DISTINCT dp.proveedor AS proveedor
             FROM dw.fact_ventas fv
             JOIN dw.dim_fecha    df ON fv.fecha_sk    = df.fecha_sk
             JOIN dw.dim_vendedor dv ON fv.vendedor_sk = dv.vendedor_sk
             JOIN dw.dim_producto dp ON fv.producto_sk = dp.producto_sk
             WHERE df.anho = %s AND df.mes_numero = %s
               AND ({ciudad_cond}) {cat_cond} {sub_cond}
-              AND dp.clase_descripcion IS NOT NULL AND dp.clase_descripcion <> ''
+              AND dp.proveedor IS NOT NULL AND dp.proveedor <> ''
             ORDER BY proveedor
         """
         _, prov_rows = _run_dw_query(sql_prov, base_params + cat_params + sub_params)
@@ -4620,8 +4620,8 @@ def dashboard_new_nacional_opciones(request):
         # Canales — independiente de selecciones
         try:
             _, can_rows = _run_dw_query("""
-                SELECT DISTINCT canal FROM dual.dim_cliente_dual
-                WHERE canal IS NOT NULL AND canal <> ''
+                SELECT DISTINCT canal_rrhh AS canal FROM dw.dim_vendedor
+                WHERE canal_rrhh IS NOT NULL AND canal_rrhh <> ''
                 ORDER BY canal
             """, [])
         except Exception:
@@ -4976,6 +4976,241 @@ def dashboard_new_nacional_skus(request):
             'prev_anho': prev_anho,
             'prev_mes':  prev_mes,
         })
+    except Exception:
+        logger.exception("Error interno")
+        return JsonResponse({'success': False, 'error': 'Error interno del servidor'}, status=500)
+
+
+@api_view(['GET'])
+@authentication_classes([ExpiringTokenAuthentication])
+@permission_classes([IsAuthenticated])
+def dashboard_new_nacional_vendedores(request):
+    """
+    Ranking de vendedores con ventas Bs/Uds y presupuesto Bs/Uds del mes.
+    Acepta los mismos filtros que /skus/.
+    """
+    try:
+        regional    = request.GET.get('regional', 'nacional').lower().replace(' ', '_')
+        canal       = _safe_str(request.GET.get('canal', ''))
+        categorias  = [s for s in request.GET.getlist('categoria') if s]
+        proveedores = [s for s in request.GET.getlist('proveedor') if s]
+        subgrupos   = [s for s in request.GET.getlist('subgrupo')  if s]
+        marcas      = [s for s in request.GET.getlist('marca')     if s]
+        productos   = [s for s in request.GET.getlist('producto')  if s]
+        anho        = _safe_int(request.GET.get('anho'), datetime.now().year)
+        mes         = _safe_int(request.GET.get('mes'),  datetime.now().month)
+        if regional not in REGIONALES_VALID:
+            regional = 'nacional'
+
+        ciudad_cond = _regional_filter(regional)
+        canal_cond  = "AND dv.canal_rrhh = %s" if canal else ""
+        canal_param = [canal] if canal else []
+
+        cat_cond,  cat_params  = _multi_cat_cond(categorias)
+        prov_cond, prov_params = _multi_prov_cond(proveedores)
+        sub_cond,  sub_params  = _multi_sub_cond(subgrupos)
+        marc_cond, marc_params = _multi_marc_cond(marcas)
+        prod_cond, prod_params = _multi_prod_cond(productos)
+        has_prod      = bool(categorias or proveedores or subgrupos or marcas or productos)
+        filter_cond   = f"{cat_cond} {prov_cond} {sub_cond} {marc_cond} {prod_cond}"
+        filter_params = cat_params + prov_params + sub_params + marc_params + prod_params
+        prod_join      = "JOIN dw.dim_producto dp ON fv.producto_sk = dp.producto_sk" if has_prod else ""
+        ppto_prod_join = "JOIN dw.dim_producto dp ON fp.producto_sk = dp.producto_sk" if has_prod else ""
+
+        sql_v = f"""
+            SELECT
+                dv.vendedor_nombre                      AS vendedor,
+                COALESCE(SUM(fv.venta_neta), 0)         AS venta_neta,
+                COALESCE(SUM(fv.cantidad), 0)           AS cantidad
+            FROM dw.fact_ventas fv
+            JOIN dw.dim_fecha    df ON fv.fecha_sk    = df.fecha_sk
+            JOIN dw.dim_vendedor dv ON fv.vendedor_sk = dv.vendedor_sk
+            {prod_join}
+            WHERE df.anho = %s AND df.mes_numero = %s
+              AND ({ciudad_cond}) {canal_cond} {filter_cond}
+              AND dv.vendedor_nombre IS NOT NULL
+            GROUP BY dv.vendedor_nombre
+            ORDER BY venta_neta DESC
+        """
+        _, v_rows = _run_dw_query(sql_v, [anho, mes] + canal_param + filter_params)
+
+        ppto_map = {}
+        try:
+            sql_p = f"""
+                SELECT
+                    dv.vendedor_nombre                             AS vendedor,
+                    COALESCE(SUM(fp.venta_neta_presupuestada), 0) AS presupuesto_bs,
+                    COALESCE(SUM(fp.cantidad_presupuestada), 0)   AS presupuesto_uds
+                FROM dw.fact_presupuesto fp
+                JOIN dw.dim_vendedor dv ON fp.vendedor_sk = dv.vendedor_sk
+                {ppto_prod_join}
+                WHERE fp.anho = %s AND fp.mes = %s
+                  AND ({ciudad_cond}) {canal_cond} {filter_cond}
+                  AND dv.vendedor_nombre IS NOT NULL
+                  AND fp.version_sk = (SELECT MAX(version_sk) FROM dw.dim_presupuesto_version WHERE anho = %s AND mes = %s)
+                GROUP BY dv.vendedor_nombre
+            """
+            _, p_rows = _run_dw_query(sql_p, [anho, mes] + canal_param + filter_params + [anho, mes])
+            ppto_map = {r['vendedor']: r for r in p_rows}
+        except Exception:
+            pass
+
+        result = []
+        for row in v_rows:
+            nombre   = row['vendedor']
+            vn       = float(row['venta_neta'] or 0)
+            cant     = int(row['cantidad'] or 0)
+            pp       = ppto_map.get(nombre, {})
+            ppto_bs  = float(pp.get('presupuesto_bs')  or 0)
+            ppto_uds = int(pp.get('presupuesto_uds') or 0)
+            result.append({
+                'vendedor':        nombre,
+                'venta_neta':      vn,
+                'cantidad':        cant,
+                'presupuesto_bs':  ppto_bs,
+                'presupuesto_uds': ppto_uds,
+                'pct_cumpl':       round(vn / ppto_bs * 100, 1) if ppto_bs > 0 else None,
+            })
+
+        return JsonResponse({'success': True, 'data': result})
+    except Exception:
+        logger.exception("Error interno")
+        return JsonResponse({'success': False, 'error': 'Error interno del servidor'}, status=500)
+
+
+@api_view(['GET'])
+@authentication_classes([ExpiringTokenAuthentication])
+@permission_classes([IsAuthenticated])
+def dashboard_new_nacional_clientes(request):
+    """
+    Ranking de clientes con ventas Bs/Uds del mes.
+    Acepta los mismos filtros que /vendedores/.
+    """
+    try:
+        regional    = request.GET.get('regional', 'nacional').lower().replace(' ', '_')
+        canal       = _safe_str(request.GET.get('canal', ''))
+        categorias  = [s for s in request.GET.getlist('categoria') if s]
+        proveedores = [s for s in request.GET.getlist('proveedor') if s]
+        subgrupos   = [s for s in request.GET.getlist('subgrupo')  if s]
+        marcas      = [s for s in request.GET.getlist('marca')     if s]
+        productos   = [s for s in request.GET.getlist('producto')  if s]
+        anho        = _safe_int(request.GET.get('anho'), datetime.now().year)
+        mes         = _safe_int(request.GET.get('mes'),  datetime.now().month)
+        if regional not in REGIONALES_VALID:
+            regional = 'nacional'
+
+        ciudad_cond = _regional_filter(regional)
+        canal_cond  = "AND dv.canal_rrhh = %s" if canal else ""
+        canal_param = [canal] if canal else []
+
+        cat_cond,  cat_params  = _multi_cat_cond(categorias)
+        prov_cond, prov_params = _multi_prov_cond(proveedores)
+        sub_cond,  sub_params  = _multi_sub_cond(subgrupos)
+        marc_cond, marc_params = _multi_marc_cond(marcas)
+        prod_cond, prod_params = _multi_prod_cond(productos)
+        has_prod      = bool(categorias or proveedores or subgrupos or marcas or productos)
+        filter_cond   = f"{cat_cond} {prov_cond} {sub_cond} {marc_cond} {prod_cond}"
+        filter_params = cat_params + prov_params + sub_params + marc_params + prod_params
+        prod_join     = "JOIN dw.dim_producto dp ON fv.producto_sk = dp.producto_sk" if has_prod else ""
+
+        sql = f"""
+            SELECT
+                dc.cliente_codigo_erp                              AS codigo,
+                COALESCE(dc.cliente_nombre, dc.cliente_codigo_erp) AS nombre,
+                COALESCE(SUM(fv.venta_neta), 0)                    AS venta_neta,
+                COALESCE(SUM(fv.cantidad), 0)                      AS cantidad
+            FROM dw.fact_ventas fv
+            JOIN dw.dim_fecha    df ON fv.fecha_sk    = df.fecha_sk
+            JOIN dw.dim_vendedor dv ON fv.vendedor_sk = dv.vendedor_sk
+            JOIN dw.dim_cliente  dc ON fv.cliente_sk  = dc.cliente_sk
+            {prod_join}
+            WHERE df.anho = %s AND df.mes_numero = %s
+              AND ({ciudad_cond}) {canal_cond} {filter_cond}
+              AND dc.cliente_codigo_erp IS NOT NULL
+            GROUP BY dc.cliente_codigo_erp, dc.cliente_nombre
+            ORDER BY venta_neta DESC
+        """
+        _, rows = _run_dw_query(sql, [anho, mes] + canal_param + filter_params)
+
+        result = [
+            {
+                'codigo':     r['codigo'],
+                'nombre':     r['nombre'],
+                'venta_neta': float(r['venta_neta'] or 0),
+                'cantidad':   int(r['cantidad'] or 0),
+            }
+            for r in rows
+        ]
+        return JsonResponse({'success': True, 'data': result})
+    except Exception:
+        logger.exception("Error interno")
+        return JsonResponse({'success': False, 'error': 'Error interno del servidor'}, status=500)
+
+
+@api_view(['GET'])
+@authentication_classes([ExpiringTokenAuthentication])
+@permission_classes([IsAuthenticated])
+def dashboard_new_nacional_cliente_skus(request):
+    """SKUs vendidos a un cliente específico en el período. Params: cliente_codigo + filtros estándar."""
+    try:
+        cliente_codigo = _safe_str(request.GET.get('cliente_codigo', ''))
+        if not cliente_codigo:
+            return JsonResponse({'success': False, 'error': 'cliente_codigo requerido'}, status=400)
+
+        regional    = request.GET.get('regional', 'nacional').lower().replace(' ', '_')
+        canal       = _safe_str(request.GET.get('canal', ''))
+        categorias  = [s for s in request.GET.getlist('categoria') if s]
+        proveedores = [s for s in request.GET.getlist('proveedor') if s]
+        subgrupos   = [s for s in request.GET.getlist('subgrupo')  if s]
+        marcas      = [s for s in request.GET.getlist('marca')     if s]
+        productos   = [s for s in request.GET.getlist('producto')  if s]
+        anho        = _safe_int(request.GET.get('anho'), datetime.now().year)
+        mes         = _safe_int(request.GET.get('mes'),  datetime.now().month)
+        if regional not in REGIONALES_VALID:
+            regional = 'nacional'
+
+        ciudad_cond = _regional_filter(regional)
+        canal_cond  = "AND dv.canal_rrhh = %s" if canal else ""
+        canal_param = [canal] if canal else []
+
+        cat_cond,  cat_params  = _multi_cat_cond(categorias)
+        prov_cond, prov_params = _multi_prov_cond(proveedores)
+        sub_cond,  sub_params  = _multi_sub_cond(subgrupos)
+        marc_cond, marc_params = _multi_marc_cond(marcas)
+        prod_cond, prod_params = _multi_prod_cond(productos)
+        filter_cond   = f"{cat_cond} {prov_cond} {sub_cond} {marc_cond} {prod_cond}"
+        filter_params = cat_params + prov_params + sub_params + marc_params + prod_params
+
+        sql = f"""
+            SELECT
+                dp.producto_codigo_erp              AS codigo,
+                dp.producto_nombre                  AS producto,
+                COALESCE(SUM(fv.cantidad), 0)       AS cantidad,
+                COALESCE(SUM(fv.venta_neta), 0)     AS venta_neta
+            FROM dw.fact_ventas fv
+            JOIN dw.dim_fecha    df ON fv.fecha_sk    = df.fecha_sk
+            JOIN dw.dim_vendedor dv ON fv.vendedor_sk = dv.vendedor_sk
+            JOIN dw.dim_cliente  dc ON fv.cliente_sk  = dc.cliente_sk
+            JOIN dw.dim_producto dp ON fv.producto_sk = dp.producto_sk
+            WHERE df.anho = %s AND df.mes_numero = %s
+              AND ({ciudad_cond}) {canal_cond}
+              AND dc.cliente_codigo_erp = %s
+              {filter_cond}
+            GROUP BY dp.producto_codigo_erp, dp.producto_nombre
+            ORDER BY venta_neta DESC
+        """
+        _, rows = _run_dw_query(sql, [anho, mes] + canal_param + [cliente_codigo] + filter_params)
+
+        result = [
+            {
+                'codigo':     r['codigo'],
+                'producto':   r['producto'],
+                'cantidad':   int(r['cantidad'] or 0),
+                'venta_neta': float(r['venta_neta'] or 0),
+            }
+            for r in rows
+        ]
+        return JsonResponse({'success': True, 'data': result})
     except Exception:
         logger.exception("Error interno")
         return JsonResponse({'success': False, 'error': 'Error interno del servidor'}, status=500)

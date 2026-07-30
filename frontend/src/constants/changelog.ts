@@ -1,4 +1,4 @@
-export const CURRENT_VERSION = "1.2.8.2";
+export const CURRENT_VERSION = "1.2.8.4";
 
 export interface ChangelogVersion {
   version: string;
@@ -12,6 +12,34 @@ export interface ChangelogVersion {
 }
 
 export const CHANGELOG: ChangelogVersion[] = [
+  {
+    version: "1.2.8.4",
+    date: "Julio 2026",
+    fixes: [
+      "Mock-up — tablas Por Vendedor y Por Cliente se extendían hacia abajo sin límite haciendo el dashboard muy largo; ambas tienen ahora scroll interno (max-h de ~384px) con encabezado sticky visible al desplazarse",
+      "Mock-up — panel de SKUs por cliente (card derecha) se veía muy apretado: añadido gap interno entre secciones, padding mejorado y nowrap en columnas numéricas para evitar quiebre de texto",
+    ],
+    features: [
+      "Mock-up — panel de SKUs por cliente: nuevo buscador por nombre o código de SKU; el contador muestra cuántos SKUs coinciden del total; el buscador se reinicia automáticamente al seleccionar otro cliente",
+      "Mock-up — panel de SKUs por cliente: scroll interno (max-h ~320px) con encabezado sticky; el total al pie siempre muestra el total real del cliente independientemente del filtro de búsqueda",
+    ],
+    newDashboardPerms: [],
+    newDashboardNames: {},
+  },
+  {
+    version: "1.2.8.3",
+    date: "Julio 2026",
+    fixes: [
+      "Mock-up — filtro de Proveedor mostraba los mismos valores que Marca: la query usaba dp.clase_descripcion en lugar de dp.proveedor; corregido en el endpoint de opciones y en el helper _multi_prov_cond",
+      "Mock-up — dropdowns de filtros se superponían al navbar al abrirse: z-index bajado de z-50 a z-35, por debajo del navbar (z-40)",
+    ],
+    features: [
+      "Mock-up — tabla de SKUs: nueva opción de ordenamiento 'Ventas Bs' que ordena por venta neta (columna Bs. Vendidos)",
+      "Mock-up — filtro de Canal: opciones obtenidas desde dw.dim_vendedor.canal_rrhh en lugar de dual.dim_cliente_dual",
+    ],
+    newDashboardPerms: [],
+    newDashboardNames: {},
+  },
   {
     version: "1.2.8.2",
     date: "Julio 2026",

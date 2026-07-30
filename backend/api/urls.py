@@ -95,7 +95,10 @@ urlpatterns = [
     path('dashboard/new-nacional/comparacion/',  views.dashboard_new_nacional_comparacion,  name='new-nacional-comparacion'),
     path('dashboard/new-nacional/skus/',         views.dashboard_new_nacional_skus,         name='new-nacional-skus'),
     path('dashboard/new-nacional/rutas-mapa/',    views.dashboard_new_nacional_rutas_mapa,    name='new-nacional-rutas-mapa'),
-    path('dashboard/new-nacional/canales-mini/', views.dashboard_new_nacional_canales_mini, name='new-nacional-canales-mini'),
+    path('dashboard/new-nacional/canales-mini/',  views.dashboard_new_nacional_canales_mini,  name='new-nacional-canales-mini'),
+    path('dashboard/new-nacional/vendedores/',    views.dashboard_new_nacional_vendedores,    name='new-nacional-vendedores'),
+    path('dashboard/new-nacional/clientes/',      views.dashboard_new_nacional_clientes,      name='new-nacional-clientes'),
+    path('dashboard/new-nacional/cliente-skus/', views.dashboard_new_nacional_cliente_skus,  name='new-nacional-cliente-skus'),
 
     # Dashboard Proveedores  (param: proveedor=PEPSICO|SOFTYS|DMUJER|APEGO|COLHER)
     path('dashboard/proveedor/kpis/',      views.dashboard_proveedor_kpis,      name='proveedor-kpis'),

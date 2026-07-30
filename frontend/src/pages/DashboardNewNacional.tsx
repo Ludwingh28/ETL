@@ -7,7 +7,7 @@ import {
   ChevronDown, Search, ArrowUp, ArrowDown,
 } from "lucide-react";
 import {
-  ResponsiveContainer, LineChart, Line, BarChart, Bar,
+  ResponsiveContainer, LineChart, Line,
   XAxis, YAxis, CartesianGrid, Tooltip, Cell,
 } from "recharts";
 import { useAuth } from "../context/AuthContext";
@@ -41,8 +41,21 @@ interface SkuRow {
 // ─── Config regional ──────────────────────────────────────────────────────────
 
 type RegionalKey = "nacional" | "santa_cruz" | "cochabamba" | "la_paz";
-type SortKey     = "presupuesto" | "cumplimiento" | "crecimiento";
+type SortKey     = "presupuesto" | "cumplimiento" | "crecimiento" | "ventas_bs";
 type SortDir     = "desc" | "asc";
+type VendSortKey  = "presupuesto" | "cumplimiento" | "ventas_bs";
+type CliSortKey   = "ventas_bs" | "uds_vendidas";
+
+interface VendedorRow {
+  vendedor: string; venta_neta: number; cantidad: number;
+  presupuesto_bs: number; presupuesto_uds: number; pct_cumpl: number | null;
+}
+interface ClienteRow {
+  codigo: string; nombre: string; venta_neta: number; cantidad: number;
+}
+interface ClienteSkuRow {
+  codigo: string; producto: string; cantidad: number; venta_neta: number;
+}
 
 interface RegionalDef { key: RegionalKey; label: string; barColor: string; }
 const REGIONALES: RegionalDef[] = [
@@ -67,12 +80,6 @@ const NUM    = new Intl.NumberFormat("es-BO", { maximumFractionDigits: 0 });
 const fmt    = (n: number | null | undefined) => n != null ? CUR.format(n) : "—";
 const fmtN   = (n: number | null | undefined) => n != null ? NUM.format(Math.round(n)) : "—";
 const fmtPct = (n: number | null | undefined) => n != null ? `${n.toFixed(1)}%` : "—";
-const fmtAbbr = (n: number) => {
-  const abs = Math.abs(n), sign = n < 0 ? "-" : "";
-  if (abs >= 1_000_000) return `${sign}${(abs / 1_000_000).toFixed(1)}M`;
-  if (abs >= 1_000)     return `${sign}${(abs / 1_000).toFixed(0)}K`;
-  return NUM.format(n);
-};
 
 const cumplColor = (p: number | null | undefined) =>
   p == null ? "text-slate-300" : p >= 100 ? "text-emerald-600" : p >= 80 ? "text-amber-500" : "text-red-500";
@@ -172,7 +179,7 @@ function MultiSelect({ label, value, options, onChange, placeholder = "Todos", s
       </button>
 
       {open && options.length > 0 && (
-        <div className="absolute top-full left-0 z-50 mt-1.5 min-w-full w-max max-w-72 bg-white border border-slate-200 rounded-xl shadow-xl overflow-hidden flex flex-col">
+        <div className="absolute top-full left-0 z-35 mt-1.5 min-w-full w-max max-w-72 bg-white border border-slate-200 rounded-xl shadow-xl overflow-hidden flex flex-col">
           {/* Buscador interno */}
           {searchable && (
             <div className="px-2.5 pt-2.5 pb-1.5 border-b border-slate-100">
@@ -272,7 +279,7 @@ function SingleSelect({ label, value, options, onChange, placeholder = "Todos", 
       </button>
 
       {open && (
-        <div className="absolute top-full left-0 z-50 mt-1.5 min-w-full w-max max-w-72 bg-white border border-slate-200 rounded-xl shadow-xl overflow-hidden flex flex-col">
+        <div className="absolute top-full left-0 z-35 mt-1.5 min-w-full w-max max-w-72 bg-white border border-slate-200 rounded-xl shadow-xl overflow-hidden flex flex-col">
           {searchable && (
             <div className="px-2.5 pt-2.5 pb-1.5 border-b border-slate-100">
               <div className="relative">
@@ -421,20 +428,6 @@ function TooltipTendencia({ active, payload, label }: TProps) {
   );
 }
 
-function TooltipCanal({ active, payload, label }: TProps) {
-  if (!active || !payload?.length) return null;
-  const avance = payload.find((p) => p.dataKey === "avance")?.value as number | undefined;
-  const ppto   = payload.find((p) => p.dataKey === "presupuesto")?.value as number | undefined;
-  const pct    = ppto && avance ? (avance / ppto) * 100 : null;
-  return (
-    <div className="bg-white border border-slate-200 rounded-xl shadow-xl px-4 py-3 text-sm">
-      <p className="font-semibold text-slate-700 mb-2">{label as string}</p>
-      {avance != null && <div className="flex gap-2 items-center mb-1"><span className="w-2.5 h-2.5 rounded-full bg-blue-500 shrink-0" /><span className="text-slate-500">Avance:</span><span className="font-semibold">{fmt(avance)}</span></div>}
-      {ppto != null && ppto > 0 && <div className="flex gap-2 items-center mb-1"><span className="w-2.5 h-2.5 rounded-full bg-emerald-500 shrink-0" /><span className="text-slate-500">Presupuesto:</span><span className="font-semibold">{fmt(ppto)}</span></div>}
-      {pct != null && <div className="mt-2 pt-2 border-t border-slate-100 text-xs"><span className="text-slate-400">Cumplimiento: </span><span className={`font-bold ${cumplColor(pct)}`}>{pct.toFixed(1)}%</span></div>}
-    </div>
-  );
-}
 
 // ─── Page ─────────────────────────────────────────────────────────────────────
 
@@ -488,6 +481,20 @@ export default function DashboardNewNacional() {
   const [canalViewUds, setCanalViewUds] = useState(false);
   const [loadingComp,  setLoadingComp]  = useState(false);
   const [loadingSkus,  setLoadingSkus]  = useState(false);
+  const [loadingVend,  setLoadingVend]  = useState(false);
+  const [vendedores,   setVendedores]   = useState<VendedorRow[]>([]);
+  const [vendSearch,   setVendSearch]   = useState("");
+  const [vendSortKey,  setVendSortKey]  = useState<VendSortKey>("presupuesto");
+  const [vendSortDir,  setVendSortDir]  = useState<SortDir>("desc");
+  const [loadingCli,      setLoadingCli]      = useState(false);
+  const [clientes,        setClientes]        = useState<ClienteRow[]>([]);
+  const [cliSearch,       setCliSearch]       = useState("");
+  const [cliSortKey,      setCliSortKey]      = useState<CliSortKey>("ventas_bs");
+  const [cliSortDir,      setCliSortDir]      = useState<SortDir>("desc");
+  const [selectedCli,     setSelectedCli]     = useState<ClienteRow | null>(null);
+  const [cliSkus,         setCliSkus]         = useState<ClienteSkuRow[]>([]);
+  const [loadingCliSkus,  setLoadingCliSkus]  = useState(false);
+  const [cliSkuSearch,    setCliSkuSearch]    = useState("");
   const [nacError,     setNacError]     = useState<string | null>(null);
 
   // Active filters store
@@ -619,6 +626,48 @@ export default function DashboardNewNacional() {
 
   useEffect(() => { void fetchSkus(); }, [fetchSkus]);
 
+  const fetchVendedores = useCallback(async () => {
+    if (!anho || !mes) return;
+    setLoadingVend(true);
+    try {
+      const qs = buildQS(selectedRegional, canal, anho, mes, fCats, fProvs, fSubs, fMarcs, fProductos);
+      const j = await apiFetchRef.current<{ success: boolean; data: VendedorRow[] }>(
+        `/dashboard/new-nacional/vendedores/?${qs}`
+      );
+      if (j.success) setVendedores(j.data); else setVendedores([]);
+    } catch { setVendedores([]); }
+    finally { setLoadingVend(false); }
+  }, [selectedRegional, canal, fCats, fProvs, fSubs, fMarcs, fProductos, anho, mes]);
+
+  useEffect(() => { void fetchVendedores(); }, [fetchVendedores]);
+
+  const fetchClientes = useCallback(async () => {
+    if (!anho || !mes) return;
+    setLoadingCli(true);
+    try {
+      const qs = buildQS(selectedRegional, canal, anho, mes, fCats, fProvs, fSubs, fMarcs, fProductos);
+      const j = await apiFetchRef.current<{ success: boolean; data: ClienteRow[] }>(
+        `/dashboard/new-nacional/clientes/?${qs}`
+      );
+      if (j.success) setClientes(j.data); else setClientes([]);
+    } catch { setClientes([]); }
+    finally { setLoadingCli(false); }
+  }, [selectedRegional, canal, fCats, fProvs, fSubs, fMarcs, fProductos, anho, mes]);
+
+  useEffect(() => { void fetchClientes(); }, [fetchClientes]);
+
+  useEffect(() => {
+    if (!selectedCli) { setCliSkus([]); setCliSkuSearch(""); return; }
+    setCliSkuSearch("");
+    setLoadingCliSkus(true);
+    const qs = buildQS(selectedRegional, canal, anho, mes, fCats, fProvs, fSubs, fMarcs, fProductos);
+    apiFetchRef.current<{ success: boolean; data: ClienteSkuRow[] }>(
+      `/dashboard/new-nacional/cliente-skus/?cliente_codigo=${encodeURIComponent(selectedCli.codigo)}&${qs}`
+    ).then((j) => { if (j.success) setCliSkus(j.data); else setCliSkus([]); })
+     .catch(() => setCliSkus([]))
+     .finally(() => setLoadingCliSkus(false));
+  }, [selectedCli, selectedRegional, canal, fCats, fProvs, fSubs, fMarcs, fProductos, anho, mes]);
+
   // ── Limpiar filtros operacionales al cambiar regional ─────────────────────────
 
   // ── Derivados ─────────────────────────────────────────────────────────────────
@@ -628,6 +677,7 @@ export default function DashboardNewNacional() {
       let diff: number;
       if      (sortKey === "cumplimiento") diff = (b.pct_cumpl ?? -Infinity) - (a.pct_cumpl ?? -Infinity);
       else if (sortKey === "crecimiento")  diff = (b.pct_camb_bs ?? -Infinity) - (a.pct_camb_bs ?? -Infinity);
+      else if (sortKey === "ventas_bs")    diff = b.venta_neta - a.venta_neta;
       else                                 diff = b.presupuesto - a.presupuesto;
       return sortDir === "desc" ? diff : -diff;
     });
@@ -638,6 +688,38 @@ export default function DashboardNewNacional() {
     const q = skuSearch.trim().toLowerCase();
     return q ? sortedSkus.filter((s) => s.producto.toLowerCase().includes(q) || s.codigo.toLowerCase().includes(q)) : sortedSkus;
   }, [sortedSkus, skuSearch]);
+
+  const sortedVendedores = useMemo(() => {
+    return [...vendedores].sort((a, b) => {
+      let diff: number;
+      if      (vendSortKey === "cumplimiento") diff = (b.pct_cumpl ?? -Infinity) - (a.pct_cumpl ?? -Infinity);
+      else if (vendSortKey === "ventas_bs")    diff = b.venta_neta - a.venta_neta;
+      else                                     diff = b.presupuesto_bs - a.presupuesto_bs;
+      return vendSortDir === "desc" ? diff : -diff;
+    });
+  }, [vendedores, vendSortKey, vendSortDir]);
+
+  const filteredVendedores = useMemo(() => {
+    const q = vendSearch.trim().toLowerCase();
+    return q ? sortedVendedores.filter((v) => v.vendedor.toLowerCase().includes(q)) : sortedVendedores;
+  }, [sortedVendedores, vendSearch]);
+
+  const sortedClientes = useMemo(() => {
+    return [...clientes].sort((a, b) => {
+      const diff = cliSortKey === "uds_vendidas" ? b.cantidad - a.cantidad : b.venta_neta - a.venta_neta;
+      return cliSortDir === "desc" ? diff : -diff;
+    });
+  }, [clientes, cliSortKey, cliSortDir]);
+
+  const filteredClientes = useMemo(() => {
+    const q = cliSearch.trim().toLowerCase();
+    return q ? sortedClientes.filter((c) => c.codigo.toLowerCase().includes(q) || c.nombre.toLowerCase().includes(q)) : sortedClientes;
+  }, [sortedClientes, cliSearch]);
+
+  const filteredCliSkus = useMemo(() => {
+    const q = cliSkuSearch.trim().toLowerCase();
+    return q ? cliSkus.filter((s) => s.producto.toLowerCase().includes(q) || s.codigo.toLowerCase().includes(q)) : cliSkus;
+  }, [cliSkus, cliSkuSearch]);
 
   const anhos = [...new Set(periodos.map((p) => p.anho))].sort((a, b) => b - a);
   const mesesDisponibles = periodos.filter((p) => p.anho === anho);
@@ -691,7 +773,7 @@ export default function DashboardNewNacional() {
             </select>
           </div>
           <button
-            onClick={() => { void fetchNacKpis(); void fetchCanales(); void fetchOpciones(); void fetchComparacion(); void fetchSkus(); }}
+            onClick={() => { void fetchNacKpis(); void fetchCanales(); void fetchOpciones(); void fetchComparacion(); void fetchSkus(); void fetchVendedores(); void fetchClientes(); }}
             disabled={loadingNac}
             className="btn-ghost flex items-center gap-1.5 text-sm">
             <RefreshCw size={14} className={loadingNac ? "animate-spin" : ""} />Actualizar
@@ -898,10 +980,10 @@ export default function DashboardNewNacional() {
           <div className="flex flex-wrap items-center gap-2">
             {/* Sort key toggle */}
             <div className="flex rounded-lg overflow-hidden border border-slate-200 text-[11px] font-semibold">
-              {(["presupuesto", "cumplimiento", "crecimiento"] as SortKey[]).map((k) => (
+              {(["presupuesto", "cumplimiento", "crecimiento", "ventas_bs"] as SortKey[]).map((k) => (
                 <button key={k} onClick={() => setSortKey(k)}
-                  className={`px-2.5 py-1.5 capitalize transition-colors ${sortKey === k ? "bg-brand-600 text-white" : "bg-white text-slate-500 hover:bg-slate-50"}`}>
-                  {k === "presupuesto" ? "Presupuesto" : k === "cumplimiento" ? "Cumplimiento" : "Crecimiento"}
+                  className={`px-2.5 py-1.5 transition-colors ${sortKey === k ? "bg-brand-600 text-white" : "bg-white text-slate-500 hover:bg-slate-50"}`}>
+                  {k === "presupuesto" ? "Presupuesto" : k === "cumplimiento" ? "Cumplimiento" : k === "crecimiento" ? "Crecimiento" : "Ventas Bs"}
                 </button>
               ))}
             </div>
@@ -976,11 +1058,228 @@ export default function DashboardNewNacional() {
         )}
       </div>
 
+      {/* ── Tabla Vendedores ─────────────────────────────────────────────────── */}
+      <div className="card mt-5">
+        <div className="flex flex-wrap items-start justify-between gap-3 mb-4">
+          <div>
+            <h2 className="font-semibold text-slate-700 text-sm">Por Vendedor</h2>
+            <p className="text-[11px] text-slate-400 mt-0.5">
+              {MESES[mes]} {anho} · {REGIONALES.find(r => r.key === selectedRegional)?.label}
+            </p>
+          </div>
+
+          <div className="flex flex-wrap items-center gap-2">
+            {/* Sort key */}
+            <div className="flex rounded-lg overflow-hidden border border-slate-200 text-[11px] font-semibold">
+              {(["presupuesto", "cumplimiento", "ventas_bs"] as VendSortKey[]).map((k) => (
+                <button key={k} onClick={() => setVendSortKey(k)}
+                  className={`px-2.5 py-1.5 transition-colors ${vendSortKey === k ? "bg-brand-600 text-white" : "bg-white text-slate-500 hover:bg-slate-50"}`}>
+                  {k === "presupuesto" ? "Presupuesto" : k === "cumplimiento" ? "Cumplimiento" : "Ventas Bs"}
+                </button>
+              ))}
+            </div>
+            {/* Asc/Desc */}
+            <button onClick={() => setVendSortDir((d) => d === "desc" ? "asc" : "desc")}
+              className="flex items-center gap-1 text-[11px] font-semibold px-2.5 py-1.5 rounded-lg border border-slate-200 bg-white text-slate-500 hover:border-brand-400 hover:text-brand-600 transition-all">
+              {vendSortDir === "desc" ? <ArrowDown size={12} /> : <ArrowUp size={12} />}
+              {vendSortDir === "desc" ? "Mayor → Menor" : "Menor → Mayor"}
+            </button>
+          </div>
+        </div>
+
+        {/* Buscador */}
+        <div className="relative mb-3">
+          <Search size={13} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" />
+          <input type="text" value={vendSearch} onChange={(e) => setVendSearch(e.target.value)}
+            placeholder="Buscar vendedor..."
+            className="w-full pl-8 pr-3 py-2 text-xs border border-slate-200 rounded-lg focus:outline-none focus:border-brand-400 bg-white" />
+          {filteredVendedores.length !== vendedores.length && (
+            <span className="absolute right-3 top-1/2 -translate-y-1/2 text-[10px] text-slate-400">
+              {filteredVendedores.length}/{vendedores.length}
+            </span>
+          )}
+        </div>
+
+        {loadingVend ? (
+          <div className="h-40 flex items-center justify-center text-slate-400 text-sm">Cargando...</div>
+        ) : filteredVendedores.length === 0 ? (
+          <div className="h-40 flex items-center justify-center text-slate-400 text-sm">Sin datos</div>
+        ) : (
+          <div className="overflow-auto max-h-96">
+            <table className="w-full text-xs">
+              <thead className="sticky top-0 bg-white">
+                <tr className="border-b border-slate-100 text-slate-400 text-[11px] uppercase tracking-wider">
+                  <th className="text-left py-2 pb-3 font-semibold pl-1">Vendedor</th>
+                  <th className="text-right py-2 pb-3 font-semibold">Bs. Vendidos</th>
+                  <th className="text-right py-2 pb-3 font-semibold">Uds. Vendidas</th>
+                  <th className="text-right py-2 pb-3 font-semibold">Presupuesto Bs.</th>
+                  <th className="text-right py-2 pb-3 font-semibold">Presupuesto Uds.</th>
+                  <th className="text-right py-2 pb-3 font-semibold pr-1">% Cumpl.</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-50">
+                {filteredVendedores.map((v) => (
+                  <tr key={v.vendedor} className="hover:bg-slate-50/60 transition-colors">
+                    <td className="py-2.5 pl-1 font-medium text-slate-700">{v.vendedor}</td>
+                    <td className="py-2.5 text-right tabular-nums text-slate-700 font-semibold">{fmt(v.venta_neta)}</td>
+                    <td className="py-2.5 text-right tabular-nums text-slate-600">{fmtN(v.cantidad)}</td>
+                    <td className="py-2.5 text-right tabular-nums text-slate-500">{fmt(v.presupuesto_bs)}</td>
+                    <td className="py-2.5 text-right tabular-nums text-slate-500">{fmtN(v.presupuesto_uds)}</td>
+                    <td className={`py-2.5 text-right tabular-nums font-bold pr-1 ${cumplColor(v.pct_cumpl)}`}>{fmtPct(v.pct_cumpl)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </div>
+
+      {/* ── Tabla Clientes ───────────────────────────────────────────────────── */}
+      <div className={`mt-5 grid gap-4 ${selectedCli ? "grid-cols-[1fr_380px]" : "grid-cols-1"}`}>
+
+        {/* Card tabla */}
+        <div className="card">
+          <div className="flex flex-wrap items-start justify-between gap-3 mb-4">
+            <div>
+              <h2 className="font-semibold text-slate-700 text-sm">Por Cliente</h2>
+              <p className="text-[11px] text-slate-400 mt-0.5">
+                {MESES[mes]} {anho} · {REGIONALES.find(r => r.key === selectedRegional)?.label}
+                {selectedCli && <span className="ml-2 text-brand-500">· Clic en fila para ver SKUs</span>}
+              </p>
+            </div>
+            <div className="flex items-center gap-2">
+              <div className="flex rounded-lg overflow-hidden border border-slate-200 text-[11px] font-semibold">
+                {(["ventas_bs", "uds_vendidas"] as CliSortKey[]).map((k) => (
+                  <button key={k} onClick={() => setCliSortKey(k)}
+                    className={`px-2.5 py-1.5 transition-colors ${cliSortKey === k ? "bg-brand-600 text-white" : "bg-white text-slate-500 hover:bg-slate-50"}`}>
+                    {k === "ventas_bs" ? "Ventas Bs" : "Uds. Vendidas"}
+                  </button>
+                ))}
+              </div>
+              <button onClick={() => setCliSortDir((d) => d === "desc" ? "asc" : "desc")}
+                className="flex items-center gap-1 text-[11px] font-semibold px-2.5 py-1.5 rounded-lg border border-slate-200 bg-white text-slate-500 hover:border-brand-400 hover:text-brand-600 transition-all">
+                {cliSortDir === "desc" ? <ArrowDown size={12} /> : <ArrowUp size={12} />}
+                {cliSortDir === "desc" ? "Mayor → Menor" : "Menor → Mayor"}
+              </button>
+            </div>
+          </div>
+
+          <div className="relative mb-3">
+            <Search size={13} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" />
+            <input type="text" value={cliSearch} onChange={(e) => setCliSearch(e.target.value)}
+              placeholder="Buscar por código o nombre..."
+              className="w-full pl-8 pr-3 py-2 text-xs border border-slate-200 rounded-lg focus:outline-none focus:border-brand-400 bg-white" />
+            {filteredClientes.length !== clientes.length && (
+              <span className="absolute right-3 top-1/2 -translate-y-1/2 text-[10px] text-slate-400">
+                {filteredClientes.length}/{clientes.length}
+              </span>
+            )}
+          </div>
+
+          {loadingCli ? (
+            <div className="h-40 flex items-center justify-center text-slate-400 text-sm">Cargando...</div>
+          ) : filteredClientes.length === 0 ? (
+            <div className="h-40 flex items-center justify-center text-slate-400 text-sm">Sin datos</div>
+          ) : (
+            <div className="overflow-auto max-h-96">
+              <table className="w-full text-xs">
+                <thead className="sticky top-0 bg-white">
+                  <tr className="border-b border-slate-100 text-slate-400 text-[11px] uppercase tracking-wider">
+                    <th className="text-left py-2 pb-3 font-semibold pl-1 w-24">Código</th>
+                    <th className="text-left py-2 pb-3 font-semibold">Nombre</th>
+                    <th className="text-right py-2 pb-3 font-semibold">Bs. Vendidos</th>
+                    <th className="text-right py-2 pb-3 font-semibold pr-1">Uds. Vendidas</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-50">
+                  {filteredClientes.map((c) => {
+                    const isActive = selectedCli?.codigo === c.codigo;
+                    return (
+                      <tr key={c.codigo}
+                        onClick={() => setSelectedCli(isActive ? null : c)}
+                        className={`cursor-pointer transition-colors ${isActive ? "bg-brand-50" : "hover:bg-slate-50/60"}`}>
+                        <td className={`py-2.5 pl-1 font-mono text-[11px] ${isActive ? "text-brand-600" : "text-slate-500"}`}>{c.codigo}</td>
+                        <td className={`py-2.5 font-medium ${isActive ? "text-brand-700" : "text-slate-700"}`}>{c.nombre}</td>
+                        <td className="py-2.5 text-right tabular-nums text-slate-700 font-semibold">{fmt(c.venta_neta)}</td>
+                        <td className="py-2.5 text-right tabular-nums text-slate-600 pr-1">{fmtN(c.cantidad)}</td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
+
+        {/* Card SKUs del cliente — aparece a la derecha al seleccionar */}
+        {selectedCli && (
+          <div className="card flex flex-col gap-3">
+            <div className="flex items-start justify-between">
+              <div>
+                <p className="text-[10px] uppercase tracking-widest text-slate-400 font-semibold">SKUs vendidos</p>
+                <p className="text-sm font-semibold text-slate-700 mt-0.5 leading-tight">{selectedCli.nombre}</p>
+                <p className="text-[11px] text-slate-400 mt-0.5">{selectedCli.codigo}</p>
+              </div>
+              <button onClick={() => setSelectedCli(null)}
+                className="text-slate-400 hover:text-slate-600 transition-colors text-lg leading-none mt-0.5">✕</button>
+            </div>
+
+            <div className="relative">
+              <Search size={13} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" />
+              <input type="text" value={cliSkuSearch} onChange={(e) => setCliSkuSearch(e.target.value)}
+                placeholder="Buscar SKU (nombre o código)..."
+                className="w-full pl-8 pr-3 py-2 text-xs border border-slate-200 rounded-lg focus:outline-none focus:border-brand-400 bg-white" />
+              {filteredCliSkus.length !== cliSkus.length && (
+                <span className="absolute right-3 top-1/2 -translate-y-1/2 text-[10px] text-slate-400">
+                  {filteredCliSkus.length}/{cliSkus.length}
+                </span>
+              )}
+            </div>
+
+            {loadingCliSkus ? (
+              <div className="h-40 flex items-center justify-center text-slate-400 text-sm">Cargando...</div>
+            ) : cliSkus.length === 0 ? (
+              <div className="h-40 flex items-center justify-center text-slate-400 text-sm">Sin datos</div>
+            ) : (
+              <>
+                <div className="overflow-auto max-h-80 flex-1">
+                  <table className="w-full text-xs">
+                    <thead className="sticky top-0 bg-white">
+                      <tr className="border-b border-slate-100 text-slate-400 text-[11px] uppercase tracking-wider">
+                        <th className="text-left py-2 pb-3 font-semibold">Producto</th>
+                        <th className="text-right py-2 pb-3 font-semibold">Uds.</th>
+                        <th className="text-right py-2 pb-3 font-semibold">Bs.</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-50">
+                      {filteredCliSkus.map((s) => (
+                        <tr key={s.codigo} className="hover:bg-slate-50/60">
+                          <td className="py-2.5 pr-2 text-slate-700 leading-tight">{s.producto}</td>
+                          <td className="py-2.5 text-right tabular-nums text-slate-600 whitespace-nowrap">{fmtN(s.cantidad)}</td>
+                          <td className="py-2.5 text-right tabular-nums text-slate-700 font-semibold whitespace-nowrap">{fmt(s.venta_neta)}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+                <div className="pt-3 border-t border-slate-100 flex justify-between text-xs font-bold text-slate-700">
+                  <span>Total</span>
+                  <div className="flex gap-5">
+                    <span>{fmtN(cliSkus.reduce((a, s) => a + s.cantidad, 0))} uds.</span>
+                    <span>{fmt(cliSkus.reduce((a, s) => a + s.venta_neta, 0))}</span>
+                  </div>
+                </div>
+              </>
+            )}
+          </div>
+        )}
+      </div>
+
       {/* ── Tendencia + Canal ────────────────────────────────────────────────── */}
       <div className="grid grid-cols-10 gap-4 mt-5">
 
         {/* Tendencia */}
-        <div className="card col-span-10 xl:col-span-6">
+        <div className="card col-span-10">
           <div className="flex items-center justify-between mb-4">
             <h2 className="font-semibold text-slate-700 text-sm">Tendencia de Ventas</h2>
             <span className="text-xs text-slate-400 bg-slate-50 px-2 py-1 rounded-lg">{REGIONALES.find(r => r.key === selectedRegional)?.label ?? "Nacional"} · {MESES[mes]} {anho}</span>
@@ -1013,48 +1312,6 @@ export default function DashboardNewNacional() {
           )}
         </div>
 
-        {/* Canal */}
-        <div className="card col-span-10 xl:col-span-4">
-          <div className="flex items-center justify-between mb-1">
-            <h2 className="font-semibold text-slate-700 text-sm">Por Canal</h2>
-            <span className="text-[11px] text-slate-400">{REGIONALES.find(r => r.key === selectedRegional)?.label} · {MESES[mes]} {anho}</span>
-          </div>
-          <p className="text-[11px] text-slate-400 mb-3">Clic en un canal para filtrar la tabla</p>
-          {loadingCan ? (
-            <div className="h-48 flex items-center justify-center text-slate-400 text-xs">Cargando...</div>
-          ) : canales.length === 0 ? (
-            <div className="h-48 flex items-center justify-center text-slate-400 text-xs">Sin datos</div>
-          ) : (
-            <>
-              <ResponsiveContainer width="100%" height={Math.max(160, canales.length * 34)}>
-                <BarChart layout="vertical" data={canales} margin={{ top: 2, right: 48, left: 4, bottom: 2 }}
-                  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-                  onClick={(d: any) => { if (d?.activePayload?.[0]) { const c = (d.activePayload[0].payload as CanalRow).canal; setCanal((prev) => prev === c ? "" : c); } }}>
-                  <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" horizontal={false} />
-                  <XAxis type="number" tick={{ fontSize: 10 }} tickFormatter={fmtAbbr} />
-                  <YAxis dataKey="canal" type="category" tick={{ fontSize: 10, fontWeight: 700 }} width={60} />
-                  <Tooltip content={<TooltipCanal />} />
-                  <Bar dataKey="avance" name="Avance" radius={[0, 3, 3, 0]} barSize={9}
-                    label={{ position: "right", fontSize: 9, fill: "#94a3b8", formatter: ((_v: unknown, _e: unknown, i: number) => fmtPct(canales[i]?.porcentaje)) as any }}>
-                    {canales.map((c) => <Cell key={c.canal} fill={canal === c.canal ? "#1d4ed8" : "#3b82f6"} cursor="pointer" />)}
-                  </Bar>
-                  <Bar dataKey="presupuesto" name="Presupuesto" radius={[0, 3, 3, 0]} barSize={9}>
-                    {canales.map((c) => <Cell key={c.canal} fill={canal === c.canal ? "#15803d" : "#22c55e"} cursor="pointer" />)}
-                  </Bar>
-                </BarChart>
-              </ResponsiveContainer>
-              {canal && (
-                <div className="mt-2 flex items-center gap-2 text-xs">
-                  <span className="text-slate-400">Canal activo:</span>
-                  <button onClick={() => setCanal("")}
-                    className="flex items-center gap-1 bg-blue-50 text-blue-700 border border-blue-200 px-2.5 py-1 rounded-full font-semibold hover:bg-blue-100 transition-colors">
-                    {canal} ✕
-                  </button>
-                </div>
-              )}
-            </>
-          )}
-        </div>
       </div>
 
     </DashboardLayout>
