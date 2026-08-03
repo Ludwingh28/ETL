@@ -129,24 +129,37 @@ function buildQS(
 
 // ─── MultiSelect ──────────────────────────────────────────────────────────────
 
-function MultiSelect({ label, value, options, onChange, placeholder = "Todos", searchable = false }: {
+function MultiSelect({ label, value, options, onChange, placeholder = "Todos", searchable = false, loading = false }: {
   label: string; value: string[]; options: string[];
-  onChange: (v: string[]) => void; placeholder?: string; searchable?: boolean;
+  onChange: (v: string[]) => void; placeholder?: string; searchable?: boolean; loading?: boolean;
 }) {
   const [open,   setOpen]   = useState(false);
   const [search, setSearch] = useState("");
+  const [pos,    setPos]    = useState({ top: 0, left: 0, width: 0 });
   const ref     = useRef<HTMLDivElement>(null);
+  const btnRef  = useRef<HTMLButtonElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
+
+  const recalcPos = () => {
+    const r = btnRef.current?.getBoundingClientRect();
+    if (r) setPos({ top: r.bottom + 6, left: r.left, width: r.width });
+  };
 
   useEffect(() => {
     if (!open) { setSearch(""); return; }
+    recalcPos();
     if (searchable) setTimeout(() => inputRef.current?.focus(), 50);
-    function handle(e: MouseEvent) {
+    function onMouseDown(e: MouseEvent) {
       if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
     }
-    document.addEventListener("mousedown", handle);
-    return () => document.removeEventListener("mousedown", handle);
-  }, [open, searchable]);
+    function onScroll() { recalcPos(); }
+    document.addEventListener("mousedown", onMouseDown);
+    window.addEventListener("scroll", onScroll, true);
+    return () => {
+      document.removeEventListener("mousedown", onMouseDown);
+      window.removeEventListener("scroll", onScroll, true);
+    };
+  }, [open, searchable]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const toggle = (opt: string) =>
     onChange(value.includes(opt) ? value.filter((v) => v !== opt) : [...value, opt]);
@@ -166,21 +179,27 @@ function MultiSelect({ label, value, options, onChange, placeholder = "Todos", s
     <div ref={ref} className="relative flex flex-col gap-0.5">
       <span className="text-[10px] uppercase tracking-widest text-slate-400 font-semibold">{label}</span>
       <button
-        onClick={() => setOpen((o) => !o)}
-        disabled={options.length === 0}
+        ref={btnRef}
+        onClick={() => !loading && setOpen((o) => !o)}
+        disabled={!loading && options.length === 0}
         className={`text-xs rounded-lg px-3 py-2 text-left flex items-center justify-between gap-2 min-w-36 transition-all border
-          ${hasValue
-            ? "border-brand-400 bg-brand-50 text-brand-700 font-semibold"
-            : "border-slate-200 bg-white text-slate-600 hover:border-slate-300"}
+          ${loading ? "border-slate-200 bg-slate-50 text-slate-400 cursor-wait"
+            : hasValue
+              ? "border-brand-400 bg-brand-50 text-brand-700 font-semibold"
+              : "border-slate-200 bg-white text-slate-600 hover:border-slate-300"}
           disabled:opacity-40 disabled:cursor-not-allowed`}
       >
-        <span className="truncate max-w-36">{btnLabel}</span>
-        <ChevronDown size={12} className={`shrink-0 text-slate-400 transition-transform ${open ? "rotate-180" : ""}`} />
+        <span className="truncate max-w-36">{loading ? "Cargando…" : btnLabel}</span>
+        {loading
+          ? <RefreshCw size={12} className="shrink-0 text-slate-400 animate-spin" />
+          : <ChevronDown size={12} className={`shrink-0 text-slate-400 transition-transform ${open ? "rotate-180" : ""}`} />
+        }
       </button>
 
       {open && options.length > 0 && (
-        <div className="absolute top-full left-0 z-35 mt-1.5 min-w-full w-max max-w-72 bg-white border border-slate-200 rounded-xl shadow-xl overflow-hidden flex flex-col">
-          {/* Buscador interno */}
+        <div
+          style={{ position: "fixed", top: pos.top, left: pos.left, minWidth: pos.width, zIndex: 9999 }}
+          className="w-max max-w-72 bg-white border border-slate-200 rounded-xl shadow-xl overflow-hidden flex flex-col">
           {searchable && (
             <div className="px-2.5 pt-2.5 pb-1.5 border-b border-slate-100">
               <div className="relative">
@@ -202,8 +221,6 @@ function MultiSelect({ label, value, options, onChange, placeholder = "Todos", s
               </div>
             </div>
           )}
-
-          {/* Lista de opciones */}
           <div className="overflow-y-auto max-h-60 py-1">
             {value.length > 0 && (
               <button
@@ -236,24 +253,37 @@ function MultiSelect({ label, value, options, onChange, placeholder = "Todos", s
 
 // ─── SingleSelect ─────────────────────────────────────────────────────────────
 
-function SingleSelect({ label, value, options, onChange, placeholder = "Todos", searchable = false }: {
+function SingleSelect({ label, value, options, onChange, placeholder = "Todos", searchable = false, loading = false }: {
   label: string; value: string; options: { value: string; label: string }[];
-  onChange: (v: string) => void; placeholder?: string; searchable?: boolean;
+  onChange: (v: string) => void; placeholder?: string; searchable?: boolean; loading?: boolean;
 }) {
   const [open,   setOpen]   = useState(false);
   const [search, setSearch] = useState("");
+  const [pos,    setPos]    = useState({ top: 0, left: 0, width: 0 });
   const ref      = useRef<HTMLDivElement>(null);
+  const btnRef   = useRef<HTMLButtonElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
+
+  const recalcPos = () => {
+    const r = btnRef.current?.getBoundingClientRect();
+    if (r) setPos({ top: r.bottom + 6, left: r.left, width: r.width });
+  };
 
   useEffect(() => {
     if (!open) { setSearch(""); return; }
+    recalcPos();
     if (searchable) setTimeout(() => inputRef.current?.focus(), 50);
-    function handle(e: MouseEvent) {
+    function onMouseDown(e: MouseEvent) {
       if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
     }
-    document.addEventListener("mousedown", handle);
-    return () => document.removeEventListener("mousedown", handle);
-  }, [open, searchable]);
+    function onScroll() { recalcPos(); }
+    document.addEventListener("mousedown", onMouseDown);
+    window.addEventListener("scroll", onScroll, true);
+    return () => {
+      document.removeEventListener("mousedown", onMouseDown);
+      window.removeEventListener("scroll", onScroll, true);
+    };
+  }, [open, searchable]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const filtered = searchable && search.trim()
     ? options.filter(o => o.label.toLowerCase().includes(search.trim().toLowerCase()))
@@ -266,20 +296,27 @@ function SingleSelect({ label, value, options, onChange, placeholder = "Todos", 
     <div ref={ref} className="relative flex flex-col gap-0.5">
       <span className="text-[10px] uppercase tracking-widest text-slate-400 font-semibold">{label}</span>
       <button
-        onClick={() => setOpen(o => !o)}
-        disabled={options.length === 0}
+        ref={btnRef}
+        onClick={() => !loading && setOpen(o => !o)}
+        disabled={!loading && options.length === 0}
         className={`text-xs rounded-lg px-3 py-2 text-left flex items-center justify-between gap-2 min-w-36 transition-all border
-          ${hasValue
-            ? "border-brand-400 bg-brand-50 text-brand-700 font-semibold"
-            : "border-slate-200 bg-white text-slate-600 hover:border-slate-300"}
+          ${loading ? "border-slate-200 bg-slate-50 text-slate-400 cursor-wait"
+            : hasValue
+              ? "border-brand-400 bg-brand-50 text-brand-700 font-semibold"
+              : "border-slate-200 bg-white text-slate-600 hover:border-slate-300"}
           disabled:opacity-40 disabled:cursor-not-allowed`}
       >
-        <span className="truncate max-w-36">{selected?.label ?? placeholder}</span>
-        <ChevronDown size={12} className={`shrink-0 text-slate-400 transition-transform ${open ? "rotate-180" : ""}`} />
+        <span className="truncate max-w-36">{loading ? "Cargando…" : (selected?.label ?? placeholder)}</span>
+        {loading
+          ? <RefreshCw size={12} className="shrink-0 text-slate-400 animate-spin" />
+          : <ChevronDown size={12} className={`shrink-0 text-slate-400 transition-transform ${open ? "rotate-180" : ""}`} />
+        }
       </button>
 
       {open && (
-        <div className="absolute top-full left-0 z-35 mt-1.5 min-w-full w-max max-w-72 bg-white border border-slate-200 rounded-xl shadow-xl overflow-hidden flex flex-col">
+        <div
+          style={{ position: "fixed", top: pos.top, left: pos.left, minWidth: pos.width, zIndex: 9999 }}
+          className="w-max max-w-72 bg-white border border-slate-200 rounded-xl shadow-xl overflow-hidden flex flex-col">
           {searchable && (
             <div className="px-2.5 pt-2.5 pb-1.5 border-b border-slate-100">
               <div className="relative">
@@ -476,6 +513,7 @@ export default function DashboardNewNacional() {
   const [prevSkuLabel,    setPrevSkuLabel]    = useState("");
 
   // Loading
+  const [loadingOpciones, setLoadingOpciones] = useState(false);
   const [loadingNac,   setLoadingNac]   = useState(true);
   const [loadingCan,   setLoadingCan]   = useState(true);
   const [canalViewUds, setCanalViewUds] = useState(false);
@@ -486,6 +524,7 @@ export default function DashboardNewNacional() {
   const [vendSearch,   setVendSearch]   = useState("");
   const [vendSortKey,  setVendSortKey]  = useState<VendSortKey>("presupuesto");
   const [vendSortDir,  setVendSortDir]  = useState<SortDir>("desc");
+  const [selectedVend, setSelectedVend] = useState<string | null>(null);
   const [loadingCli,      setLoadingCli]      = useState(false);
   const [clientes,        setClientes]        = useState<ClienteRow[]>([]);
   const [cliSearch,       setCliSearch]       = useState("");
@@ -565,6 +604,7 @@ export default function DashboardNewNacional() {
   // Canal es filtro operacional — NO afecta el catálogo de productos
   const fetchOpciones = useCallback(async () => {
     if (!anho || !mes) return;
+    setLoadingOpciones(true);
     try {
       const qs = buildQS(selectedRegional, "", anho, mes, fCats, fProvs, fSubs, fMarcs);
       const j = await apiFetchRef.current<{
@@ -579,7 +619,11 @@ export default function DashboardNewNacional() {
         setOpCanales(j.canales    ?? []);
         setOpProductos(j.productos ?? []);
       }
-    } catch { /* silencioso */ }
+    } catch (err) {
+      console.error("[fetchOpciones] Error al cargar opciones de filtros:", err);
+    } finally {
+      setLoadingOpciones(false);
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedRegional, fCats, fSubs, fProvs, fMarcs, anho, mes]);
 
@@ -644,15 +688,17 @@ export default function DashboardNewNacional() {
   const fetchClientes = useCallback(async () => {
     if (!anho || !mes) return;
     setLoadingCli(true);
+    setSelectedCli(null);
     try {
       const qs = buildQS(selectedRegional, canal, anho, mes, fCats, fProvs, fSubs, fMarcs, fProductos);
+      const vendParam = selectedVend ? `&vendedor=${encodeURIComponent(selectedVend)}` : "";
       const j = await apiFetchRef.current<{ success: boolean; data: ClienteRow[] }>(
-        `/dashboard/new-nacional/clientes/?${qs}`
+        `/dashboard/new-nacional/clientes/?${qs}${vendParam}`
       );
       if (j.success) setClientes(j.data); else setClientes([]);
     } catch { setClientes([]); }
     finally { setLoadingCli(false); }
-  }, [selectedRegional, canal, fCats, fProvs, fSubs, fMarcs, fProductos, anho, mes]);
+  }, [selectedRegional, canal, fCats, fProvs, fSubs, fMarcs, fProductos, selectedVend, anho, mes]);
 
   useEffect(() => { void fetchClientes(); }, [fetchClientes]);
 
@@ -788,7 +834,7 @@ export default function DashboardNewNacional() {
       )}
 
       {/* ── Panel de Filtros ─────────────────────────────────────────────────── */}
-      <div className="bg-white border border-slate-200 rounded-2xl shadow-sm px-6 py-4 mb-5">
+      <div className="sticky top-16 z-30 bg-white border border-slate-200 rounded-2xl shadow-sm px-6 py-4 mb-5">
         <div className="flex flex-wrap items-end gap-x-3 gap-y-3">
           {/* Filtro operacional */}
           <SingleSelect
@@ -796,15 +842,16 @@ export default function DashboardNewNacional() {
             value={canal}
             options={opCanales.map(c => ({ value: c, label: c }))}
             onChange={setCanal}
+            loading={loadingOpciones}
           />
           {/* Divisor */}
           <div className="w-px h-9 bg-slate-200 self-end hidden sm:block" />
           {/* Cascada de producto */}
           <MultiSelect label="Categoría"     value={fCats}      options={CATEGORIAS_OPTS} onChange={onCats} />
-          <MultiSelect label="Sub-categoría" value={fSubs}      options={opSubs}      onChange={onSubs}      searchable />
-          <MultiSelect label="Proveedor"     value={fProvs}     options={opProvs}     onChange={onProvs}     searchable />
-          <MultiSelect label="Marca"         value={fMarcs}     options={opMarcs}     onChange={onMarcs}     searchable />
-          <MultiSelect label="Productos"     value={fProductos} options={opProductos} onChange={onProductos} searchable />
+          <MultiSelect label="Sub-categoría" value={fSubs}      options={opSubs}      onChange={onSubs}      searchable loading={loadingOpciones} />
+          <MultiSelect label="Proveedor"     value={fProvs}     options={opProvs}     onChange={onProvs}     searchable loading={loadingOpciones} />
+          <MultiSelect label="Marca"         value={fMarcs}     options={opMarcs}     onChange={onMarcs}     searchable loading={loadingOpciones} />
+          <MultiSelect label="Productos"     value={fProductos} options={opProductos} onChange={onProductos} searchable loading={loadingOpciones} />
           {hasFilters && (
             <button
               onClick={clearAll}
@@ -1118,16 +1165,21 @@ export default function DashboardNewNacional() {
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-50">
-                {filteredVendedores.map((v) => (
-                  <tr key={v.vendedor} className="hover:bg-slate-50/60 transition-colors">
-                    <td className="py-2.5 pl-1 font-medium text-slate-700">{v.vendedor}</td>
-                    <td className="py-2.5 text-right tabular-nums text-slate-700 font-semibold">{fmt(v.venta_neta)}</td>
-                    <td className="py-2.5 text-right tabular-nums text-slate-600">{fmtN(v.cantidad)}</td>
-                    <td className="py-2.5 text-right tabular-nums text-slate-500">{fmt(v.presupuesto_bs)}</td>
-                    <td className="py-2.5 text-right tabular-nums text-slate-500">{fmtN(v.presupuesto_uds)}</td>
-                    <td className={`py-2.5 text-right tabular-nums font-bold pr-1 ${cumplColor(v.pct_cumpl)}`}>{fmtPct(v.pct_cumpl)}</td>
-                  </tr>
-                ))}
+                {filteredVendedores.map((v) => {
+                  const isActive = selectedVend === v.vendedor;
+                  return (
+                    <tr key={v.vendedor}
+                      onClick={() => setSelectedVend(isActive ? null : v.vendedor)}
+                      className={`cursor-pointer transition-colors ${isActive ? "bg-brand-50" : "hover:bg-slate-50/60"}`}>
+                      <td className={`py-2.5 pl-1 font-medium ${isActive ? "text-brand-700" : "text-slate-700"}`}>{v.vendedor}</td>
+                      <td className="py-2.5 text-right tabular-nums text-slate-700 font-semibold">{fmt(v.venta_neta)}</td>
+                      <td className="py-2.5 text-right tabular-nums text-slate-600">{fmtN(v.cantidad)}</td>
+                      <td className="py-2.5 text-right tabular-nums text-slate-500">{fmt(v.presupuesto_bs)}</td>
+                      <td className="py-2.5 text-right tabular-nums text-slate-500">{fmtN(v.presupuesto_uds)}</td>
+                      <td className={`py-2.5 text-right tabular-nums font-bold pr-1 ${cumplColor(v.pct_cumpl)}`}>{fmtPct(v.pct_cumpl)}</td>
+                    </tr>
+                  );
+                })}
               </tbody>
             </table>
           </div>
@@ -1146,6 +1198,14 @@ export default function DashboardNewNacional() {
                 {MESES[mes]} {anho} · {REGIONALES.find(r => r.key === selectedRegional)?.label}
                 {selectedCli && <span className="ml-2 text-brand-500">· Clic en fila para ver SKUs</span>}
               </p>
+              {selectedVend && (
+                <button
+                  onClick={() => setSelectedVend(null)}
+                  className="mt-1.5 inline-flex items-center gap-1.5 text-[11px] font-semibold px-2.5 py-1 rounded-full bg-brand-50 text-brand-700 border border-brand-200 hover:bg-brand-100 transition-colors">
+                  Vendedor: {selectedVend}
+                  <span className="opacity-60">✕</span>
+                </button>
+              )}
             </div>
             <div className="flex items-center gap-2">
               <div className="flex rounded-lg overflow-hidden border border-slate-200 text-[11px] font-semibold">

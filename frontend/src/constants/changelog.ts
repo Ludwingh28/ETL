@@ -1,4 +1,4 @@
-export const CURRENT_VERSION = "1.2.8.4";
+export const CURRENT_VERSION = "1.2.8.5";
 
 export interface ChangelogVersion {
   version: string;
@@ -12,6 +12,22 @@ export interface ChangelogVersion {
 }
 
 export const CHANGELOG: ChangelogVersion[] = [
+  {
+    version: "1.2.8.5",
+    date: "Agosto 2026",
+    fixes: [
+      "Mock-up — panel de filtros quedaba tapado por el navbar al hacer scroll: el panel sticky se posicionaba en top-0 coincidiendo con el navbar (h-16 / z-40); corregido usando top-16 para que quede siempre debajo",
+      "Mock-up — dropdowns de filtros (Canal, Sub-categoría, Proveedor, Marca, Productos) quedaban bloqueados detrás de contenido al tener el panel sticky con z-30: el z-index del panel creaba un contexto de apilamiento que atrapaba los desplegables; corregido usando position: fixed + getBoundingClientRect() para que los dropdowns escapen el contexto y aparezcan por encima de todo (z-index 9999)",
+      "Mock-up — backend: el endpoint /clientes/ no aceptaba el parámetro vendedor; al hacer click en un vendedor de la tabla todos los clientes aparecían sin filtrar (Luis Hinojosa aparecía para todos los vendedores); corregido agregando el parámetro vendedor al query SQL con AND dv.vendedor_nombre = %s",
+      "Mock-up — filtros Canal, Sub-categoría, Proveedor, Marca y Productos aparecían como deshabilitados (grises) durante la carga inicial sin ningún indicador visual; el usuario no podía distinguir entre 'cargando' y 'sin opciones disponibles'; ahora muestran texto 'Cargando…' con ícono giratorio mientras la API responde",
+    ],
+    features: [
+      "Mock-up — tabla Por Vendedor: click en una fila filtra la tabla Por Cliente para mostrar únicamente los clientes atendidos por ese vendedor; un badge en el header de Por Cliente indica el vendedor activo y permite deseleccionarlo con un clic",
+      "Mock-up — panel de filtros: se mantiene visible al hacer scroll de la página (sticky) sin bloquear el navbar",
+    ],
+    newDashboardPerms: [],
+    newDashboardNames: {},
+  },
   {
     version: "1.2.8.4",
     date: "Julio 2026",

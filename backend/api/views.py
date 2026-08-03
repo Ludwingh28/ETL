@@ -5089,6 +5089,7 @@ def dashboard_new_nacional_clientes(request):
     try:
         regional    = request.GET.get('regional', 'nacional').lower().replace(' ', '_')
         canal       = _safe_str(request.GET.get('canal', ''))
+        vendedor    = _safe_str(request.GET.get('vendedor', ''))
         categorias  = [s for s in request.GET.getlist('categoria') if s]
         proveedores = [s for s in request.GET.getlist('proveedor') if s]
         subgrupos   = [s for s in request.GET.getlist('subgrupo')  if s]
@@ -5102,6 +5103,8 @@ def dashboard_new_nacional_clientes(request):
         ciudad_cond = _regional_filter(regional)
         canal_cond  = "AND dv.canal_rrhh = %s" if canal else ""
         canal_param = [canal] if canal else []
+        vend_cond   = "AND dv.vendedor_nombre = %s" if vendedor else ""
+        vend_param  = [vendedor] if vendedor else []
 
         cat_cond,  cat_params  = _multi_cat_cond(categorias)
         prov_cond, prov_params = _multi_prov_cond(proveedores)
@@ -5125,12 +5128,12 @@ def dashboard_new_nacional_clientes(request):
             JOIN dw.dim_cliente  dc ON fv.cliente_sk  = dc.cliente_sk
             {prod_join}
             WHERE df.anho = %s AND df.mes_numero = %s
-              AND ({ciudad_cond}) {canal_cond} {filter_cond}
+              AND ({ciudad_cond}) {canal_cond} {vend_cond} {filter_cond}
               AND dc.cliente_codigo_erp IS NOT NULL
             GROUP BY dc.cliente_codigo_erp, dc.cliente_nombre
             ORDER BY venta_neta DESC
         """
-        _, rows = _run_dw_query(sql, [anho, mes] + canal_param + filter_params)
+        _, rows = _run_dw_query(sql, [anho, mes] + canal_param + vend_param + filter_params)
 
         result = [
             {
