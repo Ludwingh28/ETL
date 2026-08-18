@@ -33,9 +33,18 @@ interface ComparacionRow {
   pct_camb_bs: number | null; pct_camb_uds: number | null;
 }
 interface SkuRow {
-  codigo: string; producto: string; cantidad: number; venta_neta: number;
+  codigo: string; producto: string; linea: string; cantidad: number; venta_neta: number;
   presupuesto: number; presupuesto_uds: number; pct_cumpl: number | null; gap_pct: number | null;
   cantidad_ant: number; venta_neta_ant: number; pct_camb_bs: number | null; pct_camb_uds: number | null;
+}
+interface VendCatRow {
+  vendedor: string;
+  alimentos: number; alimentos_ppto: number; alimentos_pct: number | null; alimentos_cant: number; alimentos_ppto_uds: number; alimentos_pct_uds: number | null;
+  apego: number;     apego_ppto: number;     apego_pct: number | null;     apego_cant: number;     apego_ppto_uds: number;     apego_pct_uds: number | null;
+  licores: number;   licores_ppto: number;   licores_pct: number | null;   licores_cant: number;   licores_ppto_uds: number;   licores_pct_uds: number | null;
+  hpc: number;       hpc_ppto: number;       hpc_pct: number | null;       hpc_cant: number;       hpc_ppto_uds: number;       hpc_pct_uds: number | null;
+  sin_clasificar: number; sin_clasificar_ppto: number; sin_clasificar_pct: number | null; sin_clasificar_cant: number; sin_clasificar_ppto_uds: number; sin_clasificar_pct_uds: number | null;
+  total: number;     total_ppto: number;     total_pct: number | null;     total_cant: number;     total_ppto_uds: number;     total_pct_uds: number | null;
 }
 
 // ─── Config regional ──────────────────────────────────────────────────────────
@@ -125,6 +134,20 @@ function buildQS(
     ...prods.map(p => `producto=${encodeURIComponent(p)}`),
   ];
   return p.join("&");
+}
+
+// Cuando hay drill activo, reemplaza el filtro del campo correspondiente con solo el valor del drill
+// (en lugar de agregarlo como param extra, que causaría OR con los filtros base)
+function buildDrillQS(
+  regional: string, canal: string, anho: number, mes: number,
+  cats: string[], provs: string[], subs: string[], marcs: string[], prods: string[],
+  drill: { field: string; value: string } | null,
+): string {
+  if (!drill) return buildQS(regional, canal, anho, mes, cats, provs, subs, marcs, prods);
+  const ov = (f: string, list: string[]) => drill.field === f ? [drill.value] : list;
+  return buildQS(regional, canal, anho, mes,
+    ov('categoria', cats), ov('proveedor', provs), ov('subgrupo', subs), ov('marca', marcs), ov('producto', prods),
+  );
 }
 
 // ─── MultiSelect ──────────────────────────────────────────────────────────────
@@ -521,6 +544,9 @@ export default function DashboardNewNacional() {
   const [loadingSkus,  setLoadingSkus]  = useState(false);
   const [loadingVend,  setLoadingVend]  = useState(false);
   const [vendedores,   setVendedores]   = useState<VendedorRow[]>([]);
+  const [vendCatRows,  setVendCatRows]  = useState<VendCatRow[]>([]);
+  const [loadingVendCat, setLoadingVendCat] = useState(false);
+  const [vendView,     setVendView]     = useState<"gral" | "cat">("gral");
   const [vendSearch,   setVendSearch]   = useState("");
   const [vendSortKey,  setVendSortKey]  = useState<VendSortKey>("presupuesto");
   const [vendSortDir,  setVendSortDir]  = useState<SortDir>("desc");
@@ -670,10 +696,9 @@ export default function DashboardNewNacional() {
     if (!anho || !mes) return;
     setLoadingSkus(true); setSkuSearch("");
     try {
-      const qs = buildQS(selectedRegional, canal, anho, mes, fCats, fProvs, fSubs, fMarcs, fProductos);
-      const drillParam = compDrill ? `&${compDrill.field}=${encodeURIComponent(compDrill.value)}` : "";
+      const qs = buildDrillQS(selectedRegional, canal, anho, mes, fCats, fProvs, fSubs, fMarcs, fProductos, compDrill);
       const j = await apiFetchRef.current<{ success: boolean; data: SkuRow[]; prev_anho: number; prev_mes: number }>(
-        `/dashboard/new-nacional/skus/?${qs}${drillParam}`
+        `/dashboard/new-nacional/skus/?${qs}`
       );
       if (j.success) {
         setSkus(j.data);
@@ -690,11 +715,10 @@ export default function DashboardNewNacional() {
     if (!anho || !mes) return;
     setLoadingVend(true);
     try {
-      const qs = buildQS(selectedRegional, canal, anho, mes, fCats, fProvs, fSubs, fMarcs, fProductos);
-      const drillParam = compDrill ? `&${compDrill.field}=${encodeURIComponent(compDrill.value)}` : "";
-      const skuParam   = selectedSku ? `&sku_drill=${encodeURIComponent(selectedSku.producto)}` : "";
+      const qs      = buildDrillQS(selectedRegional, canal, anho, mes, fCats, fProvs, fSubs, fMarcs, fProductos, compDrill);
+      const skuParam = selectedSku ? `&sku_drill=${encodeURIComponent(selectedSku.producto)}` : "";
       const j = await apiFetchRef.current<{ success: boolean; data: VendedorRow[] }>(
-        `/dashboard/new-nacional/vendedores/?${qs}${drillParam}${skuParam}`
+        `/dashboard/new-nacional/vendedores/?${qs}${skuParam}`
       );
       if (j.success) setVendedores(j.data); else setVendedores([]);
     } catch { setVendedores([]); }
@@ -703,17 +727,32 @@ export default function DashboardNewNacional() {
 
   useEffect(() => { void fetchVendedores(); }, [fetchVendedores]);
 
+  const fetchVendedoresCat = useCallback(async () => {
+    if (!anho || !mes) return;
+    setLoadingVendCat(true);
+    try {
+      const qs      = buildDrillQS(selectedRegional, canal, anho, mes, fCats, fProvs, fSubs, fMarcs, fProductos, compDrill);
+      const skuParam = selectedSku ? `&sku_drill=${encodeURIComponent(selectedSku.producto)}` : "";
+      const j = await apiFetchRef.current<{ success: boolean; data: VendCatRow[] }>(
+        `/dashboard/new-nacional/vendedores-cat/?${qs}${skuParam}`
+      );
+      if (j.success) setVendCatRows(j.data); else setVendCatRows([]);
+    } catch { setVendCatRows([]); }
+    finally { setLoadingVendCat(false); }
+  }, [selectedRegional, canal, fCats, fProvs, fSubs, fMarcs, fProductos, compDrill, selectedSku, anho, mes]);
+
+  useEffect(() => { if (vendView === "cat") void fetchVendedoresCat(); }, [fetchVendedoresCat, vendView]);
+
   const fetchClientes = useCallback(async () => {
     if (!anho || !mes) return;
     setLoadingCli(true);
     setSelectedCli(null);
     try {
-      const qs = buildQS(selectedRegional, canal, anho, mes, fCats, fProvs, fSubs, fMarcs, fProductos);
-      const drillParam = compDrill ? `&${compDrill.field}=${encodeURIComponent(compDrill.value)}` : "";
-      const skuParam   = selectedSku ? `&sku_drill=${encodeURIComponent(selectedSku.producto)}` : "";
-      const vendParam  = selectedVend ? `&vendedor=${encodeURIComponent(selectedVend)}` : "";
+      const qs       = buildDrillQS(selectedRegional, canal, anho, mes, fCats, fProvs, fSubs, fMarcs, fProductos, compDrill);
+      const skuParam  = selectedSku ? `&sku_drill=${encodeURIComponent(selectedSku.producto)}` : "";
+      const vendParam = selectedVend ? `&vendedor=${encodeURIComponent(selectedVend)}` : "";
       const j = await apiFetchRef.current<{ success: boolean; data: ClienteRow[] }>(
-        `/dashboard/new-nacional/clientes/?${qs}${drillParam}${skuParam}${vendParam}`
+        `/dashboard/new-nacional/clientes/?${qs}${skuParam}${vendParam}`
       );
       if (j.success) setClientes(j.data); else setClientes([]);
     } catch { setClientes([]); }
@@ -769,6 +808,35 @@ export default function DashboardNewNacional() {
     const q = vendSearch.trim().toLowerCase();
     return q ? sortedVendedores.filter((v) => v.vendedor.toLowerCase().includes(q)) : sortedVendedores;
   }, [sortedVendedores, vendSearch]);
+
+  // Categoria col key para highlight en Vista por Categoría
+  const LINEA_TO_COL: Record<string, string> = {
+    'ALIMENTOS':            'alimentos',
+    'APEGO':                'apego',
+    'BEBIDAS ALC':          'licores',
+    'HOME Y PERSONAL CARE': 'hpc',
+  };
+  const activeCatCol = useMemo<string | null>(() => {
+    if (selectedSku)                               return LINEA_TO_COL[selectedSku.linea] ?? 'sin_clasificar';
+    if (compDrill?.field === 'categoria')          return LINEA_TO_COL[compDrill.value]   ?? 'sin_clasificar';
+    return null;
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedSku, compDrill]);
+
+  const sortedVendCat = useMemo(() => {
+    return [...vendCatRows].sort((a, b) => {
+      let diff: number;
+      if      (vendSortKey === "cumplimiento") diff = (b.total_pct ?? -Infinity) - (a.total_pct ?? -Infinity);
+      else if (vendSortKey === "ventas_bs")    diff = b.total - a.total;
+      else                                     diff = b.total_ppto - a.total_ppto;
+      return vendSortDir === "desc" ? diff : -diff;
+    });
+  }, [vendCatRows, vendSortKey, vendSortDir]);
+
+  const filteredVendCat = useMemo(() => {
+    const q = vendSearch.trim().toLowerCase();
+    return q ? sortedVendCat.filter((v) => v.vendedor.toLowerCase().includes(q)) : sortedVendCat;
+  }, [sortedVendCat, vendSearch]);
 
   const sortedClientes = useMemo(() => {
     return [...clientes].sort((a, b) => {
@@ -839,7 +907,7 @@ export default function DashboardNewNacional() {
             </select>
           </div>
           <button
-            onClick={() => { void fetchNacKpis(); void fetchCanales(); void fetchOpciones(); void fetchComparacion(); void fetchSkus(); void fetchVendedores(); void fetchClientes(); }}
+            onClick={() => { void fetchNacKpis(); void fetchCanales(); void fetchOpciones(); void fetchComparacion(); void fetchSkus(); void fetchVendedores(); void fetchVendedoresCat(); void fetchClientes(); }}
             disabled={loadingNac}
             className="btn-ghost flex items-center gap-1.5 text-sm">
             <RefreshCw size={14} className={loadingNac ? "animate-spin" : ""} />Actualizar
@@ -1172,6 +1240,17 @@ export default function DashboardNewNacional() {
           </div>
 
           <div className="flex flex-wrap items-center gap-2">
+            {/* Vista Gral / Vista por Categoría */}
+            <div className="flex rounded-lg overflow-hidden border border-slate-200 text-[11px] font-semibold">
+              <button onClick={() => setVendView("gral")}
+                className={`px-2.5 py-1.5 transition-colors ${vendView === "gral" ? "bg-brand-600 text-white" : "bg-white text-slate-500 hover:bg-slate-50"}`}>
+                Vista Gral
+              </button>
+              <button onClick={() => { setVendView("cat"); void fetchVendedoresCat(); }}
+                className={`px-2.5 py-1.5 transition-colors ${vendView === "cat" ? "bg-brand-600 text-white" : "bg-white text-slate-500 hover:bg-slate-50"}`}>
+                Por Categoría
+              </button>
+            </div>
             {/* Sort key */}
             <div className="flex rounded-lg overflow-hidden border border-slate-200 text-[11px] font-semibold">
               {(["presupuesto", "cumplimiento", "ventas_bs"] as VendSortKey[]).map((k) => (
@@ -1196,50 +1275,136 @@ export default function DashboardNewNacional() {
           <input type="text" value={vendSearch} onChange={(e) => setVendSearch(e.target.value)}
             placeholder="Buscar vendedor..."
             className="w-full pl-8 pr-3 py-2 text-xs border border-slate-200 rounded-lg focus:outline-none focus:border-brand-400 bg-white" />
-          {filteredVendedores.length !== vendedores.length && (
+          {vendView === "gral" && filteredVendedores.length !== vendedores.length && (
             <span className="absolute right-3 top-1/2 -translate-y-1/2 text-[10px] text-slate-400">
               {filteredVendedores.length}/{vendedores.length}
             </span>
           )}
+          {vendView === "cat" && filteredVendCat.length !== vendCatRows.length && (
+            <span className="absolute right-3 top-1/2 -translate-y-1/2 text-[10px] text-slate-400">
+              {filteredVendCat.length}/{vendCatRows.length}
+            </span>
+          )}
         </div>
 
-        {loadingVend ? (
-          <div className="h-40 flex items-center justify-center text-slate-400 text-sm">Cargando...</div>
-        ) : filteredVendedores.length === 0 ? (
-          <div className="h-40 flex items-center justify-center text-slate-400 text-sm">Sin datos</div>
-        ) : (
-          <div className="overflow-auto max-h-96">
-            <table className="w-full text-xs">
-              <thead className="sticky top-0 bg-white">
-                <tr className="border-b border-slate-100 text-slate-400 text-[11px] uppercase tracking-wider">
-                  <th className="text-left py-2 pb-3 font-semibold pl-1">Vendedor</th>
-                  <th className="text-right py-2 pb-3 font-semibold">Bs. Vendidos</th>
-                  <th className="text-right py-2 pb-3 font-semibold">Uds. Vendidas</th>
-                  <th className="text-right py-2 pb-3 font-semibold">Presupuesto Bs.</th>
-                  <th className="text-right py-2 pb-3 font-semibold">Presupuesto Uds.</th>
-                  <th className="text-right py-2 pb-3 font-semibold pr-1">% Cumpl.</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-50">
-                {filteredVendedores.map((v) => {
-                  const isActive = selectedVend === v.vendedor;
-                  return (
-                    <tr key={v.vendedor}
-                      onClick={() => setSelectedVend(isActive ? null : v.vendedor)}
-                      className={`cursor-pointer transition-colors ${isActive ? "bg-brand-50" : "hover:bg-slate-50/60"}`}>
-                      <td className={`py-2.5 pl-1 font-medium ${isActive ? "text-brand-700" : "text-slate-700"}`}>{v.vendedor}</td>
-                      <td className="py-2.5 text-right tabular-nums text-slate-700 font-semibold">{fmt(v.venta_neta)}</td>
-                      <td className="py-2.5 text-right tabular-nums text-slate-600">{fmtN(v.cantidad)}</td>
-                      <td className="py-2.5 text-right tabular-nums text-slate-500">{fmt(v.presupuesto_bs)}</td>
-                      <td className="py-2.5 text-right tabular-nums text-slate-500">{fmtN(v.presupuesto_uds)}</td>
-                      <td className={`py-2.5 text-right tabular-nums font-bold pr-1 ${cumplColor(v.pct_cumpl)}`}>{fmtPct(v.pct_cumpl)}</td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          </div>
+        {/* ── Vista Gral ── */}
+        {vendView === "gral" && (
+          loadingVend ? (
+            <div className="h-40 flex items-center justify-center text-slate-400 text-sm">Cargando...</div>
+          ) : filteredVendedores.length === 0 ? (
+            <div className="h-40 flex items-center justify-center text-slate-400 text-sm">Sin datos</div>
+          ) : (
+            <div className="overflow-auto max-h-96">
+              <table className="w-full text-xs">
+                <thead className="sticky top-0 bg-white">
+                  <tr className="border-b border-slate-100 text-slate-400 text-[11px] uppercase tracking-wider">
+                    <th className="text-left py-2 pb-3 font-semibold pl-1">Vendedor</th>
+                    <th className="text-right py-2 pb-3 font-semibold">Bs. Vendidos</th>
+                    <th className="text-right py-2 pb-3 font-semibold">Uds. Vendidas</th>
+                    <th className="text-right py-2 pb-3 font-semibold">Presupuesto Bs.</th>
+                    <th className="text-right py-2 pb-3 font-semibold">Presupuesto Uds.</th>
+                    <th className="text-right py-2 pb-3 font-semibold pr-1">% Cumpl.</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-50">
+                  {filteredVendedores.map((v) => {
+                    const isActive = selectedVend === v.vendedor;
+                    return (
+                      <tr key={v.vendedor}
+                        onClick={() => setSelectedVend(isActive ? null : v.vendedor)}
+                        className={`cursor-pointer transition-colors ${isActive ? "bg-brand-50" : "hover:bg-slate-50/60"}`}>
+                        <td className={`py-2.5 pl-1 font-medium ${isActive ? "text-brand-700" : "text-slate-700"}`}>{v.vendedor}</td>
+                        <td className="py-2.5 text-right tabular-nums text-slate-700 font-semibold">{fmt(v.venta_neta)}</td>
+                        <td className="py-2.5 text-right tabular-nums text-slate-600">{fmtN(v.cantidad)}</td>
+                        <td className="py-2.5 text-right tabular-nums text-slate-500">{fmt(v.presupuesto_bs)}</td>
+                        <td className="py-2.5 text-right tabular-nums text-slate-500">{fmtN(v.presupuesto_uds)}</td>
+                        <td className={`py-2.5 text-right tabular-nums font-bold pr-1 ${cumplColor(v.pct_cumpl)}`}>{fmtPct(v.pct_cumpl)}</td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          )
         )}
+
+        {/* ── Vista por Categoría ── */}
+        {vendView === "cat" && (() => {
+          const CAT_COLS: { key: string; label: string; color: string }[] = [
+            { key: "alimentos",      label: "Alimentos",  color: "text-green-700"  },
+            { key: "apego",          label: "Apego",      color: "text-pink-700"   },
+            { key: "licores",        label: "Licores",    color: "text-rose-700"   },
+            { key: "hpc",            label: "HPC",        color: "text-sky-700"    },
+            { key: "sin_clasificar", label: "Sin Clas.",  color: "text-orange-700" },
+          ];
+          const isMetricaUds = false; // siempre Bs en la vista cat (toggle Bs/Uds aplica en Gral)
+          void isMetricaUds;
+          return loadingVendCat ? (
+            <div className="h-40 flex items-center justify-center text-slate-400 text-sm">Cargando...</div>
+          ) : filteredVendCat.length === 0 ? (
+            <div className="h-40 flex items-center justify-center text-slate-400 text-sm">Sin datos</div>
+          ) : (
+            <div className="overflow-auto max-h-96">
+              <table className="w-full text-xs min-w-max">
+                <thead className="sticky top-0 bg-white z-10 shadow-[0_1px_0_0_#f1f5f9]">
+                  <tr className="text-slate-500 text-[10px]">
+                    <th className="text-left py-2 pr-3 font-semibold w-36">Vendedor</th>
+                    {CAT_COLS.map(({ key, label, color }) => {
+                      const isHl = key === activeCatCol;
+                      return (
+                        <th key={key} colSpan={2}
+                          className={`text-center py-2 px-1 font-semibold ${isHl ? `${color} ring-1 ring-inset ring-current rounded` : color}`}>
+                          {label}
+                          {isHl && <span className="ml-1 opacity-60">▲</span>}
+                        </th>
+                      );
+                    })}
+                    <th colSpan={3} className="text-center py-2 px-1 font-semibold text-slate-700">Total</th>
+                  </tr>
+                  <tr className="text-slate-400 text-[9px] border-b border-slate-100">
+                    <th />
+                    {CAT_COLS.map(({ key }) => (
+                      <th key={`${key}-sub`} className="text-right py-1 px-1" colSpan={2}>
+                        <span className="inline-flex gap-3 w-full justify-end">
+                          <span>Bs.</span><span className="opacity-70">Cumpl.</span>
+                        </span>
+                      </th>
+                    ))}
+                    <th className="text-right py-1 px-1">Bs.</th>
+                    <th className="text-right py-1 px-1 opacity-70">Ppto.</th>
+                    <th className="text-right py-1 px-1 opacity-70">Cumpl.</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {filteredVendCat.map((v) => {
+                    const isActive = selectedVend === v.vendedor;
+                    return (
+                      <tr key={v.vendedor}
+                        onClick={() => setSelectedVend(isActive ? null : v.vendedor)}
+                        className={`border-b border-slate-50 cursor-pointer transition-colors ${isActive ? "bg-brand-50 ring-1 ring-inset ring-brand-300" : "hover:bg-slate-50"}`}>
+                        <td className={`py-2 pr-3 font-semibold truncate max-w-36 ${isActive ? "text-brand-700" : "text-slate-700"}`} title={v.vendedor}>{v.vendedor}</td>
+                        {CAT_COLS.map(({ key }) => {
+                          const isHl = key === activeCatCol;
+                          const bs  = v[key as keyof VendCatRow] as number;
+                          const pct = v[`${key}_pct` as keyof VendCatRow] as number | null;
+                          return (
+                            <>
+                              <td key={`${key}-bs`}  className={`py-2 px-1 text-right tabular-nums text-slate-700 ${isHl ? "font-semibold bg-amber-50" : ""}`}>{fmt(bs)}</td>
+                              <td key={`${key}-pct`} className={`py-2 px-1 text-right tabular-nums text-[10px] font-semibold ${isHl ? "bg-amber-50 " : ""}${cumplColor(pct)}`}>{fmtPct(pct)}</td>
+                            </>
+                          );
+                        })}
+                        <td className={`py-2 px-1 text-right tabular-nums font-bold ${isActive ? "text-brand-700" : "text-slate-800"}`}>{fmt(v.total)}</td>
+                        <td className="py-2 px-1 text-right tabular-nums text-[10px] text-emerald-600">{fmt(v.total_ppto)}</td>
+                        <td className={`py-2 px-1 text-right tabular-nums text-[10px] font-bold ${cumplColor(v.total_pct)}`}>{fmtPct(v.total_pct)}</td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          );
+        })()}
       </div>
 
       {/* ── Tabla Clientes ───────────────────────────────────────────────────── */}

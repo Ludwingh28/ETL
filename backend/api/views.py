@@ -4912,17 +4912,18 @@ def dashboard_new_nacional_skus(request):
 
         # Ventas mes actual
         sql_v = f"""
-            SELECT dp.producto_codigo_erp          AS codigo,
-                   dp.producto_nombre              AS producto,
-                   COALESCE(SUM(fv.cantidad), 0)   AS cantidad,
-                   COALESCE(SUM(fv.venta_neta), 0) AS venta_neta
+            SELECT dp.producto_codigo_erp                                       AS codigo,
+                   dp.producto_nombre                                           AS producto,
+                   COALESCE(dp.linea, 'SIN LINEA')                             AS linea,
+                   COALESCE(SUM(fv.cantidad), 0)                               AS cantidad,
+                   COALESCE(SUM(fv.venta_neta), 0)                             AS venta_neta
             FROM dw.fact_ventas fv
             JOIN dw.dim_fecha    df ON fv.fecha_sk    = df.fecha_sk
             JOIN dw.dim_vendedor dv ON fv.vendedor_sk = dv.vendedor_sk
             JOIN dw.dim_producto dp ON fv.producto_sk = dp.producto_sk
             WHERE df.anho = %s AND df.mes_numero = %s
               AND ({ciudad_cond}) {canal_cond} {filter_cond}
-            GROUP BY dp.producto_codigo_erp, dp.producto_nombre
+            GROUP BY dp.producto_codigo_erp, dp.producto_nombre, dp.linea
             ORDER BY venta_neta DESC
             LIMIT %s
         """
@@ -4988,6 +4989,7 @@ def dashboard_new_nacional_skus(request):
             result.append({
                 'codigo':         codigo,
                 'producto':       row['producto'],
+                'linea':          row.get('linea') or 'SIN LINEA',
                 'cantidad':       cant,
                 'venta_neta':     vn,
                 'presupuesto':    ppto_bs,
@@ -5147,6 +5149,189 @@ def dashboard_new_nacional_vendedores(request):
                 'presupuesto_bs':  ppto_bs,
                 'presupuesto_uds': ppto_uds,
                 'pct_cumpl':       round(vn / ppto_bs * 100, 1) if ppto_bs > 0 else None,
+            })
+
+        return JsonResponse({'success': True, 'data': result})
+    except Exception:
+        logger.exception("Error interno")
+        return JsonResponse({'success': False, 'error': 'Error interno del servidor'}, status=500)
+
+
+@api_view(['GET'])
+@authentication_classes([ExpiringTokenAuthentication])
+@permission_classes([IsAuthenticated])
+def dashboard_new_nacional_vendedores_cat(request):
+    """
+    Vendedores con desglose por categoría (linea): Alimentos, Apego, Licores, HPC, Sin Clas.
+    Acepta los mismos filtros que /vendedores/ + sku_drill para drill-down de SKU.
+    """
+    try:
+        regional    = request.GET.get('regional', 'nacional').lower().replace(' ', '_')
+        canal       = _safe_str(request.GET.get('canal', ''))
+        categorias  = [s for s in request.GET.getlist('categoria') if s]
+        proveedores = [s for s in request.GET.getlist('proveedor') if s]
+        subgrupos   = [s for s in request.GET.getlist('subgrupo')  if s]
+        marcas      = [s for s in request.GET.getlist('marca')     if s]
+        productos   = [s for s in request.GET.getlist('producto')  if s]
+        anho        = _safe_int(request.GET.get('anho'), datetime.now().year)
+        mes         = _safe_int(request.GET.get('mes'),  datetime.now().month)
+        if regional not in REGIONALES_VALID:
+            regional = 'nacional'
+
+        ciudad_cond = _regional_filter(regional)
+        canal_cond  = "AND dv.canal_rrhh = %s" if canal else ""
+        canal_param = [canal] if canal else []
+
+        cat_cond,  cat_params  = _multi_cat_cond(categorias)
+        prov_cond, prov_params = _multi_prov_cond(proveedores)
+        sub_cond,  sub_params  = _multi_sub_cond(subgrupos)
+        marc_cond, marc_params = _multi_marc_cond(marcas)
+        prod_cond, prod_params = _multi_prod_cond(productos)
+        has_prod      = bool(categorias or proveedores or subgrupos or marcas or productos)
+        filter_cond   = f"{cat_cond} {prov_cond} {sub_cond} {marc_cond} {prod_cond}"
+        filter_params = cat_params + prov_params + sub_params + marc_params + prod_params
+        # El pivot de categorías siempre requiere dim_producto
+        prod_join     = "JOIN dw.dim_producto dp ON fv.producto_sk = dp.producto_sk"
+        ppto_prod_join = "JOIN dw.dim_producto dp ON fp.producto_sk = dp.producto_sk"
+        sku_drill     = _safe_str(request.GET.get('sku_drill', ''))
+
+        CAT_PIVOT = """
+            COALESCE(SUM(CASE WHEN dp.linea = 'ALIMENTOS'            THEN {col} ELSE 0 END), 0) AS alimentos{suf},
+            COALESCE(SUM(CASE WHEN dp.linea = 'APEGO'                THEN {col} ELSE 0 END), 0) AS apego{suf},
+            COALESCE(SUM(CASE WHEN dp.linea = 'BEBIDAS ALC'          THEN {col} ELSE 0 END), 0) AS licores{suf},
+            COALESCE(SUM(CASE WHEN dp.linea = 'HOME Y PERSONAL CARE' THEN {col} ELSE 0 END), 0) AS hpc{suf},
+            COALESCE(SUM(CASE WHEN dp.linea NOT IN ('ALIMENTOS','APEGO','BEBIDAS ALC','HOME Y PERSONAL CARE') OR dp.linea IS NULL THEN {col} ELSE 0 END), 0) AS sin_clasificar{suf}
+        """
+
+        if sku_drill:
+            sql_v = f"""
+                WITH base_vend AS (
+                    SELECT DISTINCT dv.vendedor_nombre AS vendedor
+                    FROM dw.fact_ventas fv
+                    JOIN dw.dim_fecha    df ON fv.fecha_sk    = df.fecha_sk
+                    JOIN dw.dim_vendedor dv ON fv.vendedor_sk = dv.vendedor_sk
+                    {prod_join if has_prod else ""}
+                    WHERE df.anho = %s AND df.mes_numero = %s
+                      AND ({ciudad_cond}) {canal_cond} {filter_cond}
+                      AND dv.vendedor_nombre IS NOT NULL
+                ),
+                sku_cat AS (
+                    SELECT
+                        dv.vendedor_nombre AS vendedor,
+                        {CAT_PIVOT.format(col='fv.venta_neta', suf='')},
+                        COALESCE(SUM(fv.venta_neta), 0) AS total,
+                        {CAT_PIVOT.format(col='fv.cantidad', suf='_cant')},
+                        COALESCE(SUM(fv.cantidad), 0)   AS total_cant
+                    FROM dw.fact_ventas fv
+                    JOIN dw.dim_fecha    df ON fv.fecha_sk    = df.fecha_sk
+                    JOIN dw.dim_vendedor dv ON fv.vendedor_sk = dv.vendedor_sk
+                    {prod_join}
+                    WHERE df.anho = %s AND df.mes_numero = %s
+                      AND ({ciudad_cond}) {canal_cond} {filter_cond}
+                      AND dv.vendedor_nombre IS NOT NULL
+                      AND dp.producto_nombre = %s
+                    GROUP BY dv.vendedor_nombre
+                )
+                SELECT b.vendedor,
+                       COALESCE(s.alimentos, 0)        AS alimentos,
+                       COALESCE(s.apego, 0)            AS apego,
+                       COALESCE(s.licores, 0)          AS licores,
+                       COALESCE(s.hpc, 0)              AS hpc,
+                       COALESCE(s.sin_clasificar, 0)   AS sin_clasificar,
+                       COALESCE(s.total, 0)            AS total,
+                       COALESCE(s.alimentos_cant, 0)   AS alimentos_cant,
+                       COALESCE(s.apego_cant, 0)       AS apego_cant,
+                       COALESCE(s.licores_cant, 0)     AS licores_cant,
+                       COALESCE(s.hpc_cant, 0)         AS hpc_cant,
+                       COALESCE(s.sin_clasificar_cant, 0) AS sin_clasificar_cant,
+                       COALESCE(s.total_cant, 0)       AS total_cant
+                FROM base_vend b
+                LEFT JOIN sku_cat s ON s.vendedor = b.vendedor
+                ORDER BY total DESC, b.vendedor
+            """
+            _, v_rows = _run_dw_query(sql_v,
+                [anho, mes] + canal_param + filter_params +
+                [anho, mes] + canal_param + filter_params + [sku_drill])
+        else:
+            sql_v = f"""
+                SELECT
+                    dv.vendedor_nombre AS vendedor,
+                    {CAT_PIVOT.format(col='fv.venta_neta', suf='')},
+                    COALESCE(SUM(fv.venta_neta), 0) AS total,
+                    {CAT_PIVOT.format(col='fv.cantidad', suf='_cant')},
+                    COALESCE(SUM(fv.cantidad), 0)   AS total_cant
+                FROM dw.fact_ventas fv
+                JOIN dw.dim_fecha    df ON fv.fecha_sk    = df.fecha_sk
+                JOIN dw.dim_vendedor dv ON fv.vendedor_sk = dv.vendedor_sk
+                {prod_join}
+                WHERE df.anho = %s AND df.mes_numero = %s
+                  AND ({ciudad_cond}) {canal_cond} {filter_cond}
+                  AND dv.vendedor_nombre IS NOT NULL
+                GROUP BY dv.vendedor_nombre
+                ORDER BY total DESC
+            """
+            _, v_rows = _run_dw_query(sql_v, [anho, mes] + canal_param + filter_params)
+
+        # Presupuesto por categoría por vendedor
+        ppto_map = {}
+        try:
+            ppto_join_sku  = ppto_prod_join  # siempre necesitamos dp para el pivot
+            sku_drill_cond = "AND dp.producto_nombre = %s" if sku_drill else ""
+            sql_p = f"""
+                SELECT
+                    dv.vendedor_nombre AS vendedor,
+                    {CAT_PIVOT.format(col='fp.venta_neta_presupuestada', suf='_ppto')},
+                    COALESCE(SUM(fp.venta_neta_presupuestada), 0) AS total_ppto,
+                    {CAT_PIVOT.format(col='fp.cantidad_presupuestada', suf='_ppto_uds')},
+                    COALESCE(SUM(fp.cantidad_presupuestada), 0)   AS total_ppto_uds
+                FROM dw.fact_presupuesto fp
+                JOIN dw.dim_vendedor dv ON fp.vendedor_sk = dv.vendedor_sk
+                {ppto_join_sku}
+                WHERE fp.anho = %s AND fp.mes = %s
+                  AND ({ciudad_cond}) {canal_cond} {filter_cond}
+                  AND dv.vendedor_nombre IS NOT NULL
+                  {sku_drill_cond}
+                  AND fp.version_sk = (SELECT MAX(version_sk) FROM dw.dim_presupuesto_version WHERE anho = %s AND mes = %s)
+                GROUP BY dv.vendedor_nombre
+            """
+            ppto_params = [anho, mes] + canal_param + filter_params
+            if sku_drill:
+                ppto_params += [sku_drill]
+            ppto_params += [anho, mes]
+            _, p_rows = _run_dw_query(sql_p, ppto_params)
+            ppto_map = {r['vendedor']: r for r in p_rows}
+        except Exception:
+            pass
+
+        def _pct(v, p):
+            return round(v / p * 100, 1) if p and p > 0 else None
+        def _pct_uds(v, p):
+            return round(v / p * 100, 1) if p and p > 0 else None
+
+        result = []
+        for row in v_rows:
+            nombre = row['vendedor']
+            p      = ppto_map.get(nombre, {})
+            a_a  = float(row['alimentos']      or 0); ca_a  = int(row['alimentos_cant']      or 0)
+            a_e  = float(row['apego']          or 0); ca_e  = int(row['apego_cant']          or 0)
+            a_l  = float(row['licores']        or 0); ca_l  = int(row['licores_cant']        or 0)
+            a_h  = float(row['hpc']            or 0); ca_h  = int(row['hpc_cant']            or 0)
+            a_sc = float(row['sin_clasificar'] or 0); ca_sc = int(row['sin_clasificar_cant'] or 0)
+            a_t  = float(row['total']          or 0); ca_t  = int(row['total_cant']          or 0)
+            p_a  = float(p.get('alimentos_ppto')      or 0); pu_a  = int(p.get('alimentos_ppto_uds')      or 0)
+            p_e  = float(p.get('apego_ppto')          or 0); pu_e  = int(p.get('apego_ppto_uds')          or 0)
+            p_l  = float(p.get('licores_ppto')        or 0); pu_l  = int(p.get('licores_ppto_uds')        or 0)
+            p_h  = float(p.get('hpc_ppto')            or 0); pu_h  = int(p.get('hpc_ppto_uds')            or 0)
+            p_sc = float(p.get('sin_clasificar_ppto') or 0); pu_sc = int(p.get('sin_clasificar_ppto_uds') or 0)
+            p_t  = float(p.get('total_ppto')          or 0); pu_t  = int(p.get('total_ppto_uds')          or 0)
+            result.append({
+                'vendedor':             nombre,
+                'alimentos':            a_a,  'alimentos_ppto':            p_a,  'alimentos_pct':            _pct(a_a,  p_a),  'alimentos_cant':            ca_a,  'alimentos_ppto_uds':            pu_a,  'alimentos_pct_uds':            _pct_uds(ca_a,  pu_a),
+                'apego':                a_e,  'apego_ppto':                p_e,  'apego_pct':                _pct(a_e,  p_e),  'apego_cant':                ca_e,  'apego_ppto_uds':                pu_e,  'apego_pct_uds':                _pct_uds(ca_e,  pu_e),
+                'licores':              a_l,  'licores_ppto':              p_l,  'licores_pct':              _pct(a_l,  p_l),  'licores_cant':              ca_l,  'licores_ppto_uds':              pu_l,  'licores_pct_uds':              _pct_uds(ca_l,  pu_l),
+                'hpc':                  a_h,  'hpc_ppto':                  p_h,  'hpc_pct':                  _pct(a_h,  p_h),  'hpc_cant':                  ca_h,  'hpc_ppto_uds':                  pu_h,  'hpc_pct_uds':                  _pct_uds(ca_h,  pu_h),
+                'sin_clasificar':       a_sc, 'sin_clasificar_ppto':       p_sc, 'sin_clasificar_pct':       _pct(a_sc, p_sc), 'sin_clasificar_cant':       ca_sc, 'sin_clasificar_ppto_uds':       pu_sc, 'sin_clasificar_pct_uds':       _pct_uds(ca_sc, pu_sc),
+                'total':                a_t,  'total_ppto':                p_t,  'total_pct':                _pct(a_t,  p_t),  'total_cant':                ca_t,  'total_ppto_uds':                pu_t,  'total_pct_uds':                _pct_uds(ca_t,  pu_t),
             })
 
         return JsonResponse({'success': True, 'data': result})
