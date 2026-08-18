@@ -525,6 +525,8 @@ export default function DashboardNewNacional() {
   const [vendSortKey,  setVendSortKey]  = useState<VendSortKey>("presupuesto");
   const [vendSortDir,  setVendSortDir]  = useState<SortDir>("desc");
   const [selectedVend, setSelectedVend] = useState<string | null>(null);
+  const [compDrill,    setCompDrill]    = useState<{ field: string; value: string } | null>(null);
+  const [selectedSku,  setSelectedSku]  = useState<SkuRow | null>(null);
   const [loadingCli,      setLoadingCli]      = useState(false);
   const [clientes,        setClientes]        = useState<ClienteRow[]>([]);
   const [cliSearch,       setCliSearch]       = useState("");
@@ -542,12 +544,25 @@ export default function DashboardNewNacional() {
   }, [anho, mes, selectedRegional, canal, fCats, fProvs]);
 
   // Cascada: Categoría → Sub-categoría → Proveedor → Marca → Productos
-  function onCats(v: string[])      { setFCats(v);      setFSubs([]); setFProvs([]); setFMarcs([]); setFProductos([]); }
-  function onSubs(v: string[])      { setFSubs(v);      setFProvs([]); setFMarcs([]); setFProductos([]); }
-  function onProvs(v: string[])     { setFProvs(v);     setFMarcs([]); setFProductos([]); }
-  function onMarcs(v: string[])     { setFMarcs(v);     setFProductos([]); }
-  function onProductos(v: string[]) { setFProductos(v); }
+  function resetDrill() { setCompDrill(null); setSelectedSku(null); setSelectedVend(null); setSelectedCli(null); }
+  function onCats(v: string[])      { setFCats(v);  setFSubs([]); setFProvs([]); setFMarcs([]); setFProductos([]); resetDrill(); }
+  function onSubs(v: string[])      { setFSubs(v);  setFProvs([]); setFMarcs([]); setFProductos([]); resetDrill(); }
+  function onProvs(v: string[])     { setFProvs(v); setFMarcs([]); setFProductos([]); resetDrill(); }
+  function onMarcs(v: string[])     { setFMarcs(v); setFProductos([]); resetDrill(); }
+  function onProductos(v: string[]) { setFProductos(v); resetDrill(); }
   function clearAll() { onCats([]); setCanal(""); }
+
+  function onCompDrillClick(row: ComparacionRow) {
+    if (!groupBy || groupBy === "total") return;
+    const isActive = compDrill?.field === groupBy && compDrill?.value === row.name;
+    setCompDrill(isActive ? null : { field: groupBy, value: row.name });
+    setSelectedSku(null); setSelectedVend(null); setSelectedCli(null);
+  }
+  function onSkuClick(sku: SkuRow) {
+    const isActive = selectedSku?.codigo === sku.codigo;
+    setSelectedSku(isActive ? null : sku);
+    setSelectedVend(null); setSelectedCli(null);
+  }
 
   const hasFilters = canal !== ""
     || fCats.length > 0 || fSubs.length > 0 || fProvs.length > 0
@@ -656,8 +671,9 @@ export default function DashboardNewNacional() {
     setLoadingSkus(true); setSkuSearch("");
     try {
       const qs = buildQS(selectedRegional, canal, anho, mes, fCats, fProvs, fSubs, fMarcs, fProductos);
+      const drillParam = compDrill ? `&${compDrill.field}=${encodeURIComponent(compDrill.value)}` : "";
       const j = await apiFetchRef.current<{ success: boolean; data: SkuRow[]; prev_anho: number; prev_mes: number }>(
-        `/dashboard/new-nacional/skus/?${qs}`
+        `/dashboard/new-nacional/skus/?${qs}${drillParam}`
       );
       if (j.success) {
         setSkus(j.data);
@@ -666,7 +682,7 @@ export default function DashboardNewNacional() {
     } catch { setSkus([]); }
     finally { setLoadingSkus(false); }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selectedRegional, canal, fCats, fProvs, fSubs, fMarcs, fProductos, anho, mes]);
+  }, [selectedRegional, canal, fCats, fProvs, fSubs, fMarcs, fProductos, compDrill, anho, mes]);
 
   useEffect(() => { void fetchSkus(); }, [fetchSkus]);
 
@@ -675,13 +691,15 @@ export default function DashboardNewNacional() {
     setLoadingVend(true);
     try {
       const qs = buildQS(selectedRegional, canal, anho, mes, fCats, fProvs, fSubs, fMarcs, fProductos);
+      const drillParam = compDrill ? `&${compDrill.field}=${encodeURIComponent(compDrill.value)}` : "";
+      const skuParam   = selectedSku ? `&sku_drill=${encodeURIComponent(selectedSku.producto)}` : "";
       const j = await apiFetchRef.current<{ success: boolean; data: VendedorRow[] }>(
-        `/dashboard/new-nacional/vendedores/?${qs}`
+        `/dashboard/new-nacional/vendedores/?${qs}${drillParam}${skuParam}`
       );
       if (j.success) setVendedores(j.data); else setVendedores([]);
     } catch { setVendedores([]); }
     finally { setLoadingVend(false); }
-  }, [selectedRegional, canal, fCats, fProvs, fSubs, fMarcs, fProductos, anho, mes]);
+  }, [selectedRegional, canal, fCats, fProvs, fSubs, fMarcs, fProductos, compDrill, selectedSku, anho, mes]);
 
   useEffect(() => { void fetchVendedores(); }, [fetchVendedores]);
 
@@ -691,14 +709,16 @@ export default function DashboardNewNacional() {
     setSelectedCli(null);
     try {
       const qs = buildQS(selectedRegional, canal, anho, mes, fCats, fProvs, fSubs, fMarcs, fProductos);
-      const vendParam = selectedVend ? `&vendedor=${encodeURIComponent(selectedVend)}` : "";
+      const drillParam = compDrill ? `&${compDrill.field}=${encodeURIComponent(compDrill.value)}` : "";
+      const skuParam   = selectedSku ? `&sku_drill=${encodeURIComponent(selectedSku.producto)}` : "";
+      const vendParam  = selectedVend ? `&vendedor=${encodeURIComponent(selectedVend)}` : "";
       const j = await apiFetchRef.current<{ success: boolean; data: ClienteRow[] }>(
-        `/dashboard/new-nacional/clientes/?${qs}${vendParam}`
+        `/dashboard/new-nacional/clientes/?${qs}${drillParam}${skuParam}${vendParam}`
       );
       if (j.success) setClientes(j.data); else setClientes([]);
     } catch { setClientes([]); }
     finally { setLoadingCli(false); }
-  }, [selectedRegional, canal, fCats, fProvs, fSubs, fMarcs, fProductos, selectedVend, anho, mes]);
+  }, [selectedRegional, canal, fCats, fProvs, fSubs, fMarcs, fProductos, compDrill, selectedSku, selectedVend, anho, mes]);
 
   useEffect(() => { void fetchClientes(); }, [fetchClientes]);
 
@@ -967,6 +987,13 @@ export default function DashboardNewNacional() {
               {MESES[mes]} {anho} vs {prevLabel || "mes anterior"} · {REGIONALES.find(r => r.key === selectedRegional)?.label}
             </p>
           </div>
+          {compDrill && (
+            <button onClick={() => { setCompDrill(null); setSelectedSku(null); }}
+              className="inline-flex items-center gap-1.5 text-[11px] font-semibold px-2.5 py-1 rounded-full bg-violet-50 text-violet-700 border border-violet-200 hover:bg-violet-100 transition-colors">
+              {GROUP_BY_LABEL[compDrill.field] ?? compDrill.field}: {compDrill.value}
+              <span className="opacity-60">✕</span>
+            </button>
+          )}
         </div>
 
         {loadingComp ? (
@@ -988,9 +1015,14 @@ export default function DashboardNewNacional() {
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-50">
-                {comparacion.map((row) => (
-                  <tr key={row.name} className="hover:bg-slate-50 transition-colors">
-                    <td className="py-3 font-semibold text-slate-800 truncate max-w-40" title={row.name}>{row.name}</td>
+                {comparacion.map((row) => {
+                  const isDrillActive = compDrill?.field === groupBy && compDrill?.value === row.name;
+                  const isClickable   = groupBy !== "total";
+                  return (
+                  <tr key={row.name}
+                    onClick={() => isClickable && onCompDrillClick(row)}
+                    className={`transition-colors ${isClickable ? "cursor-pointer" : ""} ${isDrillActive ? "bg-violet-50" : "hover:bg-slate-50"}`}>
+                    <td className={`py-3 font-semibold truncate max-w-40 ${isDrillActive ? "text-violet-700" : "text-slate-800"}`} title={row.name}>{row.name}</td>
                     <td className="py-3 text-right tabular-nums text-slate-700">{fmtN(row.cantidad)}</td>
                     <td className="py-3 text-right tabular-nums text-slate-700 font-semibold">{fmt(row.venta_neta)}</td>
                     <td className="py-3 text-right tabular-nums text-slate-500">{fmt(row.ppto_bs)}</td>
@@ -1005,7 +1037,8 @@ export default function DashboardNewNacional() {
                       )}
                     </td>
                   </tr>
-                ))}
+                  );
+                })}
               </tbody>
             </table>
           </div>
@@ -1022,6 +1055,12 @@ export default function DashboardNewNacional() {
               {MESES[mes]} {anho} · {REGIONALES.find(r => r.key === selectedRegional)?.label}
               {activeFilterChips.length > 0 && ` · ${activeFilterChips.map(c => c.label).join(", ")}`}
             </p>
+            {selectedSku && (
+              <button onClick={() => setSelectedSku(null)}
+                className="mt-1.5 inline-flex items-center gap-1.5 text-[11px] font-semibold px-2.5 py-1 rounded-full bg-teal-50 text-teal-700 border border-teal-200 hover:bg-teal-100 transition-colors">
+                SKU: {selectedSku.producto} <span className="opacity-60">✕</span>
+              </button>
+            )}
           </div>
 
           <div className="flex flex-wrap items-center gap-2">
@@ -1078,11 +1117,15 @@ export default function DashboardNewNacional() {
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-50">
-                {filteredSkus.map((s) => (
-                  <tr key={s.codigo} className="hover:bg-slate-50 transition-colors">
+                {filteredSkus.map((s) => {
+                  const isSkuActive = selectedSku?.codigo === s.codigo;
+                  return (
+                  <tr key={s.codigo}
+                    onClick={() => onSkuClick(s)}
+                    className={`cursor-pointer transition-colors ${isSkuActive ? "bg-teal-50" : "hover:bg-slate-50"}`}>
                     <td className="py-2.5 pl-3 w-72">
                       <span className="font-mono text-[10px] text-slate-400 block">{s.codigo}</span>
-                      <span className="text-slate-700 font-medium leading-tight">{s.producto}</span>
+                      <span className={`font-medium leading-tight ${isSkuActive ? "text-teal-700" : "text-slate-700"}`}>{s.producto}</span>
                     </td>
                     <td className="py-2.5 text-right tabular-nums text-slate-700 font-semibold">{fmt(s.venta_neta)}</td>
                     <td className="py-2.5 text-right tabular-nums text-slate-600">{fmtN(s.cantidad)}</td>
@@ -1098,7 +1141,8 @@ export default function DashboardNewNacional() {
                       )}
                     </td>
                   </tr>
-                ))}
+                  );
+                })}
               </tbody>
             </table>
           </div>
@@ -1113,6 +1157,18 @@ export default function DashboardNewNacional() {
             <p className="text-[11px] text-slate-400 mt-0.5">
               {MESES[mes]} {anho} · {REGIONALES.find(r => r.key === selectedRegional)?.label}
             </p>
+            <div className="flex flex-wrap gap-1.5 mt-1.5">
+              {compDrill && (
+                <span className="inline-flex items-center gap-1 text-[11px] font-semibold px-2 py-0.5 rounded-full bg-violet-50 text-violet-600 border border-violet-200">
+                  {GROUP_BY_LABEL[compDrill.field]}: {compDrill.value}
+                </span>
+              )}
+              {selectedSku && (
+                <span className="inline-flex items-center gap-1 text-[11px] font-semibold px-2 py-0.5 rounded-full bg-teal-50 text-teal-600 border border-teal-200">
+                  SKU: {selectedSku.producto}
+                </span>
+              )}
+            </div>
           </div>
 
           <div className="flex flex-wrap items-center gap-2">

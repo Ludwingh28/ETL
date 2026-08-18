@@ -812,19 +812,21 @@ def dashboard_nacional_tendencia(request):
 
         # Para la proyección: arrancar desde fecha_corte (no hoy) para manejar el desfase
         if fecha_corte:
-            dias_transcurridos = fecha_corte.day
+            dia_corte = fecha_corte.day
         elif es_periodo_actual:
-            dias_transcurridos = hoy.day
+            dia_corte = hoy.day
         else:
-            dias_transcurridos = dias_en_mes
+            dia_corte = dias_en_mes
 
-        # Presupuesto distribuido solo entre días laborables (Lun–Sáb) del mes
-        dias_lab_mes     = sum(1 for d in range(1, dias_en_mes + 1) if _date(anho, mes, d).weekday() != 6)
-        ppto_por_dia_lab = presupuesto_mes / dias_lab_mes if dias_lab_mes > 0 and presupuesto_mes > 0 else 0
+        # Días laborables del mes (excluye domingos) para distribuir el presupuesto
+        dias_lab_mes           = sum(1 for d in range(1, dias_en_mes + 1) if _date(anho, mes, d).weekday() != 6)
+        dias_lab_transcurridos = sum(1 for d in range(1, dia_corte + 1)   if _date(anho, mes, d).weekday() != 6)
+        ppto_por_dia_lab       = presupuesto_mes / dias_lab_mes if dias_lab_mes > 0 and presupuesto_mes > 0 else 0
 
-        avance_por_dia = {int(r['dia']): r['avance_acumulado'] for r in avance_rows}
-        avance_total   = float(avance_rows[-1]['avance_acumulado']) if avance_rows else 0.0
-        tasa_diaria    = avance_total / dias_transcurridos if dias_transcurridos > 0 else 0
+        avance_por_dia   = {int(r['dia']): r['avance_acumulado'] for r in avance_rows}
+        avance_total     = float(avance_rows[-1]['avance_acumulado']) if avance_rows else 0.0
+        dias_con_ventas  = sum(1 for r in avance_rows if float(r.get('venta_dia') or 0) > 0)
+        tasa_por_dia_lab = avance_total / dias_con_ventas if dias_con_ventas > 0 else 0
 
         result       = []
         dias_lab_ac  = 0  # días laborables acumulados para el cálculo del presupuesto
@@ -845,8 +847,8 @@ def dashboard_nacional_tendencia(request):
 
             # Proyección: solo días futuros del período actual, excluir domingos
             proyeccion = None
-            if es_periodo_actual and not es_domingo and dia > dias_transcurridos:
-                proyeccion = round(avance_total + tasa_diaria * (dia - dias_transcurridos), 2)
+            if es_periodo_actual and not es_domingo and dia > dia_corte:
+                proyeccion = round(avance_total + tasa_por_dia_lab * (dias_lab_ac - dias_lab_transcurridos), 2)
 
             # Avance: None en domingos y días posteriores a fecha_corte
             if es_domingo or (fecha_corte and fecha_dia > fecha_corte):
@@ -1484,19 +1486,26 @@ def dashboard_regionales_tendencia(request):
         except Exception:
             pass
 
-        dias_en_mes        = calendar.monthrange(anho, mes)[1]
-        ppto_diario        = presupuesto_mes / dias_en_mes if dias_en_mes > 0 else 0
-        es_periodo_actual  = (anho == hoy.year and mes == hoy.month)
-        dias_transcurridos = hoy.day if es_periodo_actual else dias_en_mes
-        avance_por_dia     = {int(r['dia']): r['avance_acumulado'] for r in avance_rows}
-        avance_total       = float(avance_rows[-1]['avance_acumulado']) if avance_rows else 0.0
-        tasa_diaria        = avance_total / dias_transcurridos if dias_transcurridos > 0 else 0
+        from datetime import date as _date
+        dias_en_mes       = calendar.monthrange(anho, mes)[1]
+        ppto_diario       = presupuesto_mes / dias_en_mes if dias_en_mes > 0 else 0
+        es_periodo_actual = (anho == hoy.year and mes == hoy.month)
+        dia_corte              = hoy.day if es_periodo_actual else dias_en_mes
+        dias_lab_transcurridos = sum(1 for d in range(1, dia_corte + 1) if _date(anho, mes, d).weekday() != 6)
+        avance_por_dia         = {int(r['dia']): r['avance_acumulado'] for r in avance_rows}
+        avance_total      = float(avance_rows[-1]['avance_acumulado']) if avance_rows else 0.0
+        dias_con_ventas   = sum(1 for r in avance_rows if float(r.get('venta_dia') or 0) > 0)
+        tasa_por_dia_lab  = avance_total / dias_con_ventas if dias_con_ventas > 0 else 0
 
         result = []
+        dias_lab_ac = 0
         for dia in range(1, dias_en_mes + 1):
+            es_domingo = _date(anho, mes, dia).weekday() == 6
+            if not es_domingo:
+                dias_lab_ac += 1
             proyeccion = None
-            if es_periodo_actual and dia > dias_transcurridos:
-                proyeccion = round(avance_total + tasa_diaria * (dia - dias_transcurridos), 2)
+            if es_periodo_actual and not es_domingo and dia > dia_corte:
+                proyeccion = round(avance_total + tasa_por_dia_lab * (dias_lab_ac - dias_lab_transcurridos), 2)
             result.append({
                 'dia':                   dia,
                 'avance_acumulado':      avance_por_dia.get(dia),
@@ -1765,19 +1774,26 @@ def dashboard_canales_tendencia(request):
         ppto_map = _ppto_by_regional(anho, mes, ciudad_cond, canal_cond, [canal] if canal else None)
         presupuesto_mes = sum(ppto_map.values())
 
-        dias_en_mes        = calendar.monthrange(anho, mes)[1]
-        ppto_diario        = presupuesto_mes / dias_en_mes if dias_en_mes > 0 else 0
-        es_periodo_actual  = (anho == hoy.year and mes == hoy.month)
-        dias_transcurridos = hoy.day if es_periodo_actual else dias_en_mes
-        avance_por_dia     = {int(r['dia']): r['avance_acumulado'] for r in avance_rows}
-        avance_total       = float(avance_rows[-1]['avance_acumulado']) if avance_rows else 0.0
-        tasa_diaria        = avance_total / dias_transcurridos if dias_transcurridos > 0 else 0
+        from datetime import date as _date
+        dias_en_mes       = calendar.monthrange(anho, mes)[1]
+        ppto_diario       = presupuesto_mes / dias_en_mes if dias_en_mes > 0 else 0
+        es_periodo_actual = (anho == hoy.year and mes == hoy.month)
+        dia_corte              = hoy.day if es_periodo_actual else dias_en_mes
+        dias_lab_transcurridos = sum(1 for d in range(1, dia_corte + 1) if _date(anho, mes, d).weekday() != 6)
+        avance_por_dia         = {int(r['dia']): r['avance_acumulado'] for r in avance_rows}
+        avance_total      = float(avance_rows[-1]['avance_acumulado']) if avance_rows else 0.0
+        dias_con_ventas   = sum(1 for r in avance_rows if float(r.get('venta_dia') or 0) > 0)
+        tasa_por_dia_lab  = avance_total / dias_con_ventas if dias_con_ventas > 0 else 0
 
         result = []
+        dias_lab_ac = 0
         for dia in range(1, dias_en_mes + 1):
+            es_domingo = _date(anho, mes, dia).weekday() == 6
+            if not es_domingo:
+                dias_lab_ac += 1
             proyeccion = None
-            if es_periodo_actual and dia > dias_transcurridos:
-                proyeccion = round(avance_total + tasa_diaria * (dia - dias_transcurridos), 2)
+            if es_periodo_actual and not es_domingo and dia > dia_corte:
+                proyeccion = round(avance_total + tasa_por_dia_lab * (dias_lab_ac - dias_lab_transcurridos), 2)
             result.append({
                 'dia':                   dia,
                 'avance_acumulado':      avance_por_dia.get(dia),
@@ -2266,19 +2282,26 @@ def dashboard_softys_canales_tendencia(request):
         ppto_map = _ppto_softys_by_canal(anho, mes, ciudad_cond, canal_cond, [canal] if canal else None)
         presupuesto_mes = sum(ppto_map.values())
 
-        dias_en_mes        = calendar.monthrange(anho, mes)[1]
-        ppto_diario        = presupuesto_mes / dias_en_mes if dias_en_mes > 0 else 0
-        es_periodo_actual  = (anho == hoy.year and mes == hoy.month)
-        dias_transcurridos = hoy.day if es_periodo_actual else dias_en_mes
-        avance_por_dia     = {int(r['dia']): r['avance_acumulado'] for r in avance_rows}
-        avance_total       = float(avance_rows[-1]['avance_acumulado']) if avance_rows else 0.0
-        tasa_diaria        = avance_total / dias_transcurridos if dias_transcurridos > 0 else 0
+        from datetime import date as _date
+        dias_en_mes       = calendar.monthrange(anho, mes)[1]
+        ppto_diario       = presupuesto_mes / dias_en_mes if dias_en_mes > 0 else 0
+        es_periodo_actual = (anho == hoy.year and mes == hoy.month)
+        dia_corte              = hoy.day if es_periodo_actual else dias_en_mes
+        dias_lab_transcurridos = sum(1 for d in range(1, dia_corte + 1) if _date(anho, mes, d).weekday() != 6)
+        avance_por_dia         = {int(r['dia']): r['avance_acumulado'] for r in avance_rows}
+        avance_total      = float(avance_rows[-1]['avance_acumulado']) if avance_rows else 0.0
+        dias_con_ventas   = sum(1 for r in avance_rows if float(r.get('venta_dia') or 0) > 0)
+        tasa_por_dia_lab  = avance_total / dias_con_ventas if dias_con_ventas > 0 else 0
 
         result = []
+        dias_lab_ac = 0
         for dia in range(1, dias_en_mes + 1):
+            es_domingo = _date(anho, mes, dia).weekday() == 6
+            if not es_domingo:
+                dias_lab_ac += 1
             proyeccion = None
-            if es_periodo_actual and dia > dias_transcurridos:
-                proyeccion = round(avance_total + tasa_diaria * (dia - dias_transcurridos), 2)
+            if es_periodo_actual and not es_domingo and dia > dia_corte:
+                proyeccion = round(avance_total + tasa_por_dia_lab * (dias_lab_ac - dias_lab_transcurridos), 2)
             result.append({
                 'dia':                   dia,
                 'avance_acumulado':      avance_por_dia.get(dia),
@@ -2788,19 +2811,26 @@ def dashboard_softys_sku_tendencia(request):
                 pass
 
         hoy = datetime.now().date()
-        dias_en_mes = calendar.monthrange(anho, mes)[1]
+        from datetime import date as _date
+        dias_en_mes       = calendar.monthrange(anho, mes)[1]
         es_periodo_actual = (anho == hoy.year and mes == hoy.month)
-        dias_transcurridos = hoy.day if es_periodo_actual else dias_en_mes
-        ppto_diario = ppto_total / dias_en_mes if dias_en_mes > 0 and ppto_total > 0 else 0
-        avance_por_dia = {int(r['dia']): float(r['avance_acumulado'] or 0) for r in avance_rows}
-        avance_total = float(avance_rows[-1]['avance_acumulado']) if avance_rows else 0.0
-        tasa_diaria = avance_total / dias_transcurridos if dias_transcurridos > 0 else 0
+        dia_corte              = hoy.day if es_periodo_actual else dias_en_mes
+        dias_lab_transcurridos = sum(1 for d in range(1, dia_corte + 1) if _date(anho, mes, d).weekday() != 6)
+        ppto_diario            = ppto_total / dias_en_mes if dias_en_mes > 0 and ppto_total > 0 else 0
+        avance_por_dia         = {int(r['dia']): float(r['avance_acumulado'] or 0) for r in avance_rows}
+        avance_total      = float(avance_rows[-1]['avance_acumulado']) if avance_rows else 0.0
+        dias_con_ventas   = sum(1 for r in avance_rows if float(r.get('venta_dia') or 0) > 0)
+        tasa_por_dia_lab  = avance_total / dias_con_ventas if dias_con_ventas > 0 else 0
 
         result = []
+        dias_lab_ac = 0
         for d in range(1, dias_en_mes + 1):
+            es_domingo = _date(anho, mes, d).weekday() == 6
+            if not es_domingo:
+                dias_lab_ac += 1
             proyeccion = None
-            if es_periodo_actual and d > dias_transcurridos:
-                proyeccion = round(avance_total + tasa_diaria * (d - dias_transcurridos), 2)
+            if es_periodo_actual and not es_domingo and d > dia_corte:
+                proyeccion = round(avance_total + tasa_por_dia_lab * (dias_lab_ac - dias_lab_transcurridos), 2)
             result.append({
                 'dia':                   d,
                 'avance_acumulado':      avance_por_dia.get(d),
@@ -5016,26 +5046,68 @@ def dashboard_new_nacional_vendedores(request):
         filter_params = cat_params + prov_params + sub_params + marc_params + prod_params
         prod_join      = "JOIN dw.dim_producto dp ON fv.producto_sk = dp.producto_sk" if has_prod else ""
         ppto_prod_join = "JOIN dw.dim_producto dp ON fp.producto_sk = dp.producto_sk" if has_prod else ""
+        sku_drill      = _safe_str(request.GET.get('sku_drill', ''))
 
-        sql_v = f"""
-            SELECT
-                dv.vendedor_nombre                      AS vendedor,
-                COALESCE(SUM(fv.venta_neta), 0)         AS venta_neta,
-                COALESCE(SUM(fv.cantidad), 0)           AS cantidad
-            FROM dw.fact_ventas fv
-            JOIN dw.dim_fecha    df ON fv.fecha_sk    = df.fecha_sk
-            JOIN dw.dim_vendedor dv ON fv.vendedor_sk = dv.vendedor_sk
-            {prod_join}
-            WHERE df.anho = %s AND df.mes_numero = %s
-              AND ({ciudad_cond}) {canal_cond} {filter_cond}
-              AND dv.vendedor_nombre IS NOT NULL
-            GROUP BY dv.vendedor_nombre
-            ORDER BY venta_neta DESC
-        """
-        _, v_rows = _run_dw_query(sql_v, [anho, mes] + canal_param + filter_params)
+        if sku_drill:
+            # Todos los vendedores del filtro base (LEFT JOIN) con ventas del SKU específico
+            sql_v = f"""
+                WITH base_vend AS (
+                    SELECT DISTINCT dv.vendedor_nombre AS vendedor
+                    FROM dw.fact_ventas fv
+                    JOIN dw.dim_fecha    df ON fv.fecha_sk    = df.fecha_sk
+                    JOIN dw.dim_vendedor dv ON fv.vendedor_sk = dv.vendedor_sk
+                    {prod_join}
+                    WHERE df.anho = %s AND df.mes_numero = %s
+                      AND ({ciudad_cond}) {canal_cond} {filter_cond}
+                      AND dv.vendedor_nombre IS NOT NULL
+                ),
+                sku_sales AS (
+                    SELECT dv.vendedor_nombre AS vendedor,
+                           SUM(fv.venta_neta) AS venta_neta,
+                           SUM(fv.cantidad)   AS cantidad
+                    FROM dw.fact_ventas fv
+                    JOIN dw.dim_fecha    df ON fv.fecha_sk    = df.fecha_sk
+                    JOIN dw.dim_vendedor dv ON fv.vendedor_sk = dv.vendedor_sk
+                    JOIN dw.dim_producto dp ON fv.producto_sk = dp.producto_sk
+                    WHERE df.anho = %s AND df.mes_numero = %s
+                      AND ({ciudad_cond}) {canal_cond} {filter_cond}
+                      AND dv.vendedor_nombre IS NOT NULL
+                      AND dp.producto_nombre = %s
+                    GROUP BY dv.vendedor_nombre
+                )
+                SELECT b.vendedor,
+                       COALESCE(s.venta_neta, 0) AS venta_neta,
+                       COALESCE(s.cantidad, 0)   AS cantidad
+                FROM base_vend b
+                LEFT JOIN sku_sales s ON s.vendedor = b.vendedor
+                ORDER BY venta_neta DESC, b.vendedor
+            """
+            _, v_rows = _run_dw_query(sql_v,
+                [anho, mes] + canal_param + filter_params +
+                [anho, mes] + canal_param + filter_params + [sku_drill])
+        else:
+            sql_v = f"""
+                SELECT
+                    dv.vendedor_nombre                      AS vendedor,
+                    COALESCE(SUM(fv.venta_neta), 0)         AS venta_neta,
+                    COALESCE(SUM(fv.cantidad), 0)           AS cantidad
+                FROM dw.fact_ventas fv
+                JOIN dw.dim_fecha    df ON fv.fecha_sk    = df.fecha_sk
+                JOIN dw.dim_vendedor dv ON fv.vendedor_sk = dv.vendedor_sk
+                {prod_join}
+                WHERE df.anho = %s AND df.mes_numero = %s
+                  AND ({ciudad_cond}) {canal_cond} {filter_cond}
+                  AND dv.vendedor_nombre IS NOT NULL
+                GROUP BY dv.vendedor_nombre
+                ORDER BY venta_neta DESC
+            """
+            _, v_rows = _run_dw_query(sql_v, [anho, mes] + canal_param + filter_params)
 
         ppto_map = {}
         try:
+            # Cuando hay sku_drill, el presupuesto también se filtra al SKU específico
+            ppto_join_sku  = "JOIN dw.dim_producto dp ON fp.producto_sk = dp.producto_sk" if sku_drill else ppto_prod_join
+            sku_drill_cond = "AND dp.producto_nombre = %s" if sku_drill else ""
             sql_p = f"""
                 SELECT
                     dv.vendedor_nombre                             AS vendedor,
@@ -5043,14 +5115,19 @@ def dashboard_new_nacional_vendedores(request):
                     COALESCE(SUM(fp.cantidad_presupuestada), 0)   AS presupuesto_uds
                 FROM dw.fact_presupuesto fp
                 JOIN dw.dim_vendedor dv ON fp.vendedor_sk = dv.vendedor_sk
-                {ppto_prod_join}
+                {ppto_join_sku}
                 WHERE fp.anho = %s AND fp.mes = %s
                   AND ({ciudad_cond}) {canal_cond} {filter_cond}
                   AND dv.vendedor_nombre IS NOT NULL
+                  {sku_drill_cond}
                   AND fp.version_sk = (SELECT MAX(version_sk) FROM dw.dim_presupuesto_version WHERE anho = %s AND mes = %s)
                 GROUP BY dv.vendedor_nombre
             """
-            _, p_rows = _run_dw_query(sql_p, [anho, mes] + canal_param + filter_params + [anho, mes])
+            ppto_params = [anho, mes] + canal_param + filter_params
+            if sku_drill:
+                ppto_params += [sku_drill]
+            ppto_params += [anho, mes]
+            _, p_rows = _run_dw_query(sql_p, ppto_params)
             ppto_map = {r['vendedor']: r for r in p_rows}
         except Exception:
             pass
@@ -5114,26 +5191,69 @@ def dashboard_new_nacional_clientes(request):
         has_prod      = bool(categorias or proveedores or subgrupos or marcas or productos)
         filter_cond   = f"{cat_cond} {prov_cond} {sub_cond} {marc_cond} {prod_cond}"
         filter_params = cat_params + prov_params + sub_params + marc_params + prod_params
-        prod_join     = "JOIN dw.dim_producto dp ON fv.producto_sk = dp.producto_sk" if has_prod else ""
+        prod_join = "JOIN dw.dim_producto dp ON fv.producto_sk = dp.producto_sk" if has_prod else ""
+        sku_drill = _safe_str(request.GET.get('sku_drill', ''))
 
-        sql = f"""
-            SELECT
-                dc.cliente_codigo_erp                              AS codigo,
-                COALESCE(dc.cliente_nombre, dc.cliente_codigo_erp) AS nombre,
-                COALESCE(SUM(fv.venta_neta), 0)                    AS venta_neta,
-                COALESCE(SUM(fv.cantidad), 0)                      AS cantidad
-            FROM dw.fact_ventas fv
-            JOIN dw.dim_fecha    df ON fv.fecha_sk    = df.fecha_sk
-            JOIN dw.dim_vendedor dv ON fv.vendedor_sk = dv.vendedor_sk
-            JOIN dw.dim_cliente  dc ON fv.cliente_sk  = dc.cliente_sk
-            {prod_join}
-            WHERE df.anho = %s AND df.mes_numero = %s
-              AND ({ciudad_cond}) {canal_cond} {vend_cond} {filter_cond}
-              AND dc.cliente_codigo_erp IS NOT NULL
-            GROUP BY dc.cliente_codigo_erp, dc.cliente_nombre
-            ORDER BY venta_neta DESC
-        """
-        _, rows = _run_dw_query(sql, [anho, mes] + canal_param + vend_param + filter_params)
+        if sku_drill:
+            # Todos los clientes del filtro base (LEFT JOIN) con ventas del SKU específico
+            sql = f"""
+                WITH base_cli AS (
+                    SELECT DISTINCT
+                        dc.cliente_codigo_erp                              AS codigo,
+                        COALESCE(dc.cliente_nombre, dc.cliente_codigo_erp) AS nombre
+                    FROM dw.fact_ventas fv
+                    JOIN dw.dim_fecha    df ON fv.fecha_sk    = df.fecha_sk
+                    JOIN dw.dim_vendedor dv ON fv.vendedor_sk = dv.vendedor_sk
+                    JOIN dw.dim_cliente  dc ON fv.cliente_sk  = dc.cliente_sk
+                    {prod_join}
+                    WHERE df.anho = %s AND df.mes_numero = %s
+                      AND ({ciudad_cond}) {canal_cond} {vend_cond} {filter_cond}
+                      AND dc.cliente_codigo_erp IS NOT NULL
+                ),
+                sku_sales AS (
+                    SELECT dc.cliente_codigo_erp AS codigo,
+                           SUM(fv.venta_neta)    AS venta_neta,
+                           SUM(fv.cantidad)      AS cantidad
+                    FROM dw.fact_ventas fv
+                    JOIN dw.dim_fecha    df ON fv.fecha_sk    = df.fecha_sk
+                    JOIN dw.dim_vendedor dv ON fv.vendedor_sk = dv.vendedor_sk
+                    JOIN dw.dim_cliente  dc ON fv.cliente_sk  = dc.cliente_sk
+                    JOIN dw.dim_producto dp ON fv.producto_sk = dp.producto_sk
+                    WHERE df.anho = %s AND df.mes_numero = %s
+                      AND ({ciudad_cond}) {canal_cond} {vend_cond} {filter_cond}
+                      AND dc.cliente_codigo_erp IS NOT NULL
+                      AND dp.producto_nombre = %s
+                    GROUP BY dc.cliente_codigo_erp
+                )
+                SELECT b.codigo, b.nombre,
+                       COALESCE(s.venta_neta, 0) AS venta_neta,
+                       COALESCE(s.cantidad, 0)   AS cantidad
+                FROM base_cli b
+                LEFT JOIN sku_sales s ON s.codigo = b.codigo
+                ORDER BY venta_neta DESC, b.nombre
+            """
+            _, rows = _run_dw_query(sql,
+                [anho, mes] + canal_param + vend_param + filter_params +
+                [anho, mes] + canal_param + vend_param + filter_params + [sku_drill])
+        else:
+            sql = f"""
+                SELECT
+                    dc.cliente_codigo_erp                              AS codigo,
+                    COALESCE(dc.cliente_nombre, dc.cliente_codigo_erp) AS nombre,
+                    COALESCE(SUM(fv.venta_neta), 0)                    AS venta_neta,
+                    COALESCE(SUM(fv.cantidad), 0)                      AS cantidad
+                FROM dw.fact_ventas fv
+                JOIN dw.dim_fecha    df ON fv.fecha_sk    = df.fecha_sk
+                JOIN dw.dim_vendedor dv ON fv.vendedor_sk = dv.vendedor_sk
+                JOIN dw.dim_cliente  dc ON fv.cliente_sk  = dc.cliente_sk
+                {prod_join}
+                WHERE df.anho = %s AND df.mes_numero = %s
+                  AND ({ciudad_cond}) {canal_cond} {vend_cond} {filter_cond}
+                  AND dc.cliente_codigo_erp IS NOT NULL
+                GROUP BY dc.cliente_codigo_erp, dc.cliente_nombre
+                ORDER BY venta_neta DESC
+            """
+            _, rows = _run_dw_query(sql, [anho, mes] + canal_param + vend_param + filter_params)
 
         result = [
             {

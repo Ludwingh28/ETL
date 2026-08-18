@@ -1,4 +1,4 @@
-export const CURRENT_VERSION = "1.2.8.5";
+export const CURRENT_VERSION = "1.2.8.6";
 
 export interface ChangelogVersion {
   version: string;
@@ -12,6 +12,19 @@ export interface ChangelogVersion {
 }
 
 export const CHANGELOG: ChangelogVersion[] = [
+  {
+    version: "1.2.8.6",
+    date: "Agosto 2026",
+    fixes: [
+      "Todos los gráficos de tendencia — la proyección dividía por días calendario (incluyendo domingos) en lugar de días hábiles (lun–sáb), subestimando la tasa diaria real; corregido usando solo días con ventas > 0 como denominador",
+      "Todos los gráficos de tendencia — la línea de proyección arrancaba desde cero en lugar de continuar desde el avance acumulado real; corregido con la fórmula: avance_total + tasa × (días_háb_acumulados − días_háb_transcurridos)",
+      "Todos los gráficos de tendencia — los días hábiles transcurridos con ventas = 0 inflaban artificialmente el total de días proyectados; ahora esos días se restan del total de días hábiles del mes para el cálculo del proyectado final: proyectado = (ventas / días_con_ventas) × (días_háb_mes − días_háb_perdidos)",
+      "Dashboard Nacional — al hacer click en un SKU de la tabla, la tabla de vendedores ahora muestra todos los vendedores del filtro base con ventas = 0 para los que no vendieron ese SKU (antes se excluían); el presupuesto Bs, presupuesto Uds y % cumplimiento también se filtran al SKU específico",
+    ],
+    features: [],
+    newDashboardPerms: [],
+    newDashboardNames: {},
+  },
   {
     version: "1.2.8.5",
     date: "Agosto 2026",
