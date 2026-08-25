@@ -231,8 +231,11 @@ const GROUP_BY_LABEL: Record<string, string> = {
 const PRIVILEGED_CARGOS = new Set([
   "Administrador de Sistema",
   "Subadministrador de Sistemas",
-  "Gerente",
+  "Gerente General",
+  "Gerente de Ventas",
   "Gerente Regional",
+  "Supervisor",
+  "Analista de Datos",
 ]);
 
 export default function DashboardVendedores() {
