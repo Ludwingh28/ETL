@@ -1,4 +1,4 @@
-export const CURRENT_VERSION = "1.2.8.6";
+export const CURRENT_VERSION = "1.2.9.0";
 
 export interface ChangelogVersion {
   version: string;
@@ -13,6 +13,28 @@ export interface ChangelogVersion {
 
 export const CHANGELOG: ChangelogVersion[] = [
   {
+    version: "1.2.9.0",
+    date: "Agosto 2026",
+    fixes: [
+      "Mock-up — error crítico de inicialización (Temporal Dead Zone): los useMemos sortedSkus, filteredSkus y skuDrillParam estaban declarados después de los useCallbacks fetchVendedores, fetchVendedoresCat y fetchClientesFechas que los referenciaban; reordenados para que aparezcan antes de los callbacks",
+      "Mock-up — total de Bs. y unidades al pie del panel lateral de SKUs por cliente mostraba el total completo aunque el usuario hubiera filtrado con el buscador; ahora el total refleja únicamente los SKUs visibles (filteredCliSkus)",
+      "Mock-up — fetchNacKpis y fetchCanales usaban apiFetch directamente en lugar de apiFetchRef.current; esto los hacía re-instanciarse en cada renovación de token causando refetch innecesario; corregido para usar la referencia estable",
+    ],
+    features: [
+      "Mock-up — tabla Por Cliente rediseñada como grilla de fechas: cada columna es un día del mes en que el cliente realizó compras; hacer click en una celda de fecha muestra los SKUs vendidos ese día específico; hacer click en el nombre del cliente muestra el acumulado de todo el mes",
+      "Mock-up — nuevo endpoint /dashboard/new-nacional/cliente-fechas/ que retorna filas planas {codigo, nombre, fecha, venta_neta, cantidad} para los 200 mejores clientes del período",
+      "Mock-up — endpoint /dashboard/new-nacional/cliente-skus/ acepta ahora el parámetro fecha para filtrar los SKUs a un día específico al hacer drill por fecha en la grilla de clientes",
+      "Mock-up — búsqueda en tabla de SKUs actúa como drill automático: al escribir (ej. 'cheetos') todos los SKUs coincidentes se aplican como filtro simultáneo en las tablas de Vendedores y Clientes; un badge naranja 'Búsqueda: \"cheetos\" · N SKUs' indica el filtro activo; si se hace click en un SKU específico se mantiene el comportamiento individual",
+      "Mock-up — tablas Vendedores y Clientes aceptan múltiples valores sku_drill via request.GET.getlist(); el backend genera la condición IN (...) dinámica para todos los SKUs de la búsqueda",
+      "Mock-up — click en un vendedor de la tabla ya filtra también la tabla de SKUs mostrando únicamente los productos que ese vendedor comercializó",
+      "Mock-up — panel lateral de SKUs por cliente: se agrega padding pr-3 en la columna Bs. para que la scrollbar no superponga el valor",
+      "Mock-up — indicador de fecha de corte renombrado de 'Datos al' a 'Información vigente al' con punto verde de estado para dejar en claro que los datos están actualizados hasta esa fecha",
+      "nginx — index.html configurado con Cache-Control no-cache para que los usuarios reciban la versión más reciente del sistema al primer refresh sin necesidad de limpiar caché manualmente",
+    ],
+    newDashboardPerms: [],
+    newDashboardNames: {},
+  },
+  {
     version: "1.2.8.6",
     date: "Agosto 2026",
     fixes: [
@@ -24,9 +46,10 @@ export const CHANGELOG: ChangelogVersion[] = [
     ],
     features: [
       "Dashboard Nacional — nueva vista 'Por Categoría' en la tabla de vendedores: muestra el desglose Alimentos/Apego/Licores/HPC/Sin Clas con presupuesto y % cumplimiento por categoría; resalta automáticamente la columna del SKU o categoría activos",
+      "Nuevo dashboard 'Dashboard Vendedor' (ruta /dashboard/vendedores-personal): vista personalizada para vendedores que carga automáticamente sus datos desde el perfil; regional y canal bloqueados según el perfil; incluye KPIs, tendencia, comparación por categoría/proveedor/marca, tabla de SKUs con drill interactivo, y tabla de clientes con detalle de SKUs por cliente",
     ],
-    newDashboardPerms: [],
-    newDashboardNames: {},
+    newDashboardPerms: ["vendedores-personal"],
+    newDashboardNames: { "vendedores-personal": "Dashboard Vendedor" },
   },
   {
     version: "1.2.8.5",

@@ -59,16 +59,19 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       method: "POST",
       headers: { Authorization: `Token ${currentToken}` },
     })
-      .then((r) => (r.ok ? r.json() : Promise.reject()))
-      .then((data: { success: boolean; token: string }) => {
+      .then(async (r) => {
+        if (r.status === 401) { doExpiredLogout(); return; }
+        if (!r.ok) return; // error de servidor — saltear este ciclo, reintentar en el próximo
+        const data = (await r.json()) as { success: boolean; token: string };
         if (data.success) {
           localStorage.setItem(TOKEN_KEY, data.token);
+          tokenRef.current = data.token;   // actualizar ref sin re-render
           setToken(data.token);
         }
       })
       .catch(() => {
-        // Si el refresh falla (token expirado) forzar logout
-        doExpiredLogout();
+        // Error de red — NO cerrar sesión, el usuario sigue activo
+        // El próximo evento de actividad reintentará el refresh
       });
   }, [doExpiredLogout]);
 
@@ -146,7 +149,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       ...options,
       headers: {
         "Content-Type": "application/json",
-        Authorization: `Token ${token ?? ""}`,
+        Authorization: `Token ${tokenRef.current ?? ""}`,  // ref estable — no recrea apiFetch en cada refresh
         ...options.headers,
       },
     });
@@ -155,8 +158,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       throw new Error("Sesión expirada");
     }
     return res.json() as Promise<T>;
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [token, doExpiredLogout]);
+  }, [doExpiredLogout]);
 
   return <AuthContext.Provider value={{ user, token, loading, login, logout, apiFetch, refreshUser }}>{children}</AuthContext.Provider>;
 }

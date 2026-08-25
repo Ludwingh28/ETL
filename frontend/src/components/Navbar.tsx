@@ -118,7 +118,8 @@ const NAV_GROUPS: NavGroup[] = [
   {
     label: "Mock-ups",
     items: [
-      { to: "/dashboard/new-nacional", icon: FlaskConical, label: "Ventas Nacional", perm: "new-nacional" },
+      { to: "/dashboard/new-nacional",       icon: FlaskConical, label: "Ventas Nacional",  perm: "new-nacional"       },
+      { to: "/dashboard/vendedores-personal", icon: FlaskConical, label: "Dashboard Vendedor", perm: "vendedores-personal" },
     ],
   },
 ];

@@ -53,14 +53,13 @@ type RegionalKey = "nacional" | "santa_cruz" | "cochabamba" | "la_paz";
 type SortKey     = "presupuesto" | "cumplimiento" | "crecimiento" | "ventas_bs";
 type SortDir     = "desc" | "asc";
 type VendSortKey  = "presupuesto" | "cumplimiento" | "ventas_bs";
-type CliSortKey   = "ventas_bs" | "uds_vendidas";
 
 interface VendedorRow {
   vendedor: string; venta_neta: number; cantidad: number;
   presupuesto_bs: number; presupuesto_uds: number; pct_cumpl: number | null;
 }
-interface ClienteRow {
-  codigo: string; nombre: string; venta_neta: number; cantidad: number;
+interface ClienteFechaFlat {
+  codigo: string; nombre: string; fecha: string; venta_neta: number; cantidad: number;
 }
 interface ClienteSkuRow {
   codigo: string; producto: string; cantidad: number; venta_neta: number;
@@ -553,15 +552,14 @@ export default function DashboardNewNacional() {
   const [selectedVend, setSelectedVend] = useState<string | null>(null);
   const [compDrill,    setCompDrill]    = useState<{ field: string; value: string } | null>(null);
   const [selectedSku,  setSelectedSku]  = useState<SkuRow | null>(null);
-  const [loadingCli,      setLoadingCli]      = useState(false);
-  const [clientes,        setClientes]        = useState<ClienteRow[]>([]);
-  const [cliSearch,       setCliSearch]       = useState("");
-  const [cliSortKey,      setCliSortKey]      = useState<CliSortKey>("ventas_bs");
-  const [cliSortDir,      setCliSortDir]      = useState<SortDir>("desc");
-  const [selectedCli,     setSelectedCli]     = useState<ClienteRow | null>(null);
-  const [cliSkus,         setCliSkus]         = useState<ClienteSkuRow[]>([]);
-  const [loadingCliSkus,  setLoadingCliSkus]  = useState(false);
-  const [cliSkuSearch,    setCliSkuSearch]    = useState("");
+  const [clientesFlat,     setClientesFlat]     = useState<ClienteFechaFlat[]>([]);
+  const [loadingCliFechas, setLoadingCliFechas] = useState(false);
+  const [cliSearch,        setCliSearch]        = useState("");
+  const [selectedCli,      setSelectedCli]      = useState<{ codigo: string; nombre: string } | null>(null);
+  const [selectedCliFecha, setSelectedCliFecha] = useState<string | null>(null);
+  const [cliSkus,          setCliSkus]          = useState<ClienteSkuRow[]>([]);
+  const [loadingCliSkus,   setLoadingCliSkus]   = useState(false);
+  const [cliSkuSearch,     setCliSkuSearch]     = useState("");
   const [nacError,     setNacError]     = useState<string | null>(null);
 
   // Active filters store
@@ -570,7 +568,7 @@ export default function DashboardNewNacional() {
   }, [anho, mes, selectedRegional, canal, fCats, fProvs]);
 
   // Cascada: Categoría → Sub-categoría → Proveedor → Marca → Productos
-  function resetDrill() { setCompDrill(null); setSelectedSku(null); setSelectedVend(null); setSelectedCli(null); }
+  function resetDrill() { setCompDrill(null); setSelectedSku(null); setSelectedVend(null); setSelectedCli(null); setSelectedCliFecha(null); }
   function onCats(v: string[])      { setFCats(v);  setFSubs([]); setFProvs([]); setFMarcs([]); setFProductos([]); resetDrill(); }
   function onSubs(v: string[])      { setFSubs(v);  setFProvs([]); setFMarcs([]); setFProductos([]); resetDrill(); }
   function onProvs(v: string[])     { setFProvs(v); setFMarcs([]); setFProductos([]); resetDrill(); }
@@ -587,7 +585,7 @@ export default function DashboardNewNacional() {
   function onSkuClick(sku: SkuRow) {
     const isActive = selectedSku?.codigo === sku.codigo;
     setSelectedSku(isActive ? null : sku);
-    setSelectedVend(null); setSelectedCli(null);
+    setSelectedVend(null); setSelectedCli(null); setSelectedCliFecha(null);
   }
 
   const hasFilters = canal !== ""
@@ -614,14 +612,15 @@ export default function DashboardNewNacional() {
     try {
       const qs = buildQS(selectedRegional, canal, anho, mes, fCats, fProvs, fSubs, fMarcs, fProductos);
       const [k, t] = await Promise.all([
-        apiFetch<{ success: boolean; data: NacKpisData }>(`/dashboard/nacional/kpis/?${qs}`),
-        apiFetch<{ success: boolean; data: TendenciaDia[]; es_periodo_actual: boolean }>(`/dashboard/nacional/tendencia/?${qs}`),
+        apiFetchRef.current<{ success: boolean; data: NacKpisData }>(`/dashboard/nacional/kpis/?${qs}`),
+        apiFetchRef.current<{ success: boolean; data: TendenciaDia[]; es_periodo_actual: boolean }>(`/dashboard/nacional/tendencia/?${qs}`),
       ]);
       if (k.success) setNacKpis(k.data);
       if (t.success) { setTendencia(t.data); setEsPeriodoActual(t.es_periodo_actual); }
     } catch (e) { setNacError(e instanceof Error ? e.message : "Error al cargar KPIs"); }
     finally { setLoadingNac(false); }
-  }, [apiFetch, anho, mes, selectedRegional, canal, fCats, fProvs, fSubs, fMarcs, fProductos]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [anho, mes, selectedRegional, canal, fCats, fProvs, fSubs, fMarcs, fProductos]);
 
   useEffect(() => { void fetchNacKpis(); }, [fetchNacKpis]);
 
@@ -631,13 +630,14 @@ export default function DashboardNewNacional() {
     setLoadingCan(true);
     try {
       const qs = buildQS(selectedRegional, "", anho, mes, fCats, fProvs, fSubs, fMarcs, fProductos);
-      const j = await apiFetch<{ success: boolean; data: CanalRow[] }>(
+      const j = await apiFetchRef.current<{ success: boolean; data: CanalRow[] }>(
         `/dashboard/new-nacional/canales-mini/?${qs}`
       );
       if (j.success) setCanales(j.data); else setCanales([]);
     } catch { setCanales([]); }
     finally { setLoadingCan(false); }
-  }, [apiFetch, selectedRegional, fCats, fProvs, fSubs, fMarcs, fProductos, anho, mes]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedRegional, fCats, fProvs, fSubs, fMarcs, fProductos, anho, mes]);
 
   useEffect(() => { void fetchCanales(); }, [fetchCanales]);
 
@@ -696,9 +696,10 @@ export default function DashboardNewNacional() {
     if (!anho || !mes) return;
     setLoadingSkus(true); setSkuSearch("");
     try {
-      const qs = buildDrillQS(selectedRegional, canal, anho, mes, fCats, fProvs, fSubs, fMarcs, fProductos, compDrill);
+      const qs       = buildDrillQS(selectedRegional, canal, anho, mes, fCats, fProvs, fSubs, fMarcs, fProductos, compDrill);
+      const vendParam = selectedVend ? `&vendedor=${encodeURIComponent(selectedVend)}` : "";
       const j = await apiFetchRef.current<{ success: boolean; data: SkuRow[]; prev_anho: number; prev_mes: number }>(
-        `/dashboard/new-nacional/skus/?${qs}`
+        `/dashboard/new-nacional/skus/?${qs}${vendParam}`
       );
       if (j.success) {
         setSkus(j.data);
@@ -707,75 +708,11 @@ export default function DashboardNewNacional() {
     } catch { setSkus([]); }
     finally { setLoadingSkus(false); }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selectedRegional, canal, fCats, fProvs, fSubs, fMarcs, fProductos, compDrill, anho, mes]);
+  }, [selectedRegional, canal, fCats, fProvs, fSubs, fMarcs, fProductos, compDrill, selectedVend, anho, mes]);
 
   useEffect(() => { void fetchSkus(); }, [fetchSkus]);
 
-  const fetchVendedores = useCallback(async () => {
-    if (!anho || !mes) return;
-    setLoadingVend(true);
-    try {
-      const qs      = buildDrillQS(selectedRegional, canal, anho, mes, fCats, fProvs, fSubs, fMarcs, fProductos, compDrill);
-      const skuParam = selectedSku ? `&sku_drill=${encodeURIComponent(selectedSku.producto)}` : "";
-      const j = await apiFetchRef.current<{ success: boolean; data: VendedorRow[] }>(
-        `/dashboard/new-nacional/vendedores/?${qs}${skuParam}`
-      );
-      if (j.success) setVendedores(j.data); else setVendedores([]);
-    } catch { setVendedores([]); }
-    finally { setLoadingVend(false); }
-  }, [selectedRegional, canal, fCats, fProvs, fSubs, fMarcs, fProductos, compDrill, selectedSku, anho, mes]);
-
-  useEffect(() => { void fetchVendedores(); }, [fetchVendedores]);
-
-  const fetchVendedoresCat = useCallback(async () => {
-    if (!anho || !mes) return;
-    setLoadingVendCat(true);
-    try {
-      const qs      = buildDrillQS(selectedRegional, canal, anho, mes, fCats, fProvs, fSubs, fMarcs, fProductos, compDrill);
-      const skuParam = selectedSku ? `&sku_drill=${encodeURIComponent(selectedSku.producto)}` : "";
-      const j = await apiFetchRef.current<{ success: boolean; data: VendCatRow[] }>(
-        `/dashboard/new-nacional/vendedores-cat/?${qs}${skuParam}`
-      );
-      if (j.success) setVendCatRows(j.data); else setVendCatRows([]);
-    } catch { setVendCatRows([]); }
-    finally { setLoadingVendCat(false); }
-  }, [selectedRegional, canal, fCats, fProvs, fSubs, fMarcs, fProductos, compDrill, selectedSku, anho, mes]);
-
-  useEffect(() => { if (vendView === "cat") void fetchVendedoresCat(); }, [fetchVendedoresCat, vendView]);
-
-  const fetchClientes = useCallback(async () => {
-    if (!anho || !mes) return;
-    setLoadingCli(true);
-    setSelectedCli(null);
-    try {
-      const qs       = buildDrillQS(selectedRegional, canal, anho, mes, fCats, fProvs, fSubs, fMarcs, fProductos, compDrill);
-      const skuParam  = selectedSku ? `&sku_drill=${encodeURIComponent(selectedSku.producto)}` : "";
-      const vendParam = selectedVend ? `&vendedor=${encodeURIComponent(selectedVend)}` : "";
-      const j = await apiFetchRef.current<{ success: boolean; data: ClienteRow[] }>(
-        `/dashboard/new-nacional/clientes/?${qs}${skuParam}${vendParam}`
-      );
-      if (j.success) setClientes(j.data); else setClientes([]);
-    } catch { setClientes([]); }
-    finally { setLoadingCli(false); }
-  }, [selectedRegional, canal, fCats, fProvs, fSubs, fMarcs, fProductos, compDrill, selectedSku, selectedVend, anho, mes]);
-
-  useEffect(() => { void fetchClientes(); }, [fetchClientes]);
-
-  useEffect(() => {
-    if (!selectedCli) { setCliSkus([]); setCliSkuSearch(""); return; }
-    setCliSkuSearch("");
-    setLoadingCliSkus(true);
-    const qs = buildQS(selectedRegional, canal, anho, mes, fCats, fProvs, fSubs, fMarcs, fProductos);
-    apiFetchRef.current<{ success: boolean; data: ClienteSkuRow[] }>(
-      `/dashboard/new-nacional/cliente-skus/?cliente_codigo=${encodeURIComponent(selectedCli.codigo)}&${qs}`
-    ).then((j) => { if (j.success) setCliSkus(j.data); else setCliSkus([]); })
-     .catch(() => setCliSkus([]))
-     .finally(() => setLoadingCliSkus(false));
-  }, [selectedCli, selectedRegional, canal, fCats, fProvs, fSubs, fMarcs, fProductos, anho, mes]);
-
-  // ── Limpiar filtros operacionales al cambiar regional ─────────────────────────
-
-  // ── Derivados ─────────────────────────────────────────────────────────────────
+  // ── SKU derivados — deben estar antes de los callbacks que los usan ───────────
 
   const sortedSkus = useMemo(() => {
     const sorted = [...skus].sort((a, b) => {
@@ -793,6 +730,82 @@ export default function DashboardNewNacional() {
     const q = skuSearch.trim().toLowerCase();
     return q ? sortedSkus.filter((s) => s.producto.toLowerCase().includes(q) || s.codigo.toLowerCase().includes(q)) : sortedSkus;
   }, [sortedSkus, skuSearch]);
+
+  // Cuando hay búsqueda activa y ningún SKU clickado, drilla automáticamente a todos los SKUs visibles
+  const skuDrillParam = useMemo(() => {
+    if (selectedSku) return `&sku_drill=${encodeURIComponent(selectedSku.producto)}`;
+    const q = skuSearch.trim().toLowerCase();
+    if (q && filteredSkus.length > 0 && filteredSkus.length < skus.length) {
+      return filteredSkus.map(s => `&sku_drill=${encodeURIComponent(s.producto)}`).join("");
+    }
+    return "";
+  }, [selectedSku, skuSearch, filteredSkus, skus.length]);
+
+  const fetchVendedores = useCallback(async () => {
+    if (!anho || !mes) return;
+    setLoadingVend(true);
+    try {
+      const qs = buildDrillQS(selectedRegional, canal, anho, mes, fCats, fProvs, fSubs, fMarcs, fProductos, compDrill);
+      const j = await apiFetchRef.current<{ success: boolean; data: VendedorRow[] }>(
+        `/dashboard/new-nacional/vendedores/?${qs}${skuDrillParam}`
+      );
+      if (j.success) setVendedores(j.data); else setVendedores([]);
+    } catch { setVendedores([]); }
+    finally { setLoadingVend(false); }
+  }, [selectedRegional, canal, fCats, fProvs, fSubs, fMarcs, fProductos, compDrill, skuDrillParam, anho, mes]);
+
+  useEffect(() => { void fetchVendedores(); }, [fetchVendedores]);
+
+  const fetchVendedoresCat = useCallback(async () => {
+    if (!anho || !mes) return;
+    setLoadingVendCat(true);
+    try {
+      const qs = buildDrillQS(selectedRegional, canal, anho, mes, fCats, fProvs, fSubs, fMarcs, fProductos, compDrill);
+      const j = await apiFetchRef.current<{ success: boolean; data: VendCatRow[] }>(
+        `/dashboard/new-nacional/vendedores-cat/?${qs}${skuDrillParam}`
+      );
+      if (j.success) setVendCatRows(j.data); else setVendCatRows([]);
+    } catch { setVendCatRows([]); }
+    finally { setLoadingVendCat(false); }
+  }, [selectedRegional, canal, fCats, fProvs, fSubs, fMarcs, fProductos, compDrill, skuDrillParam, anho, mes]);
+
+  useEffect(() => { if (vendView === "cat") void fetchVendedoresCat(); }, [fetchVendedoresCat, vendView]);
+
+  const fetchClientesFechas = useCallback(async () => {
+    if (!anho || !mes) return;
+    setLoadingCliFechas(true);
+    setSelectedCli(null);
+    setSelectedCliFecha(null);
+    try {
+      const qs        = buildDrillQS(selectedRegional, canal, anho, mes, fCats, fProvs, fSubs, fMarcs, fProductos, compDrill);
+      const vendParam = selectedVend ? `&vendedor=${encodeURIComponent(selectedVend)}` : "";
+      const j = await apiFetchRef.current<{ success: boolean; data: ClienteFechaFlat[] }>(
+        `/dashboard/new-nacional/cliente-fechas/?${qs}${skuDrillParam}${vendParam}`
+      );
+      if (j.success) setClientesFlat(j.data); else setClientesFlat([]);
+    } catch { setClientesFlat([]); }
+    finally { setLoadingCliFechas(false); }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedRegional, canal, fCats, fProvs, fSubs, fMarcs, fProductos, compDrill, skuDrillParam, selectedVend, anho, mes]);
+
+  useEffect(() => { void fetchClientesFechas(); }, [fetchClientesFechas]);
+
+  useEffect(() => {
+    if (!selectedCli) { setCliSkus([]); setCliSkuSearch(""); return; }
+    setCliSkuSearch("");
+    setLoadingCliSkus(true);
+    const qs         = buildQS(selectedRegional, canal, anho, mes, fCats, fProvs, fSubs, fMarcs, fProductos);
+    const fechaParam = selectedCliFecha ? `&fecha=${encodeURIComponent(selectedCliFecha)}` : "";
+    apiFetchRef.current<{ success: boolean; data: ClienteSkuRow[] }>(
+      `/dashboard/new-nacional/cliente-skus/?cliente_codigo=${encodeURIComponent(selectedCli.codigo)}&${qs}${fechaParam}`
+    ).then((j) => { if (j.success) setCliSkus(j.data); else setCliSkus([]); })
+     .catch(() => setCliSkus([]))
+     .finally(() => setLoadingCliSkus(false));
+  }, [selectedCli, selectedCliFecha, selectedRegional, canal, fCats, fProvs, fSubs, fMarcs, fProductos, anho, mes]);
+
+  // ── Limpiar filtros operacionales al cambiar regional ─────────────────────────
+
+  // ── Derivados ─────────────────────────────────────────────────────────────────
 
   const sortedVendedores = useMemo(() => {
     return [...vendedores].sort((a, b) => {
@@ -838,17 +851,6 @@ export default function DashboardNewNacional() {
     return q ? sortedVendCat.filter((v) => v.vendedor.toLowerCase().includes(q)) : sortedVendCat;
   }, [sortedVendCat, vendSearch]);
 
-  const sortedClientes = useMemo(() => {
-    return [...clientes].sort((a, b) => {
-      const diff = cliSortKey === "uds_vendidas" ? b.cantidad - a.cantidad : b.venta_neta - a.venta_neta;
-      return cliSortDir === "desc" ? diff : -diff;
-    });
-  }, [clientes, cliSortKey, cliSortDir]);
-
-  const filteredClientes = useMemo(() => {
-    const q = cliSearch.trim().toLowerCase();
-    return q ? sortedClientes.filter((c) => c.codigo.toLowerCase().includes(q) || c.nombre.toLowerCase().includes(q)) : sortedClientes;
-  }, [sortedClientes, cliSearch]);
 
   const filteredCliSkus = useMemo(() => {
     const q = cliSkuSearch.trim().toLowerCase();
@@ -882,8 +884,10 @@ export default function DashboardNewNacional() {
             </span>
           </div>
           {nacKpis?.fecha_corte && (
-            <p className="text-[11px] text-slate-400 font-medium">
-              Datos al <span className="text-slate-600 font-semibold">{fmtFechaCorte(nacKpis.fecha_corte)}</span>
+            <p className="text-xs text-slate-400 font-medium flex items-center gap-1.5">
+              <span className="w-2 h-2 rounded-full bg-emerald-400 shrink-0" />
+              Información vigente al{" "}
+              <span className="text-slate-600 font-semibold">{fmtFechaCorte(nacKpis.fecha_corte)}</span>
             </p>
           )}
         </div>
@@ -907,7 +911,7 @@ export default function DashboardNewNacional() {
             </select>
           </div>
           <button
-            onClick={() => { void fetchNacKpis(); void fetchCanales(); void fetchOpciones(); void fetchComparacion(); void fetchSkus(); void fetchVendedores(); void fetchVendedoresCat(); void fetchClientes(); }}
+            onClick={() => { void fetchNacKpis(); void fetchCanales(); void fetchOpciones(); void fetchComparacion(); void fetchSkus(); void fetchVendedores(); void fetchVendedoresCat(); void fetchClientesFechas(); }}
             disabled={loadingNac}
             className="btn-ghost flex items-center gap-1.5 text-sm">
             <RefreshCw size={14} className={loadingNac ? "animate-spin" : ""} />Actualizar
@@ -1113,110 +1117,6 @@ export default function DashboardNewNacional() {
         )}
       </div>
 
-      {/* ── SKUs ────────────────────────────────────────────────────────────── */}
-      <div className="card">
-        {/* Toolbar */}
-        <div className="flex flex-wrap items-start justify-between gap-3 mb-4">
-          <div>
-            <h2 className="font-semibold text-slate-700 text-sm">SKUs</h2>
-            <p className="text-[11px] text-slate-400 mt-0.5">
-              {MESES[mes]} {anho} · {REGIONALES.find(r => r.key === selectedRegional)?.label}
-              {activeFilterChips.length > 0 && ` · ${activeFilterChips.map(c => c.label).join(", ")}`}
-            </p>
-            {selectedSku && (
-              <button onClick={() => setSelectedSku(null)}
-                className="mt-1.5 inline-flex items-center gap-1.5 text-[11px] font-semibold px-2.5 py-1 rounded-full bg-teal-50 text-teal-700 border border-teal-200 hover:bg-teal-100 transition-colors">
-                SKU: {selectedSku.producto} <span className="opacity-60">✕</span>
-              </button>
-            )}
-          </div>
-
-          <div className="flex flex-wrap items-center gap-2">
-            {/* Sort key toggle */}
-            <div className="flex rounded-lg overflow-hidden border border-slate-200 text-[11px] font-semibold">
-              {(["presupuesto", "cumplimiento", "crecimiento", "ventas_bs"] as SortKey[]).map((k) => (
-                <button key={k} onClick={() => setSortKey(k)}
-                  className={`px-2.5 py-1.5 transition-colors ${sortKey === k ? "bg-brand-600 text-white" : "bg-white text-slate-500 hover:bg-slate-50"}`}>
-                  {k === "presupuesto" ? "Presupuesto" : k === "cumplimiento" ? "Cumplimiento" : k === "crecimiento" ? "Crecimiento" : "Ventas Bs"}
-                </button>
-              ))}
-            </div>
-
-            {/* Asc/Desc */}
-            <button onClick={() => setSortDir((d) => d === "desc" ? "asc" : "desc")}
-              className="flex items-center gap-1 text-[11px] font-semibold px-2.5 py-1.5 rounded-lg border border-slate-200 bg-white text-slate-500 hover:border-brand-400 hover:text-brand-600 transition-all">
-              {sortDir === "desc" ? <ArrowDown size={12} /> : <ArrowUp size={12} />}
-              {sortDir === "desc" ? "Mayor → Menor" : "Menor → Mayor"}
-            </button>
-          </div>
-        </div>
-
-        {/* Search */}
-        <div className="relative mb-3">
-          <Search size={13} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
-          <input type="text" value={skuSearch}
-            onChange={(e: ChangeEvent<HTMLInputElement>) => setSkuSearch(e.target.value)}
-            placeholder="Buscar por nombre o código de producto…"
-            className="w-full text-xs pl-9 pr-3 py-2.5 border border-slate-200 rounded-xl bg-white focus:outline-none focus:ring-2 focus:ring-brand-400 placeholder:text-slate-300" />
-          {filteredSkus.length !== skus.length && (
-            <span className="absolute right-3 top-1/2 -translate-y-1/2 text-[10px] text-slate-400 font-semibold">
-              {filteredSkus.length}/{skus.length}
-            </span>
-          )}
-        </div>
-
-        {/* Table */}
-        {loadingSkus ? (
-          <div className="space-y-1.5">{Array.from({ length: 8 }).map((_, i) => <div key={i} className="h-9 bg-slate-50 animate-pulse rounded-lg" />)}</div>
-        ) : filteredSkus.length === 0 ? (
-          <p className="text-slate-400 text-sm py-6 text-center">Sin datos para los filtros actuales.</p>
-        ) : (
-          <div className="overflow-x-auto overflow-y-auto rounded-xl border border-slate-100" style={{ maxHeight: 560 }}>
-            <table className="w-full text-xs min-w-225">
-              <thead className="sticky top-0 z-10 bg-white shadow-[0_1px_0_0_#f1f5f9]">
-                <tr className="text-[10px] text-slate-400 uppercase tracking-widest">
-                  <th className="text-left py-2.5 pl-3 font-semibold w-72">SKU</th>
-                  <th className="text-right py-2.5 font-semibold">Bs. vendidos</th>
-                  <th className="text-right py-2.5 font-semibold">Uds. vendidas</th>
-                  <th className="text-right py-2.5 font-semibold">Presupuesto</th>
-                  <th className="text-right py-2.5 font-semibold">% Cumpl.</th>
-                  <th className="text-right py-2.5 font-semibold">% Gap</th>
-                  <th className="text-right py-2.5 pr-3 font-semibold">vs {prevSkuLabel || "Mes ant."}</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-50">
-                {filteredSkus.map((s) => {
-                  const isSkuActive = selectedSku?.codigo === s.codigo;
-                  return (
-                  <tr key={s.codigo}
-                    onClick={() => onSkuClick(s)}
-                    className={`cursor-pointer transition-colors ${isSkuActive ? "bg-teal-50" : "hover:bg-slate-50"}`}>
-                    <td className="py-2.5 pl-3 w-72">
-                      <span className="font-mono text-[10px] text-slate-400 block">{s.codigo}</span>
-                      <span className={`font-medium leading-tight ${isSkuActive ? "text-teal-700" : "text-slate-700"}`}>{s.producto}</span>
-                    </td>
-                    <td className="py-2.5 text-right tabular-nums text-slate-700 font-semibold">{fmt(s.venta_neta)}</td>
-                    <td className="py-2.5 text-right tabular-nums text-slate-600">{fmtN(s.cantidad)}</td>
-                    <td className="py-2.5 text-right tabular-nums text-slate-500">{fmt(s.presupuesto)}</td>
-                    <td className={`py-2.5 text-right tabular-nums font-bold ${cumplColor(s.pct_cumpl)}`}>{fmtPct(s.pct_cumpl)}</td>
-                    <td className={`py-2.5 text-right tabular-nums font-semibold ${s.gap_pct != null ? (s.gap_pct >= 0 ? "text-emerald-600" : "text-red-500") : "text-slate-300"}`}>
-                      {s.gap_pct != null ? `${s.gap_pct >= 0 ? "+" : ""}${fmtPct(s.gap_pct)}` : "—"}
-                    </td>
-                    <td className={`py-2.5 text-right tabular-nums font-semibold pr-3 ${deltaColor(s.pct_camb_bs)}`}>
-                      {s.pct_camb_bs != null ? `${s.pct_camb_bs >= 0 ? "+" : ""}${fmtPct(s.pct_camb_bs)}` : "—"}
-                      {s.venta_neta_ant > 0 && (
-                        <span className="block text-[10px] font-normal text-slate-400">{fmt(s.venta_neta_ant)}</span>
-                      )}
-                    </td>
-                  </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          </div>
-        )}
-      </div>
-
       {/* ── Tabla Vendedores ─────────────────────────────────────────────────── */}
       <div className="card mt-5">
         <div className="flex flex-wrap items-start justify-between gap-3 mb-4">
@@ -1234,6 +1134,11 @@ export default function DashboardNewNacional() {
               {selectedSku && (
                 <span className="inline-flex items-center gap-1 text-[11px] font-semibold px-2 py-0.5 rounded-full bg-teal-50 text-teal-600 border border-teal-200">
                   SKU: {selectedSku.producto}
+                </span>
+              )}
+              {!selectedSku && skuSearch.trim() && filteredSkus.length > 0 && filteredSkus.length < skus.length && (
+                <span className="inline-flex items-center gap-1 text-[11px] font-semibold px-2 py-0.5 rounded-full bg-orange-50 text-orange-600 border border-orange-200">
+                  Búsqueda: "{skuSearch}" · {filteredSkus.length} SKUs
                 </span>
               )}
             </div>
@@ -1407,108 +1312,277 @@ export default function DashboardNewNacional() {
         })()}
       </div>
 
-      {/* ── Tabla Clientes ───────────────────────────────────────────────────── */}
-      <div className={`mt-5 grid gap-4 ${selectedCli ? "grid-cols-[1fr_380px]" : "grid-cols-1"}`}>
+      {/* ── SKUs ────────────────────────────────────────────────────────────── */}
+      <div className="card mt-5">
+        {/* Toolbar */}
+        <div className="flex flex-wrap items-start justify-between gap-3 mb-4">
+          <div>
+            <h2 className="font-semibold text-slate-700 text-sm">SKUs</h2>
+            <p className="text-[11px] text-slate-400 mt-0.5">
+              {MESES[mes]} {anho} · {REGIONALES.find(r => r.key === selectedRegional)?.label}
+              {activeFilterChips.length > 0 && ` · ${activeFilterChips.map(c => c.label).join(", ")}`}
+            </p>
+            <div className="flex flex-wrap gap-1.5 mt-1.5">
+              {selectedVend && (
+                <button onClick={() => setSelectedVend(null)}
+                  className="inline-flex items-center gap-1.5 text-[11px] font-semibold px-2.5 py-1 rounded-full bg-brand-50 text-brand-700 border border-brand-200 hover:bg-brand-100 transition-colors">
+                  Vendedor: {selectedVend} <span className="opacity-60">✕</span>
+                </button>
+              )}
+              {selectedSku && (
+                <button onClick={() => setSelectedSku(null)}
+                  className="inline-flex items-center gap-1.5 text-[11px] font-semibold px-2.5 py-1 rounded-full bg-teal-50 text-teal-700 border border-teal-200 hover:bg-teal-100 transition-colors">
+                  SKU: {selectedSku.producto} <span className="opacity-60">✕</span>
+                </button>
+              )}
+            </div>
+          </div>
 
-        {/* Card tabla */}
-        <div className="card">
-          <div className="flex flex-wrap items-start justify-between gap-3 mb-4">
+          <div className="flex flex-wrap items-center gap-2">
+            {/* Sort key toggle */}
+            <div className="flex rounded-lg overflow-hidden border border-slate-200 text-[11px] font-semibold">
+              {(["presupuesto", "cumplimiento", "crecimiento", "ventas_bs"] as SortKey[]).map((k) => (
+                <button key={k} onClick={() => setSortKey(k)}
+                  className={`px-2.5 py-1.5 transition-colors ${sortKey === k ? "bg-brand-600 text-white" : "bg-white text-slate-500 hover:bg-slate-50"}`}>
+                  {k === "presupuesto" ? "Presupuesto" : k === "cumplimiento" ? "Cumplimiento" : k === "crecimiento" ? "Crecimiento" : "Ventas Bs"}
+                </button>
+              ))}
+            </div>
+
+            {/* Asc/Desc */}
+            <button onClick={() => setSortDir((d) => d === "desc" ? "asc" : "desc")}
+              className="flex items-center gap-1 text-[11px] font-semibold px-2.5 py-1.5 rounded-lg border border-slate-200 bg-white text-slate-500 hover:border-brand-400 hover:text-brand-600 transition-all">
+              {sortDir === "desc" ? <ArrowDown size={12} /> : <ArrowUp size={12} />}
+              {sortDir === "desc" ? "Mayor → Menor" : "Menor → Mayor"}
+            </button>
+          </div>
+        </div>
+
+        {/* Search */}
+        <div className="relative mb-3">
+          <Search size={13} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+          <input type="text" value={skuSearch}
+            onChange={(e: ChangeEvent<HTMLInputElement>) => setSkuSearch(e.target.value)}
+            placeholder="Buscar por nombre o código de producto…"
+            className="w-full text-xs pl-9 pr-3 py-2.5 border border-slate-200 rounded-xl bg-white focus:outline-none focus:ring-2 focus:ring-brand-400 placeholder:text-slate-300" />
+          {filteredSkus.length !== skus.length && (
+            <span className="absolute right-3 top-1/2 -translate-y-1/2 text-[10px] text-slate-400 font-semibold">
+              {filteredSkus.length}/{skus.length}
+            </span>
+          )}
+        </div>
+
+        {/* Table */}
+        {loadingSkus ? (
+          <div className="space-y-1.5">{Array.from({ length: 8 }).map((_, i) => <div key={i} className="h-9 bg-slate-50 animate-pulse rounded-lg" />)}</div>
+        ) : filteredSkus.length === 0 ? (
+          <p className="text-slate-400 text-sm py-6 text-center">Sin datos para los filtros actuales.</p>
+        ) : (
+          <div className="overflow-x-auto overflow-y-auto rounded-xl border border-slate-100" style={{ maxHeight: 560 }}>
+            <table className="w-full text-xs min-w-225">
+              <thead className="sticky top-0 z-10 bg-white shadow-[0_1px_0_0_#f1f5f9]">
+                <tr className="text-[10px] text-slate-400 uppercase tracking-widest">
+                  <th className="text-left py-2.5 pl-3 font-semibold w-72">SKU</th>
+                  <th className="text-right py-2.5 font-semibold">Bs. vendidos</th>
+                  <th className="text-right py-2.5 font-semibold">Uds. vendidas</th>
+                  <th className="text-right py-2.5 font-semibold">Presupuesto</th>
+                  <th className="text-right py-2.5 font-semibold">% Cumpl.</th>
+                  <th className="text-right py-2.5 font-semibold">% Gap</th>
+                  <th className="text-right py-2.5 pr-3 font-semibold">vs {prevSkuLabel || "Mes ant."}</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-50">
+                {filteredSkus.map((s) => {
+                  const isSkuActive = selectedSku?.codigo === s.codigo;
+                  return (
+                  <tr key={s.codigo}
+                    onClick={() => onSkuClick(s)}
+                    className={`cursor-pointer transition-colors ${isSkuActive ? "bg-teal-50" : "hover:bg-slate-50"}`}>
+                    <td className="py-2.5 pl-3 w-72">
+                      <span className="font-mono text-[10px] text-slate-400 block">{s.codigo}</span>
+                      <span className={`font-medium leading-tight ${isSkuActive ? "text-teal-700" : "text-slate-700"}`}>{s.producto}</span>
+                    </td>
+                    <td className="py-2.5 text-right tabular-nums text-slate-700 font-semibold">{fmt(s.venta_neta)}</td>
+                    <td className="py-2.5 text-right tabular-nums text-slate-600">{fmtN(s.cantidad)}</td>
+                    <td className="py-2.5 text-right tabular-nums text-slate-500">{fmt(s.presupuesto)}</td>
+                    <td className={`py-2.5 text-right tabular-nums font-bold ${cumplColor(s.pct_cumpl)}`}>{fmtPct(s.pct_cumpl)}</td>
+                    <td className={`py-2.5 text-right tabular-nums font-semibold ${s.gap_pct != null ? (s.gap_pct >= 0 ? "text-emerald-600" : "text-red-500") : "text-slate-300"}`}>
+                      {s.gap_pct != null ? `${s.gap_pct >= 0 ? "+" : ""}${fmtPct(s.gap_pct)}` : "—"}
+                    </td>
+                    <td className={`py-2.5 text-right tabular-nums font-semibold pr-3 ${deltaColor(s.pct_camb_bs)}`}>
+                      {s.pct_camb_bs != null ? `${s.pct_camb_bs >= 0 ? "+" : ""}${fmtPct(s.pct_camb_bs)}` : "—"}
+                      {s.venta_neta_ant > 0 && (
+                        <span className="block text-[10px] font-normal text-slate-400">{fmt(s.venta_neta_ant)}</span>
+                      )}
+                    </td>
+                  </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </div>
+
+      {/* ── Tabla Clientes por fecha ─────────────────────────────────────────── */}
+      <div className="mt-5 flex flex-col lg:flex-row gap-4 items-stretch">
+
+        {/* Card grilla de fechas */}
+        <div className="card flex-1 min-w-0">
+          <div className="flex flex-wrap items-start justify-between gap-3 mb-3">
             <div>
               <h2 className="font-semibold text-slate-700 text-sm">Por Cliente</h2>
               <p className="text-[11px] text-slate-400 mt-0.5">
                 {MESES[mes]} {anho} · {REGIONALES.find(r => r.key === selectedRegional)?.label}
-                {selectedCli && <span className="ml-2 text-brand-500">· Clic en fila para ver SKUs</span>}
+                {" · "}
+                <span className="text-slate-500">Nombre → acumulado · Fecha → ese día</span>
               </p>
-              {selectedVend && (
-                <button
-                  onClick={() => setSelectedVend(null)}
-                  className="mt-1.5 inline-flex items-center gap-1.5 text-[11px] font-semibold px-2.5 py-1 rounded-full bg-brand-50 text-brand-700 border border-brand-200 hover:bg-brand-100 transition-colors">
-                  Vendedor: {selectedVend}
-                  <span className="opacity-60">✕</span>
-                </button>
-              )}
-            </div>
-            <div className="flex items-center gap-2">
-              <div className="flex rounded-lg overflow-hidden border border-slate-200 text-[11px] font-semibold">
-                {(["ventas_bs", "uds_vendidas"] as CliSortKey[]).map((k) => (
-                  <button key={k} onClick={() => setCliSortKey(k)}
-                    className={`px-2.5 py-1.5 transition-colors ${cliSortKey === k ? "bg-brand-600 text-white" : "bg-white text-slate-500 hover:bg-slate-50"}`}>
-                    {k === "ventas_bs" ? "Ventas Bs" : "Uds. Vendidas"}
+              <div className="flex flex-wrap gap-1.5 mt-1.5">
+                {selectedVend && (
+                  <button onClick={() => setSelectedVend(null)}
+                    className="inline-flex items-center gap-1 text-[11px] font-semibold px-2 py-0.5 rounded-full bg-brand-50 text-brand-700 border border-brand-200 hover:bg-brand-100 transition-colors">
+                    Vendedor: {selectedVend} <span className="opacity-60">✕</span>
                   </button>
-                ))}
+                )}
+                {selectedCli && (
+                  <button onClick={() => { setSelectedCli(null); setSelectedCliFecha(null); }}
+                    className="inline-flex items-center gap-1 text-[11px] font-semibold px-2 py-0.5 rounded-full bg-teal-50 text-teal-700 border border-teal-200 hover:bg-teal-100 transition-colors">
+                    {selectedCli.nombre}{selectedCliFecha ? ` · ${selectedCliFecha.slice(8,10)}/${selectedCliFecha.slice(5,7)}` : " · Todo el mes"} <span className="opacity-60">✕</span>
+                  </button>
+                )}
               </div>
-              <button onClick={() => setCliSortDir((d) => d === "desc" ? "asc" : "desc")}
-                className="flex items-center gap-1 text-[11px] font-semibold px-2.5 py-1.5 rounded-lg border border-slate-200 bg-white text-slate-500 hover:border-brand-400 hover:text-brand-600 transition-all">
-                {cliSortDir === "desc" ? <ArrowDown size={12} /> : <ArrowUp size={12} />}
-                {cliSortDir === "desc" ? "Mayor → Menor" : "Menor → Mayor"}
-              </button>
+            </div>
+            <div className="relative">
+              <Search size={13} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" />
+              <input type="text" value={cliSearch} onChange={(e) => setCliSearch(e.target.value)}
+                placeholder="Buscar cliente..."
+                className="pl-8 pr-3 py-2 text-xs border border-slate-200 rounded-lg focus:outline-none focus:border-brand-400 bg-white w-52" />
             </div>
           </div>
 
-          <div className="relative mb-3">
-            <Search size={13} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" />
-            <input type="text" value={cliSearch} onChange={(e) => setCliSearch(e.target.value)}
-              placeholder="Buscar por código o nombre..."
-              className="w-full pl-8 pr-3 py-2 text-xs border border-slate-200 rounded-lg focus:outline-none focus:border-brand-400 bg-white" />
-            {filteredClientes.length !== clientes.length && (
-              <span className="absolute right-3 top-1/2 -translate-y-1/2 text-[10px] text-slate-400">
-                {filteredClientes.length}/{clientes.length}
-              </span>
-            )}
-          </div>
-
-          {loadingCli ? (
-            <div className="h-40 flex items-center justify-center text-slate-400 text-sm">Cargando...</div>
-          ) : filteredClientes.length === 0 ? (
+          {loadingCliFechas ? (
+            <div className="space-y-1.5">{Array.from({ length: 6 }).map((_, i) => <div key={i} className="h-8 bg-slate-50 animate-pulse rounded" />)}</div>
+          ) : clientesFlat.length === 0 ? (
             <div className="h-40 flex items-center justify-center text-slate-400 text-sm">Sin datos</div>
-          ) : (
-            <div className="overflow-auto max-h-96">
-              <table className="w-full text-xs">
-                <thead className="sticky top-0 bg-white">
-                  <tr className="border-b border-slate-100 text-slate-400 text-[11px] uppercase tracking-wider">
-                    <th className="text-left py-2 pb-3 font-semibold pl-1 w-24">Código</th>
-                    <th className="text-left py-2 pb-3 font-semibold">Nombre</th>
-                    <th className="text-right py-2 pb-3 font-semibold">Bs. Vendidos</th>
-                    <th className="text-right py-2 pb-3 font-semibold pr-1">Uds. Vendidas</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-slate-50">
-                  {filteredClientes.map((c) => {
-                    const isActive = selectedCli?.codigo === c.codigo;
-                    return (
-                      <tr key={c.codigo}
-                        onClick={() => setSelectedCli(isActive ? null : c)}
-                        className={`cursor-pointer transition-colors ${isActive ? "bg-brand-50" : "hover:bg-slate-50/60"}`}>
-                        <td className={`py-2.5 pl-1 font-mono text-[11px] ${isActive ? "text-brand-600" : "text-slate-500"}`}>{c.codigo}</td>
-                        <td className={`py-2.5 font-medium ${isActive ? "text-brand-700" : "text-slate-700"}`}>{c.nombre}</td>
-                        <td className="py-2.5 text-right tabular-nums text-slate-700 font-semibold">{fmt(c.venta_neta)}</td>
-                        <td className="py-2.5 text-right tabular-nums text-slate-600 pr-1">{fmtN(c.cantidad)}</td>
-                      </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
-            </div>
-          )}
+          ) : (() => {
+            const clienteMap = new Map<string, { nombre: string; fechas: Map<string, { venta_neta: number; cantidad: number }> }>();
+            const fechasSet = new Set<string>();
+            for (const row of clientesFlat) {
+              if (!clienteMap.has(row.codigo)) clienteMap.set(row.codigo, { nombre: row.nombre, fechas: new Map() });
+              fechasSet.add(row.fecha);
+              clienteMap.get(row.codigo)!.fechas.set(row.fecha, { venta_neta: row.venta_neta, cantidad: row.cantidad });
+            }
+            const fechas = Array.from(fechasSet).sort();
+            const q = cliSearch.trim().toLowerCase();
+            const clientes = Array.from(clienteMap.entries())
+              .filter(([, { nombre }]) => !q || nombre.toLowerCase().includes(q))
+              .sort((a, b) => {
+                const totA = Array.from(a[1].fechas.values()).reduce((s, v) => s + v.venta_neta, 0);
+                const totB = Array.from(b[1].fechas.values()).reduce((s, v) => s + v.venta_neta, 0);
+                return totB - totA;
+              });
+            return (
+              <div className="overflow-x-auto overflow-y-auto" style={{ maxHeight: 420 }}>
+                <table className="text-xs border-collapse" style={{ minWidth: `${Math.max(400, fechas.length * 76 + 260)}px` }}>
+                  <thead className="sticky top-0 z-20">
+                    <tr>
+                      <th className="sticky left-0 z-30 bg-white text-left py-2 pr-4 font-semibold text-slate-600 shadow-[1px_0_0_0_#f1f5f9] min-w-56 border-b border-slate-100">
+                        Cliente
+                      </th>
+                      {fechas.map(f => (
+                        <th key={f} className="bg-white py-2 px-2 font-semibold text-center text-slate-400 min-w-18 border-b border-slate-100 whitespace-nowrap">
+                          {f.slice(8,10)}/{f.slice(5,7)}
+                        </th>
+                      ))}
+                      <th className="sticky right-0 z-30 bg-white py-2 pl-3 pr-3 font-semibold text-right text-slate-600 shadow-[-1px_0_0_0_#f1f5f9] min-w-24 border-b border-slate-100">
+                        Total
+                      </th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {clientes.map(([codigo, { nombre, fechas: fechaMap }]) => {
+                      const totalMes     = Array.from(fechaMap.values()).reduce((s, v) => s + v.venta_neta, 0);
+                      const isSelCliente = selectedCli?.codigo === codigo;
+                      return (
+                        <tr key={codigo} className={`border-b border-slate-50 transition-colors ${isSelCliente ? "bg-brand-50" : "hover:bg-slate-50/60"}`}>
+                          <td
+                            className={`sticky left-0 z-10 py-2 pr-4 shadow-[1px_0_0_0_#f1f5f9] cursor-pointer ${isSelCliente ? "bg-brand-50" : "bg-white hover:bg-slate-50"}`}
+                            onClick={() => {
+                              if (isSelCliente && selectedCliFecha === null) {
+                                setSelectedCli(null);
+                              } else {
+                                setSelectedCli({ codigo, nombre });
+                                setSelectedCliFecha(null);
+                              }
+                            }}
+                          >
+                            <div className="flex items-center gap-1.5">
+                              <span className={`shrink-0 text-[9px] font-mono font-semibold px-1 py-0.5 rounded ${isSelCliente ? "bg-brand-100 text-brand-600" : "bg-slate-100 text-slate-400"}`}>
+                                {codigo}
+                              </span>
+                              <span className={`font-semibold leading-snug text-[11px] ${isSelCliente ? "text-brand-700" : "text-slate-700"}`}>{nombre}</span>
+                            </div>
+                          </td>
+                          {fechas.map(f => {
+                            const v         = fechaMap.get(f);
+                            const isSelCell = isSelCliente && selectedCliFecha === f;
+                            return (
+                              <td key={f}
+                                className={`py-1.5 px-2 text-center tabular-nums transition-colors text-[11px] ${
+                                  isSelCell ? "bg-brand-500 text-white font-bold rounded"
+                                  : v        ? "text-slate-700 cursor-pointer hover:bg-brand-50 hover:text-brand-700"
+                                  :            "text-slate-200"
+                                }`}
+                                onClick={() => {
+                                  if (!v) return;
+                                  if (isSelCell) {
+                                    setSelectedCliFecha(null);
+                                    setSelectedCli({ codigo, nombre });
+                                  } else {
+                                    setSelectedCli({ codigo, nombre });
+                                    setSelectedCliFecha(f);
+                                  }
+                                }}
+                              >
+                                {v ? fmtN(v.venta_neta) : "—"}
+                              </td>
+                            );
+                          })}
+                          <td className={`sticky right-0 z-10 py-2 pl-3 pr-3 text-right tabular-nums font-bold shadow-[-1px_0_0_0_#f1f5f9] ${isSelCliente ? "bg-brand-50 text-brand-700" : "bg-white text-slate-700"}`}>
+                            {fmtN(totalMes)}
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            );
+          })()}
         </div>
 
-        {/* Card SKUs del cliente — aparece a la derecha al seleccionar */}
+        {/* Panel SKUs del cliente — aparece a la derecha al seleccionar */}
         {selectedCli && (
-          <div className="card flex flex-col gap-3">
+          <div className="card lg:w-96 flex flex-col gap-3 shrink-0">
             <div className="flex items-start justify-between">
               <div>
                 <p className="text-[10px] uppercase tracking-widest text-slate-400 font-semibold">SKUs vendidos</p>
                 <p className="text-sm font-semibold text-slate-700 mt-0.5 leading-tight">{selectedCli.nombre}</p>
                 <p className="text-[11px] text-slate-400 mt-0.5">{selectedCli.codigo}</p>
+                <p className="text-[11px] font-semibold mt-0.5 text-slate-500">
+                  {selectedCliFecha
+                    ? `${selectedCliFecha.slice(8,10)}/${selectedCliFecha.slice(5,7)}/${selectedCliFecha.slice(0,4)}`
+                    : "Todo el mes"}
+                </p>
               </div>
-              <button onClick={() => setSelectedCli(null)}
+              <button onClick={() => { setSelectedCli(null); setSelectedCliFecha(null); }}
                 className="text-slate-400 hover:text-slate-600 transition-colors text-lg leading-none mt-0.5">✕</button>
             </div>
 
             <div className="relative">
               <Search size={13} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" />
               <input type="text" value={cliSkuSearch} onChange={(e) => setCliSkuSearch(e.target.value)}
-                placeholder="Buscar SKU (nombre o código)..."
+                placeholder="Buscar SKU..."
                 className="w-full pl-8 pr-3 py-2 text-xs border border-slate-200 rounded-lg focus:outline-none focus:border-brand-400 bg-white" />
               {filteredCliSkus.length !== cliSkus.length && (
                 <span className="absolute right-3 top-1/2 -translate-y-1/2 text-[10px] text-slate-400">
@@ -1529,7 +1603,7 @@ export default function DashboardNewNacional() {
                       <tr className="border-b border-slate-100 text-slate-400 text-[11px] uppercase tracking-wider">
                         <th className="text-left py-2 pb-3 font-semibold">Producto</th>
                         <th className="text-right py-2 pb-3 font-semibold">Uds.</th>
-                        <th className="text-right py-2 pb-3 font-semibold">Bs.</th>
+                        <th className="text-right py-2 pb-3 pr-3 font-semibold">Bs.</th>
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-slate-50">
@@ -1537,17 +1611,17 @@ export default function DashboardNewNacional() {
                         <tr key={s.codigo} className="hover:bg-slate-50/60">
                           <td className="py-2.5 pr-2 text-slate-700 leading-tight">{s.producto}</td>
                           <td className="py-2.5 text-right tabular-nums text-slate-600 whitespace-nowrap">{fmtN(s.cantidad)}</td>
-                          <td className="py-2.5 text-right tabular-nums text-slate-700 font-semibold whitespace-nowrap">{fmt(s.venta_neta)}</td>
+                          <td className="py-2.5 text-right tabular-nums text-slate-700 font-semibold whitespace-nowrap pr-3">{fmt(s.venta_neta)}</td>
                         </tr>
                       ))}
                     </tbody>
                   </table>
                 </div>
                 <div className="pt-3 border-t border-slate-100 flex justify-between text-xs font-bold text-slate-700">
-                  <span>Total</span>
+                  <span>Total{filteredCliSkus.length !== cliSkus.length ? ` (${filteredCliSkus.length}/${cliSkus.length})` : ""}</span>
                   <div className="flex gap-5">
-                    <span>{fmtN(cliSkus.reduce((a, s) => a + s.cantidad, 0))} uds.</span>
-                    <span>{fmt(cliSkus.reduce((a, s) => a + s.venta_neta, 0))}</span>
+                    <span>{fmtN(filteredCliSkus.reduce((a, s) => a + s.cantidad, 0))} uds.</span>
+                    <span>{fmt(filteredCliSkus.reduce((a, s) => a + s.venta_neta, 0))}</span>
                   </div>
                 </div>
               </>
