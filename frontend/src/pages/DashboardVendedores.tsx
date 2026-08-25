@@ -2,7 +2,7 @@ import {
   useEffect, useState, useCallback, useMemo, useRef, type ChangeEvent,
 } from "react";
 import {
-  TrendingUp, RefreshCw, AlertCircle, Search, ArrowUp, ArrowDown, Lock, ChevronDown,
+  TrendingUp, RefreshCw, AlertCircle, Search, ArrowUp, ArrowDown, Lock, ChevronDown, Pin, PinOff,
 } from "lucide-react";
 import {
   ResponsiveContainer, LineChart, Line,
@@ -26,12 +26,11 @@ interface SkuRow {
   presupuesto: number; presupuesto_uds: number; pct_cumpl: number | null; gap_pct: number | null;
   cantidad_ant: number; venta_neta_ant: number; pct_camb_bs: number | null; pct_camb_uds: number | null;
 }
-interface ClienteRow  { codigo: string; nombre: string; venta_neta: number; cantidad: number; }
+interface ClienteFechaFlat { codigo: string; nombre: string; fecha: string; venta_neta: number; cantidad: number; }
 interface ClienteSkuRow { codigo: string; producto: string; cantidad: number; venta_neta: number; }
 
 type SortDir     = "desc" | "asc";
 type SkuSortKey  = "presupuesto" | "cumplimiento" | "crecimiento" | "ventas_bs";
-type CliSortKey  = "ventas_bs" | "uds_vendidas";
 
 // ─── Formatters ───────────────────────────────────────────────────────────────
 
@@ -186,18 +185,19 @@ function buildDrillQS(
 
 // ─── KPI card ─────────────────────────────────────────────────────────────────
 
-function KpiCard({ title, avance, ppto, pct, extra }: {
-  title: string; avance: number; ppto: number; pct: number | null; extra?: string;
+function KpiCard({ title, avance, ppto, pct, extra, pptoLabel = "ppto.", showGap = true }: {
+  title: string; avance: number; ppto: number; pct: number | null;
+  extra?: string; pptoLabel?: string; showGap?: boolean;
 }) {
   const gap = avance - ppto;
   return (
     <div className="card flex-1 min-w-44">
       <p className="text-[11px] font-semibold text-slate-400 uppercase tracking-wider mb-1">{title}</p>
       <p className="text-xl font-bold text-slate-800 leading-tight tabular-nums">{fmt(avance)}</p>
-      <p className="text-[11px] text-slate-400 mt-0.5">{ppto > 0 ? `/ ${fmt(ppto)} ppto.` : ""}</p>
+      <p className="text-[11px] text-slate-400 mt-0.5">{ppto > 0 ? `/ ${fmt(ppto)} ${pptoLabel}` : ""}</p>
       <div className="flex items-center gap-2 mt-1.5">
         {pct != null && <span className={`text-sm font-bold ${cumplColor(pct)}`}>{fmtPct(pct)}</span>}
-        {ppto > 0 && <span className={`text-[10px] font-semibold ${gap >= 0 ? "text-emerald-600" : "text-red-500"}`}>
+        {showGap && ppto > 0 && <span className={`text-[10px] font-semibold ${gap >= 0 ? "text-emerald-600" : "text-red-500"}`}>
           {gap >= 0 ? "+" : ""}{fmt(gap)}
         </span>}
         {extra && <span className="text-[10px] text-slate-400 ml-auto">{extra}</span>}
@@ -315,31 +315,34 @@ export default function DashboardVendedores() {
   const [prevLabel,   setPrevLabel]   = useState("");
   const [skus,        setSkus]        = useState<SkuRow[]>([]);
   const [prevSkuLabel, setPrevSkuLabel] = useState("");
-  const [clientes,    setClientes]    = useState<ClienteRow[]>([]);
+  const [clientesFlat,     setClientesFlat]     = useState<ClienteFechaFlat[]>([]);
+  const [loadingCliFechas, setLoadingCliFechas] = useState(false);
+  const [selectedCliFecha, setSelectedCliFecha] = useState<string | null>(null);
   const [cliSkus,     setCliSkus]     = useState<ClienteSkuRow[]>([]);
+  const [cliSkuSearch, setCliSkuSearch] = useState("");
 
   const [loadingKpis,  setLoadingKpis]  = useState(true);
   const [loadingTend,  setLoadingTend]  = useState(true);
   const [loadingComp,  setLoadingComp]  = useState(false);
   const [loadingSkus,  setLoadingSkus]  = useState(false);
-  const [loadingCli,   setLoadingCli]   = useState(false);
   const [loadingCliSku, setLoadingCliSku] = useState(false);
 
   // Drill / selección
   const [compDrill,    setCompDrill]    = useState<{ field: string; value: string } | null>(null);
   const [selectedSku,  setSelectedSku]  = useState<SkuRow | null>(null);
-  const [selectedCli,  setSelectedCli]  = useState<ClienteRow | null>(null);
+  const [selectedCli,  setSelectedCli]  = useState<{ codigo: string; nombre: string } | null>(null);
+
+  // Panel de filtros
+  const [filterPinned, setFilterPinned] = useState(false);
 
   // Búsqueda + sort
   const [skuSearch,   setSkuSearch]   = useState("");
   const [skuSortKey,  setSkuSortKey]  = useState<SkuSortKey>("presupuesto");
   const [skuSortDir,  setSkuSortDir]  = useState<SortDir>("desc");
   const [cliSearch,   setCliSearch]   = useState("");
-  const [cliSortKey,  setCliSortKey]  = useState<CliSortKey>("ventas_bs");
-  const [cliSortDir,  setCliSortDir]  = useState<SortDir>("desc");
 
   // ── Reset drills cuando cambian filtros base ──────────────────────────────────
-  function resetDrill() { setCompDrill(null); setSelectedSku(null); setSelectedCli(null); }
+  function resetDrill() { setCompDrill(null); setSelectedSku(null); setSelectedCli(null); setSelectedCliFecha(null); }
   function onCats(v: string[])      { setFCats(v);  setFSubs([]); setFProvs([]); setFMarcs([]); setFProductos([]); resetDrill(); }
   function onSubs(v: string[])      { setFSubs(v);  setFProvs([]); setFMarcs([]); setFProductos([]); resetDrill(); }
   function onProvs(v: string[])     { setFProvs(v); setFMarcs([]); setFProductos([]); resetDrill(); }
@@ -384,7 +387,7 @@ export default function DashboardVendedores() {
         const d = kRes.data as Record<string, number | string | Record<string, number>>;
         const p = (d.presupuesto as Record<string, number>) ?? {};
         const fc = d.fecha_corte as string | undefined;
-        setKpisData({ ...(d as Record<string, number>), ppto_total: p.total ?? 0 });
+        setKpisData({ ...(d as Record<string, number>), ppto_total: p.total ?? 0, ppto_uds_total: p.total_uds ?? 0 });
         if (fc) setFechaCorte(fc);
       }
       if (tRes.success) { setTendencia(tRes.data); setEsPeriodoAct(tRes.es_periodo_actual); }
@@ -399,14 +402,14 @@ export default function DashboardVendedores() {
     if (!anho || !mes || !vendedorNombre) return;
     setLoadingComp(true);
     try {
-      const qs = buildQS(regionalKey, canalPerfil, anho, mes, fCats, fProvs, fSubs, fMarcs, fProductos, fRutas)
+      const qs = buildDrillQS(regionalKey, canalPerfil, anho, mes, fCats, fProvs, fSubs, fMarcs, fProductos, compDrill, fRutas)
         + `&vendedor=${encodeURIComponent(vendedorNombre)}`;
       const j = await apiFetchRef.current<{ success: boolean; data: ComparacionRow[]; group_by: string; prev_anho: number; prev_mes: number }>(
         `/dashboard/new-nacional/comparacion/?${qs}`);
       if (j.success) { setComparacion(j.data); setGroupBy(j.group_by); setPrevLabel(`${MESES[j.prev_mes]} ${j.prev_anho}`); }
     } catch { setComparacion([]); }
     finally { setLoadingComp(false); }
-  }, [anho, mes, vendedorNombre, regionalKey, canalPerfil, fCats, fProvs, fSubs, fMarcs, fProductos, fRutas]);
+  }, [anho, mes, vendedorNombre, regionalKey, canalPerfil, fCats, fProvs, fSubs, fMarcs, fProductos, fRutas, compDrill]);
 
   useEffect(() => { void fetchComparacion(); }, [fetchComparacion]);
 
@@ -426,33 +429,35 @@ export default function DashboardVendedores() {
 
   useEffect(() => { void fetchSkus(); }, [fetchSkus]);
 
-  // ── Fetch Clientes ────────────────────────────────────────────────────────────
-  const fetchClientes = useCallback(async () => {
+  // ── Fetch Clientes por fecha ──────────────────────────────────────────────────
+  const fetchClientesFechas = useCallback(async () => {
     if (!anho || !mes || !vendedorNombre) return;
-    setLoadingCli(true); setSelectedCli(null);
+    setLoadingCliFechas(true); setSelectedCli(null); setSelectedCliFecha(null);
     try {
       const qs = buildDrillQS(regionalKey, canalPerfil, anho, mes, fCats, fProvs, fSubs, fMarcs, fProductos, compDrill, fRutas)
         + `&vendedor=${encodeURIComponent(vendedorNombre)}`
         + (selectedSku ? `&sku_drill=${encodeURIComponent(selectedSku.producto)}` : "");
-      const j = await apiFetchRef.current<{ success: boolean; data: ClienteRow[] }>(
-        `/dashboard/new-nacional/clientes/?${qs}`);
-      if (j.success) setClientes(j.data); else setClientes([]);
-    } catch { setClientes([]); }
-    finally { setLoadingCli(false); }
+      const j = await apiFetchRef.current<{ success: boolean; data: ClienteFechaFlat[] }>(
+        `/dashboard/new-nacional/cliente-fechas/?${qs}`);
+      if (j.success) setClientesFlat(j.data); else setClientesFlat([]);
+    } catch { setClientesFlat([]); }
+    finally { setLoadingCliFechas(false); }
   }, [anho, mes, vendedorNombre, regionalKey, canalPerfil, fCats, fProvs, fSubs, fMarcs, fProductos, fRutas, compDrill, selectedSku]);
 
-  useEffect(() => { void fetchClientes(); }, [fetchClientes]);
+  useEffect(() => { void fetchClientesFechas(); }, [fetchClientesFechas]);
 
   // ── Fetch SKUs del cliente ────────────────────────────────────────────────────
   useEffect(() => {
+    setCliSkuSearch("");
     if (!selectedCli || !anho || !mes || !vendedorNombre) { setCliSkus([]); return; }
     setLoadingCliSku(true);
     const qs = buildQS(regionalKey, canalPerfil, anho, mes, fCats, fProvs, fSubs, fMarcs, fProductos, fRutas);
     apiFetchRef.current<{ success: boolean; data: ClienteSkuRow[] }>(
       `/dashboard/new-nacional/cliente-skus/?${qs}&cliente_codigo=${encodeURIComponent(selectedCli.codigo)}&vendedor=${encodeURIComponent(vendedorNombre)}`
+        + (selectedCliFecha ? `&fecha=${encodeURIComponent(selectedCliFecha)}` : "")
     ).then(j => { if (j.success) setCliSkus(j.data); }).catch(() => setCliSkus([]))
      .finally(() => setLoadingCliSku(false));
-  }, [selectedCli, anho, mes, vendedorNombre, regionalKey, canalPerfil, fCats, fProvs, fSubs, fMarcs, fProductos, fRutas]);
+  }, [selectedCli, selectedCliFecha, anho, mes, vendedorNombre, regionalKey, canalPerfil, fCats, fProvs, fSubs, fMarcs, fProductos, fRutas]);
 
   // ── Handlers de drill ─────────────────────────────────────────────────────────
   function onCompDrillClick(row: ComparacionRow) {
@@ -468,11 +473,22 @@ export default function DashboardVendedores() {
   }
 
   // ── KPIs derivados ────────────────────────────────────────────────────────────
-  const ventaTotal   = (kpisData.total_nacional as number) ?? 0;
-  const pptoTotal    = (kpisData.ppto_total as number)     ?? 0;
-  const cantTotal    = (kpisData.cantidad_total as number)  ?? 0;
-  const cobertura    = (kpisData.cobertura_total as number) ?? 0;
-  const pctCumpl     = pptoTotal > 0 ? ventaTotal / pptoTotal * 100 : null;
+  const ventaTotal     = (kpisData.total_nacional as number) ?? 0;
+  const pptoTotal      = (kpisData.ppto_total as number)     ?? 0;
+  const cantTotal      = (kpisData.cantidad_total as number)  ?? 0;
+  const pptoUdsTotal   = (kpisData.ppto_uds_total as number) ?? 0;
+  const cobertura      = (kpisData.cobertura_total as number) ?? 0;
+  const carteraAnho    = kpisData.cartera_anho   != null ? (kpisData.cartera_anho   as number) : null;
+  const totalAnterior  = kpisData.total_anterior != null ? (kpisData.total_anterior  as number) : null;
+  const totalVendedor  = kpisData.total_vendedor != null ? (kpisData.total_vendedor  as number) : null;
+  const rutaActiva     = fRutas.length > 0;
+  const pctCumpl       = pptoTotal > 0 ? ventaTotal / pptoTotal * 100 : null;
+  const pctParticip    = totalVendedor != null && totalVendedor > 0
+    ? ventaTotal / totalVendedor * 100 : null;
+  const pctCambMes     = totalAnterior != null && totalAnterior > 0
+    ? (ventaTotal - totalAnterior) / totalAnterior * 100 : null;
+  const pctCobertura   = carteraAnho != null && carteraAnho > 0
+    ? cobertura / carteraAnho * 100 : null;
 
   // ── Sorted/filtered SKUs ──────────────────────────────────────────────────────
   const sortedSkus = useMemo(() => {
@@ -491,17 +507,41 @@ export default function DashboardVendedores() {
     return q ? sortedSkus.filter(s => s.producto.toLowerCase().includes(q) || s.codigo.toLowerCase().includes(q)) : sortedSkus;
   }, [sortedSkus, skuSearch]);
 
-  const sortedClientes = useMemo(() => {
-    return [...clientes].sort((a, b) => {
-      const diff = cliSortKey === "uds_vendidas" ? b.cantidad - a.cantidad : b.venta_neta - a.venta_neta;
-      return cliSortDir === "desc" ? diff : -diff;
-    });
-  }, [clientes, cliSortKey, cliSortDir]);
+  // ── Pivot clientes por fecha ──────────────────────────────────────────────────
+  const clienteMap = useMemo(() => {
+    const m    = new Map<string, Map<string, { venta_neta: number; cantidad: number }>>();
+    const info = new Map<string, string>();
+    for (const r of clientesFlat) {
+      if (!m.has(r.codigo)) m.set(r.codigo, new Map());
+      m.get(r.codigo)!.set(r.fecha, { venta_neta: r.venta_neta, cantidad: r.cantidad });
+      info.set(r.codigo, r.nombre);
+    }
+    return { m, info };
+  }, [clientesFlat]);
 
-  const filteredClientes = useMemo(() => {
+  const uniqueFechas = useMemo(() => {
+    const s = new Set<string>();
+    for (const r of clientesFlat) s.add(r.fecha);
+    return [...s].sort();
+  }, [clientesFlat]);
+
+  const filteredCliRows = useMemo(() => {
     const q = cliSearch.trim().toLowerCase();
-    return q ? sortedClientes.filter(c => c.nombre.toLowerCase().includes(q) || c.codigo.toLowerCase().includes(q)) : sortedClientes;
-  }, [sortedClientes, cliSearch]);
+    const entries = [...clienteMap.m.entries()].filter(([cod]) => {
+      const nom = clienteMap.info.get(cod) ?? "";
+      return !q || nom.toLowerCase().includes(q) || cod.toLowerCase().includes(q);
+    });
+    return entries.sort((a, b) => {
+      const totA = [...a[1].values()].reduce((s, v) => s + v.venta_neta, 0);
+      const totB = [...b[1].values()].reduce((s, v) => s + v.venta_neta, 0);
+      return totB - totA;
+    });
+  }, [clienteMap, cliSearch]);
+
+  const filteredCliSkus = useMemo(() => {
+    const q = cliSkuSearch.trim().toLowerCase();
+    return q ? cliSkus.filter(s => s.producto.toLowerCase().includes(q) || s.codigo.toLowerCase().includes(q)) : cliSkus;
+  }, [cliSkus, cliSkuSearch]);
 
   // Tendencia chart data
   const tendData = useMemo(() => tendencia.map(d => ({
@@ -516,7 +556,7 @@ export default function DashboardVendedores() {
   const proyTend   = tendencia.findLast(d => d.proyeccion_acumulada != null)?.proyeccion_acumulada ?? null;
 
   function refreshAll() {
-    void fetchKpisYTend(); void fetchOpciones(); void fetchComparacion(); void fetchSkus(); void fetchClientes();
+    void fetchKpisYTend(); void fetchOpciones(); void fetchComparacion(); void fetchSkus(); void fetchClientesFechas();
   }
 
   if (!isPrivileged && !vendedorNombre) {
@@ -584,7 +624,7 @@ export default function DashboardVendedores() {
                   <ChevronDown size={13} className={`shrink-0 text-slate-400 transition-transform ${vendListOpen ? "rotate-180" : ""}`} />
                 </button>
                 {vendListOpen && (
-                  <div className="absolute z-9999 top-full mt-1 right-0 bg-white border border-slate-200 rounded-xl shadow-xl w-80">
+                  <div className="absolute z-50 top-full mt-1 left-0 sm:left-auto sm:right-0 bg-white border border-slate-200 rounded-xl shadow-xl w-80 max-w-[calc(100vw-1rem)]">
                     <div className="p-2 border-b border-slate-100">
                       <div className="relative">
                         <Search size={12} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" />
@@ -641,20 +681,32 @@ export default function DashboardVendedores() {
       </div>
 
       {/* ── Panel de Filtros ─────────────────────────────────────────────────── */}
-      <div className="sticky top-16 z-30 bg-white border border-slate-200 rounded-2xl shadow-sm px-6 py-4 mb-5">
-        <div className="flex flex-wrap items-end gap-x-3 gap-y-3">
+      <div className={`${filterPinned ? "sticky top-16 z-20" : ""} bg-white border border-slate-200 rounded-2xl shadow-sm px-4 sm:px-6 py-4 mb-5`}>
+        <div className="flex items-center justify-between gap-2 mb-3">
+          <button
+            onClick={() => setFilterPinned(p => !p)}
+            className={`flex items-center gap-1.5 text-[11px] font-semibold px-2.5 py-1.5 rounded-lg border transition-colors ${
+              filterPinned
+                ? "bg-brand-50 text-brand-600 border-brand-200 hover:bg-brand-100"
+                : "bg-white text-slate-400 border-slate-200 hover:text-slate-600 hover:border-slate-300"
+            }`}>
+            {filterPinned ? <Pin size={11} /> : <PinOff size={11} />}
+            {filterPinned ? "Fijado" : "Fijar"}
+          </button>
+          {hasFilters && (
+            <button onClick={() => { setFCats([]); setFSubs([]); setFProvs([]); setFMarcs([]); setFProductos([]); setFRutas([]); resetDrill(); }}
+              className="text-[11px] font-semibold text-slate-400 hover:text-red-500 transition-colors px-2 py-1.5 rounded-lg hover:bg-red-50">
+              Limpiar todo ✕
+            </button>
+          )}
+        </div>
+        <div className="grid grid-cols-2 sm:grid-cols-3 gap-x-3 gap-y-3 md:flex md:flex-wrap md:items-end">
           <MultiSelect label="Categoría"     value={fCats}      options={opCats}  onChange={onCats}      loading={loadingOpts} />
           <MultiSelect label="Sub-categoría" value={fSubs}      options={opSubs}  onChange={onSubs}      searchable loading={loadingOpts} />
           <MultiSelect label="Proveedor"     value={fProvs}     options={opProvs} onChange={onProvs}     searchable loading={loadingOpts} />
           <MultiSelect label="Marca"         value={fMarcs}     options={opMarcs} onChange={onMarcs}     searchable loading={loadingOpts} />
           <MultiSelect label="Productos"     value={fProductos} options={opProds} onChange={onProductos} searchable loading={loadingOpts} />
           <MultiSelect label="Rutas"         value={fRutas}     options={opRutas} onChange={onRutas}     searchable loading={loadingOpts} />
-          {hasFilters && (
-            <button onClick={() => { setFCats([]); setFSubs([]); setFProvs([]); setFMarcs([]); setFProductos([]); setFRutas([]); resetDrill(); }}
-              className="self-end text-[11px] font-semibold text-slate-400 hover:text-red-500 transition-colors px-2 py-2 rounded-lg hover:bg-red-50">
-              Limpiar todo ✕
-            </button>
-          )}
         </div>
         {activeFilterChips.length > 0 && (
           <div className="flex flex-wrap gap-1.5 mt-3 pt-3 border-t border-slate-100">
@@ -687,19 +739,44 @@ export default function DashboardVendedores() {
         </div>
       ) : (
         <div className="flex flex-wrap gap-3 mb-5">
-          <KpiCard title="Ventas del Mes" avance={ventaTotal} ppto={pptoTotal} pct={pctCumpl} />
+          <KpiCard
+            title={rutaActiva ? `Ventas Ruta${fRutas.length > 1 ? "s" : ""}` : "Ventas del Mes"}
+            avance={ventaTotal}
+            ppto={rutaActiva ? (totalVendedor ?? 0) : pptoTotal}
+            pct={rutaActiva ? pctParticip : pctCumpl}
+            pptoLabel={rutaActiva ? "total vendedor" : "ppto."}
+            showGap={!rutaActiva}
+          />
           <div className="card flex-1 min-w-44">
             <p className="text-[11px] font-semibold text-slate-400 uppercase tracking-wider mb-1">Unidades Vendidas</p>
-            <p className="text-xl font-bold text-slate-800">{fmtN(cantTotal)}</p>
+            <p className="text-xl font-bold text-slate-800 leading-tight">{fmtN(cantTotal)}</p>
+            {pptoUdsTotal > 0 && (
+              <p className="text-[11px] text-slate-400 mt-0.5">/ {fmtN(pptoUdsTotal)} ppto.</p>
+            )}
           </div>
           <div className="card flex-1 min-w-44">
             <p className="text-[11px] font-semibold text-slate-400 uppercase tracking-wider mb-1">Clientes Activos</p>
-            <p className="text-xl font-bold text-slate-800">{fmtN(cobertura)}</p>
+            <p className="text-xl font-bold text-slate-800 leading-tight">{fmtN(cobertura)}</p>
+            {carteraAnho != null && carteraAnho > 0 && (
+              <p className="text-[11px] text-slate-400 mt-0.5">de {fmtN(carteraAnho)} en cartera</p>
+            )}
+            {pctCobertura != null && (
+              <div className="flex items-center gap-2 mt-1.5">
+                <span className={`text-sm font-bold ${pctCobertura >= 80 ? "text-emerald-600" : pctCobertura >= 50 ? "text-yellow-600" : "text-red-500"}`}>
+                  {fmtPct(pctCobertura)}
+                </span>
+                <span className="text-[10px] font-semibold text-slate-400">cobertura</span>
+              </div>
+            )}
           </div>
           <div className="card flex-1 min-w-44">
-            <p className="text-[11px] font-semibold text-slate-400 uppercase tracking-wider mb-1">Cumplimiento</p>
-            <p className={`text-xl font-bold ${cumplColor(pctCumpl)}`}>{fmtPct(pctCumpl)}</p>
-            <p className="text-[11px] text-slate-400 mt-0.5">{MESES[mes]} {anho}</p>
+            <p className="text-[11px] font-semibold text-slate-400 uppercase tracking-wider mb-1">vs Mes Anterior</p>
+            <p className={`text-xl font-bold leading-tight ${pctCambMes == null ? "text-slate-400" : pctCambMes >= 0 ? "text-emerald-600" : "text-red-500"}`}>
+              {pctCambMes != null ? `${pctCambMes >= 0 ? "+" : ""}${pctCambMes.toFixed(1)}%` : "—"}
+            </p>
+            <p className="text-[11px] text-slate-400 mt-0.5">
+              {totalAnterior != null && totalAnterior > 0 ? `Ant: ${fmt(totalAnterior)}` : MESES[mes > 1 ? mes - 1 : 12]}
+            </p>
           </div>
         </div>
       )}
@@ -874,7 +951,10 @@ export default function DashboardVendedores() {
                     <tr key={s.codigo}
                       onClick={() => onSkuClick(s)}
                       className={`cursor-pointer transition-colors ${isActive ? "bg-teal-50 ring-1 ring-inset ring-teal-300" : "hover:bg-slate-50/60"}`}>
-                      <td className={`py-2.5 pl-1 font-medium ${isActive ? "text-teal-700" : "text-slate-700"}`} title={s.producto}>{s.producto}</td>
+                      <td className={`py-2.5 pl-1 ${isActive ? "text-teal-700" : "text-slate-700"}`}>
+                        <span className="block font-medium leading-snug">{s.producto}</span>
+                        <span className="text-[10px] text-slate-400 font-mono">{s.codigo}</span>
+                      </td>
                       <td className="py-2.5 text-right tabular-nums text-slate-700 font-semibold">{fmt(s.venta_neta)}</td>
                       <td className="py-2.5 text-right tabular-nums text-slate-600">{fmtN(s.cantidad)}</td>
                       <td className="py-2.5 text-right tabular-nums text-slate-500">{fmt(s.presupuesto)}</td>
@@ -892,11 +972,11 @@ export default function DashboardVendedores() {
       </div>
 
       {/* ── Clientes ───────────────────────────────────────────────────────── */}
-      <div className={`grid gap-4 ${selectedCli ? "grid-cols-[1fr_360px]" : "grid-cols-1"}`}>
+      <div className="space-y-4">
         <div className="card">
           <div className="flex flex-wrap items-start justify-between gap-3 mb-4">
             <div>
-              <h2 className="font-semibold text-slate-700 text-sm">Clientes</h2>
+              <h2 className="font-semibold text-slate-700 text-sm">Clientes por fecha de compra</h2>
               <p className="text-[11px] text-slate-400 mt-0.5">{MESES[mes]} {anho}
                 {selectedSku && <span className="ml-2 text-teal-500">· {selectedSku.producto}</span>}
               </p>
@@ -905,20 +985,6 @@ export default function DashboardVendedores() {
                   {GROUP_BY_LABEL[compDrill.field]}: {compDrill.value}
                 </span>
               )}
-            </div>
-            <div className="flex items-center gap-2">
-              <div className="flex rounded-lg overflow-hidden border border-slate-200 text-[11px] font-semibold">
-                {(["ventas_bs", "uds_vendidas"] as CliSortKey[]).map(k => (
-                  <button key={k} onClick={() => setCliSortKey(k)}
-                    className={`px-2.5 py-1.5 transition-colors ${cliSortKey === k ? "bg-brand-600 text-white" : "bg-white text-slate-500 hover:bg-slate-50"}`}>
-                    {k === "ventas_bs" ? "Ventas Bs" : "Uds."}
-                  </button>
-                ))}
-              </div>
-              <button onClick={() => setCliSortDir(d => d === "desc" ? "asc" : "desc")}
-                className="flex items-center gap-1 text-[11px] font-semibold px-2.5 py-1.5 rounded-lg border border-slate-200 bg-white text-slate-500 hover:border-brand-400 hover:text-brand-600 transition-all">
-                {cliSortDir === "desc" ? <ArrowDown size={12} /> : <ArrowUp size={12} />}
-              </button>
             </div>
           </div>
 
@@ -929,37 +995,89 @@ export default function DashboardVendedores() {
               className="w-full pl-8 pr-3 py-2 text-xs border border-slate-200 rounded-lg focus:outline-none focus:border-brand-400 bg-white" />
           </div>
 
-          {loadingCli ? (
+          {loadingCliFechas ? (
             <div className="h-40 flex items-center justify-center text-slate-400 text-sm">Cargando…</div>
-          ) : filteredClientes.length === 0 ? (
+          ) : filteredCliRows.length === 0 ? (
             <div className="h-40 flex items-center justify-center text-slate-400 text-sm">Sin datos</div>
           ) : (
-            <div className="overflow-auto max-h-96">
-              <table className="w-full text-xs">
-                <thead className="sticky top-0 bg-white">
-                  <tr className="border-b border-slate-100 text-slate-400 text-[10px] uppercase tracking-wider">
-                    <th className="text-left py-2 pb-3 font-semibold pl-1">Cliente</th>
-                    <th className="text-right py-2 pb-3 font-semibold">Bs. Vendidos</th>
-                    <th className="text-right py-2 pb-3 font-semibold pr-1">Uds.</th>
+            <div className="overflow-x-auto overflow-y-auto" style={{ maxHeight: 420 }}>
+              <table className="text-xs border-collapse"
+                style={{ minWidth: `${Math.max(400, uniqueFechas.length * 80 + 280)}px` }}>
+                <thead className="sticky top-0 z-20">
+                  <tr>
+                    <th className="sticky left-0 z-30 bg-white text-left py-2 pr-4 font-semibold text-slate-400 uppercase tracking-wider shadow-[1px_0_0_0_#f1f5f9] min-w-48 border-b border-slate-100 pl-1">
+                      Cliente
+                    </th>
+                    {uniqueFechas.map(f => (
+                      <th key={f} className="bg-white py-2 px-2 font-semibold text-center text-slate-400 uppercase tracking-wider min-w-20 border-b border-slate-100 whitespace-nowrap">
+                        {f.slice(8, 10)}/{f.slice(5, 7)}
+                      </th>
+                    ))}
+                    <th className="sticky right-0 z-30 bg-white py-2 pl-3 pr-3 font-semibold text-right text-slate-400 uppercase tracking-wider shadow-[-1px_0_0_0_#f1f5f9] min-w-24 border-b border-slate-100 whitespace-nowrap">
+                      Total
+                    </th>
                   </tr>
                 </thead>
-                <tbody className="divide-y divide-slate-50">
-                  {filteredClientes.map(c => {
-                    const isActive = selectedCli?.codigo === c.codigo;
+                <tbody>
+                  {filteredCliRows.map(([cod, fechaMap]) => {
+                    const nombre     = clienteMap.info.get(cod) ?? cod;
+                    const isActive   = selectedCli?.codigo === cod;
+                    const totalVenta = [...fechaMap.values()].reduce((s, v) => s + v.venta_neta, 0);
                     return (
-                      <tr key={c.codigo}
-                        onClick={() => setSelectedCli(isActive ? null : c)}
-                        className={`cursor-pointer transition-colors ${isActive ? "bg-brand-50 ring-1 ring-inset ring-brand-300" : "hover:bg-slate-50/60"}`}>
-                        <td className={`py-2.5 pl-1 font-medium ${isActive ? "text-brand-700" : "text-slate-700"}`}>
-                          <span className="block font-semibold">{c.nombre}</span>
-                          <span className="text-[10px] text-slate-400">{c.codigo}</span>
+                      <tr key={cod} className={`border-b border-slate-50 transition-colors ${isActive ? "bg-brand-50" : "hover:bg-slate-50/60"}`}>
+                        <td
+                          className={`sticky left-0 z-10 py-2 pr-4 pl-1 shadow-[1px_0_0_0_#f1f5f9] cursor-pointer ${isActive ? "bg-brand-50" : "bg-white hover:bg-slate-50"}`}
+                          onClick={() => {
+                            if (isActive && selectedCliFecha == null) { setSelectedCli(null); }
+                            else { setSelectedCli({ codigo: cod, nombre }); setSelectedCliFecha(null); }
+                          }}>
+                          <span className={`block font-semibold leading-snug ${isActive && !selectedCliFecha ? "text-brand-700" : "text-slate-700"}`}>{nombre}</span>
+                          <span className="text-[10px] text-slate-400 font-mono">{cod}</span>
                         </td>
-                        <td className="py-2.5 text-right tabular-nums text-slate-700 font-semibold">{fmt(c.venta_neta)}</td>
-                        <td className="py-2.5 text-right tabular-nums text-slate-600 pr-1">{fmtN(c.cantidad)}</td>
+                        {uniqueFechas.map(f => {
+                          const cell       = fechaMap.get(f);
+                          const isCellActive = isActive && selectedCliFecha === f;
+                          return (
+                            <td key={f}
+                              onClick={() => {
+                                if (!cell) return;
+                                if (isCellActive) { setSelectedCliFecha(null); setSelectedCli({ codigo: cod, nombre }); }
+                                else { setSelectedCli({ codigo: cod, nombre }); setSelectedCliFecha(f); }
+                              }}
+                              className={`py-1.5 px-2 text-center tabular-nums transition-colors text-[11px] ${
+                                isCellActive ? "bg-brand-500 text-white font-bold rounded"
+                                : cell       ? "text-slate-700 cursor-pointer hover:bg-brand-50 hover:text-brand-700"
+                                :              "text-slate-200"
+                              }`}>
+                              {cell ? fmtN(cell.venta_neta) : "—"}
+                            </td>
+                          );
+                        })}
+                        <td className={`sticky right-0 z-10 py-2 pl-3 pr-3 text-right tabular-nums font-bold shadow-[-1px_0_0_0_#f1f5f9] ${isActive && !selectedCliFecha ? "bg-brand-50 text-brand-700" : "bg-white text-slate-700"}`}>
+                          {fmtN(totalVenta)}
+                        </td>
                       </tr>
                     );
                   })}
                 </tbody>
+                <tfoot className="sticky bottom-0 z-20">
+                  <tr className="border-t border-slate-200">
+                    <td className="sticky left-0 z-30 py-2 pr-4 pl-1 font-bold text-slate-700 bg-slate-50 shadow-[1px_0_0_0_#e2e8f0]">
+                      Total
+                    </td>
+                    {uniqueFechas.map(f => {
+                      const colTotal = filteredCliRows.reduce((s, [, fm]) => s + (fm.get(f)?.venta_neta ?? 0), 0);
+                      return (
+                        <td key={f} className="py-2 px-2 text-center tabular-nums font-bold text-slate-700 bg-slate-50 text-[11px]">
+                          {colTotal > 0 ? fmtN(colTotal) : "—"}
+                        </td>
+                      );
+                    })}
+                    <td className="sticky right-0 z-30 py-2 pl-3 pr-3 text-right tabular-nums font-bold text-brand-700 bg-slate-50 shadow-[-1px_0_0_0_#e2e8f0]">
+                      {fmtN(filteredCliRows.reduce((s, [, fm]) => s + [...fm.values()].reduce((ss, v) => ss + v.venta_neta, 0), 0))}
+                    </td>
+                  </tr>
+                </tfoot>
               </table>
             </div>
           )}
@@ -967,39 +1085,68 @@ export default function DashboardVendedores() {
 
         {/* Panel SKUs del cliente */}
         {selectedCli && (
-          <div className="card self-start sticky top-4">
+          <div className="card">
             <div className="flex items-start justify-between mb-3">
               <div>
                 <p className="font-semibold text-slate-700 text-sm">{selectedCli.nombre}</p>
-                <p className="text-[10px] text-slate-400">{selectedCli.codigo} · SKUs del mes</p>
+                <p className="text-[10px] text-slate-400">
+                  {selectedCli.codigo} ·{" "}
+                  {selectedCliFecha
+                    ? new Date(selectedCliFecha + "T00:00:00").toLocaleDateString("es-BO", { day: "2-digit", month: "long" })
+                    : "Acumulado del mes"}
+                </p>
               </div>
-              <button onClick={() => setSelectedCli(null)} className="text-slate-400 hover:text-slate-600 text-lg leading-none">✕</button>
+              <button onClick={() => { setSelectedCli(null); setSelectedCliFecha(null); }} className="text-slate-400 hover:text-slate-600 text-lg leading-none">✕</button>
             </div>
             {loadingCliSku ? (
               <div className="h-20 flex items-center justify-center text-slate-400 text-xs">Cargando…</div>
             ) : cliSkus.length === 0 ? (
               <p className="text-xs text-slate-400 text-center py-6">Sin datos</p>
             ) : (
-              <div className="overflow-auto max-h-80">
-                <table className="w-full text-xs">
-                  <thead className="sticky top-0 bg-white">
-                    <tr className="border-b border-slate-100 text-slate-400 text-[10px] uppercase">
-                      <th className="text-left py-1.5 font-semibold">Producto</th>
-                      <th className="text-right py-1.5 font-semibold">Bs.</th>
-                      <th className="text-right py-1.5 font-semibold">Uds.</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-slate-50">
-                    {cliSkus.map(s => (
-                      <tr key={s.codigo} className="hover:bg-slate-50">
-                        <td className="py-1.5 text-slate-700 font-medium" title={s.producto}>{s.producto}</td>
-                        <td className="py-1.5 text-right tabular-nums text-slate-700">{fmt(s.venta_neta)}</td>
-                        <td className="py-1.5 text-right tabular-nums text-slate-600">{fmtN(s.cantidad)}</td>
+              <>
+                <div className="relative mb-3">
+                  <Search size={12} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" />
+                  <input type="text" value={cliSkuSearch} onChange={e => setCliSkuSearch(e.target.value)}
+                    placeholder="Buscar producto..."
+                    className="w-full pl-7 pr-3 py-1.5 text-xs border border-slate-200 rounded-lg focus:outline-none focus:border-brand-400 bg-white" />
+                </div>
+                <div className="overflow-auto max-h-64">
+                  <table className="w-full text-xs">
+                    <thead className="sticky top-0 bg-white">
+                      <tr className="border-b border-slate-100 text-slate-400 text-[10px] uppercase">
+                        <th className="text-left py-1.5 font-semibold">Producto</th>
+                        <th className="text-right py-1.5 font-semibold">Bs.</th>
+                        <th className="text-right py-1.5 font-semibold">Uds.</th>
                       </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
+                    </thead>
+                    <tbody className="divide-y divide-slate-50">
+                      {filteredCliSkus.map(s => (
+                        <tr key={s.codigo} className="hover:bg-slate-50">
+                          <td className="py-1.5 text-slate-700">
+                            <span className="block font-medium leading-snug">{s.producto}</span>
+                            <span className="text-[10px] text-slate-400 font-mono">{s.codigo}</span>
+                          </td>
+                          <td className="py-1.5 text-right tabular-nums text-slate-700">{fmt(s.venta_neta)}</td>
+                          <td className="py-1.5 text-right tabular-nums text-slate-600">{fmtN(s.cantidad)}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                    <tfoot className="sticky bottom-0">
+                      <tr className="border-t border-slate-200 bg-slate-50">
+                        <td className="py-1.5 font-bold text-slate-700">
+                          Total{filteredCliSkus.length !== cliSkus.length ? ` (${filteredCliSkus.length}/${cliSkus.length})` : ""}
+                        </td>
+                        <td className="py-1.5 text-right tabular-nums font-bold text-slate-700">
+                          {fmt(filteredCliSkus.reduce((s, r) => s + r.venta_neta, 0))}
+                        </td>
+                        <td className="py-1.5 text-right tabular-nums font-bold text-slate-600">
+                          {fmtN(filteredCliSkus.reduce((s, r) => s + r.cantidad, 0))}
+                        </td>
+                      </tr>
+                    </tfoot>
+                  </table>
+                </div>
+              </>
             )}
           </div>
         )}

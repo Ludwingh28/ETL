@@ -4,7 +4,7 @@ import {
 } from "react";
 import {
   TrendingUp, RefreshCw, AlertCircle, FlaskConical,
-  ChevronDown, Search, ArrowUp, ArrowDown,
+  ChevronDown, Search, ArrowUp, ArrowDown, Pin, PinOff,
 } from "lucide-react";
 import {
   ResponsiveContainer, LineChart, Line,
@@ -518,6 +518,9 @@ export default function DashboardNewNacional() {
   const [opMarcs,     setOpMarcs]     = useState<string[]>([]);
   const [opProductos, setOpProductos] = useState<string[]>([]);
 
+  // Panel de filtros
+  const [filterPinned, setFilterPinned] = useState(false);
+
   // SKU table controls
   const [sortKey, setSortKey] = useState<SortKey>("presupuesto");
   const [sortDir, setSortDir] = useState<SortDir>("desc");
@@ -926,9 +929,26 @@ export default function DashboardNewNacional() {
       )}
 
       {/* ── Panel de Filtros ─────────────────────────────────────────────────── */}
-      <div className="sticky top-16 z-30 bg-white border border-slate-200 rounded-2xl shadow-sm px-6 py-4 mb-5">
-        <div className="flex flex-wrap items-end gap-x-3 gap-y-3">
-          {/* Filtro operacional */}
+      <div className={`${filterPinned ? "sticky top-16 z-20" : ""} bg-white border border-slate-200 rounded-2xl shadow-sm px-4 sm:px-6 py-4 mb-5`}>
+        <div className="flex items-center justify-between gap-2 mb-3">
+          <button
+            onClick={() => setFilterPinned(p => !p)}
+            className={`flex items-center gap-1.5 text-[11px] font-semibold px-2.5 py-1.5 rounded-lg border transition-colors ${
+              filterPinned
+                ? "bg-brand-50 text-brand-600 border-brand-200 hover:bg-brand-100"
+                : "bg-white text-slate-400 border-slate-200 hover:text-slate-600 hover:border-slate-300"
+            }`}>
+            {filterPinned ? <Pin size={11} /> : <PinOff size={11} />}
+            {filterPinned ? "Fijado" : "Fijar"}
+          </button>
+          {hasFilters && (
+            <button onClick={clearAll}
+              className="text-[11px] font-semibold text-slate-400 hover:text-red-500 transition-colors px-2 py-1.5 rounded-lg hover:bg-red-50">
+              Limpiar todo ✕
+            </button>
+          )}
+        </div>
+        <div className="grid grid-cols-2 sm:grid-cols-3 gap-x-3 gap-y-3 md:flex md:flex-wrap md:items-end">
           <SingleSelect
             label="Canal"
             value={canal}
@@ -936,21 +956,11 @@ export default function DashboardNewNacional() {
             onChange={setCanal}
             loading={loadingOpciones}
           />
-          {/* Divisor */}
-          <div className="w-px h-9 bg-slate-200 self-end hidden sm:block" />
-          {/* Cascada de producto */}
           <MultiSelect label="Categoría"     value={fCats}      options={CATEGORIAS_OPTS} onChange={onCats} />
           <MultiSelect label="Sub-categoría" value={fSubs}      options={opSubs}      onChange={onSubs}      searchable loading={loadingOpciones} />
           <MultiSelect label="Proveedor"     value={fProvs}     options={opProvs}     onChange={onProvs}     searchable loading={loadingOpciones} />
           <MultiSelect label="Marca"         value={fMarcs}     options={opMarcs}     onChange={onMarcs}     searchable loading={loadingOpciones} />
           <MultiSelect label="Productos"     value={fProductos} options={opProductos} onChange={onProductos} searchable loading={loadingOpciones} />
-          {hasFilters && (
-            <button
-              onClick={clearAll}
-              className="self-end text-[11px] font-semibold text-slate-400 hover:text-red-500 transition-colors px-2 py-2 rounded-lg hover:bg-red-50">
-              Limpiar todo ✕
-            </button>
-          )}
         </div>
 
         {/* Active filter chips */}
@@ -1555,6 +1565,24 @@ export default function DashboardNewNacional() {
                       );
                     })}
                   </tbody>
+                  <tfoot className="sticky bottom-0 z-20">
+                    <tr className="border-t border-slate-200">
+                      <td className="sticky left-0 z-30 py-2 pr-4 font-bold text-slate-700 bg-slate-50 shadow-[1px_0_0_0_#e2e8f0]">
+                        Total
+                      </td>
+                      {fechas.map(f => {
+                        const colTotal = clientes.reduce((s, [, { fechas: fm }]) => s + (fm.get(f)?.venta_neta ?? 0), 0);
+                        return (
+                          <td key={f} className="py-2 px-2 text-center tabular-nums font-bold text-slate-700 bg-slate-50 text-[11px]">
+                            {colTotal > 0 ? fmtN(colTotal) : "—"}
+                          </td>
+                        );
+                      })}
+                      <td className="sticky right-0 z-30 py-2 pl-3 pr-3 text-right tabular-nums font-bold text-brand-700 bg-slate-50 shadow-[-1px_0_0_0_#e2e8f0]">
+                        {fmtN(clientes.reduce((s, [, { fechas: fm }]) => s + Array.from(fm.values()).reduce((ss, v) => ss + v.venta_neta, 0), 0))}
+                      </td>
+                    </tr>
+                  </tfoot>
                 </table>
               </div>
             );
