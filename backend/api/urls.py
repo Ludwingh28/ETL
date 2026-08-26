@@ -12,6 +12,7 @@ urlpatterns = [
     # Admin – Usuarios
     path('admin/users/',                          views.admin_list_users,        name='admin-list-users'),
     path('admin/users/create/',                   views.admin_create_user,       name='admin-create-user'),
+    path('admin/dw-vendedores/',                  views.admin_dw_vendedores,     name='admin-dw-vendedores'),
     path('admin/users/<int:user_id>/',            views.admin_update_user,       name='admin-update-user'),
     path('admin/users/<int:user_id>/permissions/', views.admin_update_permissions, name='admin-update-permissions'),
     path('admin/users/<int:user_id>/set-password/', views.admin_set_password,    name='admin-set-password'),

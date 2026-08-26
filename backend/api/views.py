@@ -280,6 +280,7 @@ def _serialize_user(user):
         'cargo':                 profile.cargo,
         'regional':              profile.regional,
         'canal':                 profile.canal,
+        'vendedor_nombre_dw':    profile.vendedor_nombre_dw,
         'is_active':             user.is_active,
         'is_staff':              user.is_staff,
         'dashboard_permissions': profile.dashboard_permissions,
@@ -1200,6 +1201,7 @@ def admin_create_user(request):
     cargo                 = data.get('cargo', '')
     regional              = data.get('regional', '')
     canal                 = data.get('canal', '')
+    vendedor_nombre_dw    = data.get('vendedor_nombre_dw', '').strip()
     password              = data.get('password', '')
     dashboard_permissions = data.get('dashboard_permissions', [])
     if not isinstance(dashboard_permissions, list) or len(dashboard_permissions) == 0:
@@ -1228,10 +1230,37 @@ def admin_create_user(request):
         cargo                 = cargo,
         regional              = regional,
         canal                 = canal,
+        vendedor_nombre_dw    = vendedor_nombre_dw,
         dashboard_permissions = dashboard_permissions,
     )
     logger.warning("ADMIN_CREATE_USER actor=%s new_user=%s cargo=%s", request.user.username, username, cargo)
     return JsonResponse({'success': True, 'user': _serialize_user(new_user)}, status=201)
+
+
+@api_view(['GET'])
+@authentication_classes([ExpiringTokenAuthentication])
+@permission_classes([IsAuthenticated])
+def admin_dw_vendedores(request):
+    """Lista vendedores activos del DW para vincular al crear usuarios."""
+    if not _is_user_manager(request.user):
+        return JsonResponse({'success': False, 'error': 'Sin permisos'}, status=403)
+    try:
+        sql = """
+            SELECT
+                dv.vendedor_nombre  AS nombre,
+                dv.canal            AS canal,
+                dv.ciudad           AS regional
+            FROM dw.dim_vendedor dv
+            WHERE dv.es_vendedor_actual = true
+              AND dv.vendedor_nombre IS NOT NULL
+              AND dv.vendedor_nombre <> ''
+            ORDER BY dv.vendedor_nombre
+        """
+        _, rows = _run_dw_query(sql)
+        return JsonResponse({'success': True, 'data': rows})
+    except Exception:
+        logger.exception("Error interno admin_dw_vendedores")
+        return JsonResponse({'success': False, 'error': 'Error interno del servidor'}, status=500)
 
 
 @api_view(['PATCH'])

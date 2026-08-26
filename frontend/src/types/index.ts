@@ -10,6 +10,7 @@ export interface User {
   cargo?:    string
   regional?: string
   canal?:    string
+  vendedor_nombre_dw?: string
   groups:                string[]
   is_staff:              boolean
   is_active?:            boolean

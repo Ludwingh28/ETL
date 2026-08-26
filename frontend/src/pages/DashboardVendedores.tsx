@@ -261,7 +261,7 @@ export default function DashboardVendedores() {
   }, []);
 
   // Perfil efectivo
-  const vendedorNombre = isPrivileged ? adminVendedor : (user?.full_name ?? "");
+  const vendedorNombre = isPrivileged ? adminVendedor : (user?.vendedor_nombre_dw || user?.full_name || "");
   const regionalRaw    = isPrivileged ? "Nacional"    : (user?.regional  ?? "Nacional");
   const canalPerfil    = isPrivileged ? ""            : (user?.canal     ?? "");
   const regionalKey    = REGIONAL_MAP[regionalRaw] ?? "nacional";

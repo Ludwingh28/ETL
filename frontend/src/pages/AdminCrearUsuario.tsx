@@ -1,4 +1,4 @@
-import { useRef, useState } from 'react'
+import { useRef, useState, useEffect } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import {
   UserPlus, ChevronLeft, Eye, EyeOff,
@@ -38,6 +38,7 @@ const INITIAL = {
   cargo:                 '' as Cargo | '',
   regional:              '',
   canal:                 '',
+  vendedor_nombre_dw:    '',
   password:              '',
   confirm_password:      '',
   dashboard_permissions: [] as string[],
@@ -75,6 +76,45 @@ export default function AdminCrearUsuario() {
   const [loading,        setLoading]        = useState(false)
   const [error,          setError]          = useState<string | null>(null)
   const [success,        setSuccess]        = useState(false)
+
+  // Búsqueda de vendedor en DW
+  interface DwVendedor { nombre: string; canal: string; regional: string }
+  const [dwVendedores,   setDwVendedores]   = useState<DwVendedor[]>([])
+  const [dwSearch,       setDwSearch]       = useState('')
+  const [dwOpen,         setDwOpen]         = useState(false)
+  const dwRef = useRef<HTMLDivElement>(null)
+
+  useEffect(() => {
+    if (form.cargo !== 'Vendedor' || dwVendedores.length > 0) return
+    apiFetch<{ success: boolean; data: DwVendedor[] }>('/admin/dw-vendedores/')
+      .then(j => { if (j.success) setDwVendedores(j.data) })
+      .catch(() => {})
+  }, [form.cargo]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  useEffect(() => {
+    const h = (e: MouseEvent) => {
+      if (dwRef.current && !dwRef.current.contains(e.target as Node)) setDwOpen(false)
+    }
+    document.addEventListener('mousedown', h)
+    return () => document.removeEventListener('mousedown', h)
+  }, [])
+
+  const selectDwVendedor = (v: DwVendedor) => {
+    const parts = v.nombre.trim().split(/\s+/)
+    const first = parts[0] ?? ''
+    const last  = parts.slice(1).join(' ')
+    setForm(f => ({
+      ...f,
+      first_name:         first,
+      last_name:          last,
+      username:           usernameTouched ? f.username : buildUsername(first, last),
+      canal:              v.canal ?? '',
+      regional:           v.regional ?? '',
+      vendedor_nombre_dw: v.nombre,
+    }))
+    setDwSearch(v.nombre)
+    setDwOpen(false)
+  }
 
   // Setter genérico
   const set = <K extends keyof typeof INITIAL>(k: K, v: (typeof INITIAL)[K]) =>
@@ -158,6 +198,7 @@ export default function AdminCrearUsuario() {
           cargo:                 form.cargo,
           regional:              form.regional,
           canal:                 form.canal,
+          vendedor_nombre_dw:    form.vendedor_nombre_dw,
           password:              form.password,
           dashboard_permissions: form.dashboard_permissions,
         }),
@@ -371,6 +412,51 @@ export default function AdminCrearUsuario() {
               </div>
             )}
           </div>
+
+          {form.cargo === 'Vendedor' && (
+            <div className="sm:col-span-2" ref={dwRef}>
+              <label className="block text-sm font-medium text-slate-600 mb-1.5">
+                Vincular con vendedor del DW <span className="text-red-500">*</span>
+              </label>
+              <div className="relative">
+                <input
+                  type="text"
+                  value={dwSearch}
+                  onChange={e => { setDwSearch(e.target.value); setDwOpen(true) }}
+                  onFocus={() => setDwOpen(true)}
+                  placeholder="Buscar nombre del vendedor en el DW…"
+                  className="input-field"
+                  autoComplete="off"
+                />
+                {dwOpen && dwVendedores.length > 0 && (
+                  <div className="absolute z-50 top-full mt-1 w-full bg-white border border-slate-200 rounded-xl shadow-xl max-h-56 overflow-y-auto">
+                    {dwVendedores
+                      .filter(v => v.nombre.toLowerCase().includes(dwSearch.toLowerCase()))
+                      .map(v => (
+                        <button
+                          key={v.nombre}
+                          type="button"
+                          onClick={() => selectDwVendedor(v)}
+                          className="w-full text-left px-4 py-2.5 text-sm hover:bg-brand-50 border-b border-slate-50 last:border-0"
+                        >
+                          <span className="font-medium text-slate-800">{v.nombre}</span>
+                          <span className="ml-2 text-xs text-slate-400">{v.canal} · {v.regional}</span>
+                        </button>
+                      ))
+                    }
+                  </div>
+                )}
+              </div>
+              {form.vendedor_nombre_dw && (
+                <p className="text-xs text-emerald-600 mt-1 flex items-center gap-1">
+                  <Check size={11} /> Vinculado: <strong>{form.vendedor_nombre_dw}</strong> · Canal: {form.canal} · Regional: {form.regional}
+                </p>
+              )}
+              {!form.vendedor_nombre_dw && (
+                <p className="text-xs text-amber-600 mt-1">Sin vincular — el dashboard no mostrará datos hasta que se asocie un vendedor del DW.</p>
+              )}
+            </div>
+          )}
 
           {form.cargo && (
             <p className="mt-3 text-xs text-brand-600 flex items-center gap-1.5">
