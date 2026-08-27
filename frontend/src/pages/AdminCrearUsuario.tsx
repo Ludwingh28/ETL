@@ -7,7 +7,7 @@ import {
 import DashboardLayout from '../components/DashboardLayout'
 import { useAuth } from '../context/AuthContext'
 import {
-  CARGOS, REGIONALES, CANALES, CARGOS_CON_CANAL, DASHBOARD_GROUPS,
+  CARGOS, REGIONALES, CARGOS_CON_CANAL, DASHBOARD_GROUPS,
   ALL_DASHBOARD_IDS, PERMISOS_POR_CARGO,
   type Cargo,
 } from '../constants/adminConstants'
@@ -85,11 +85,10 @@ export default function AdminCrearUsuario() {
   const dwRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
-    if (form.cargo !== 'Vendedor' || dwVendedores.length > 0) return
     apiFetch<{ success: boolean; data: DwVendedor[] }>('/admin/dw-vendedores/')
       .then(j => { if (j.success) setDwVendedores(j.data) })
       .catch(() => {})
-  }, [form.cargo]) // eslint-disable-line react-hooks/exhaustive-deps
+  }, []) // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     const h = (e: MouseEvent) => {
@@ -116,6 +115,14 @@ export default function AdminCrearUsuario() {
     setDwOpen(false)
   }
 
+  const clearDwVendedor = () => {
+    setDwSearch('')
+    setDwOpen(false)
+    setForm(f => ({ ...f, vendedor_nombre_dw: '', canal: '', regional: '' }))
+  }
+
+  const dwCanales = [...new Set(dwVendedores.map(v => v.canal).filter(Boolean))].sort()
+
   // Setter genérico
   const set = <K extends keyof typeof INITIAL>(k: K, v: (typeof INITIAL)[K]) =>
     setForm(f => ({ ...f, [k]: v }))
@@ -140,12 +147,18 @@ export default function AdminCrearUsuario() {
     setForm(f => ({ ...f, username: buildUsername(f.first_name, f.last_name) }))
   }
 
-  // Cambio de cargo → pre-cargar permisos sugeridos
+  // Cambio de cargo → pre-cargar permisos sugeridos y resetear DW si sale de Vendedor
   const handleCargo = (cargo: Cargo | '') => {
-    set('cargo', cargo)
-    if (cargo && PERMISOS_POR_CARGO[cargo]) {
-      set('dashboard_permissions', [...PERMISOS_POR_CARGO[cargo]])
-    }
+    const perms = cargo && PERMISOS_POR_CARGO[cargo as Cargo]
+      ? [...PERMISOS_POR_CARGO[cargo as Cargo]]
+      : form.dashboard_permissions
+    setForm(f => ({
+      ...f,
+      cargo,
+      dashboard_permissions: perms,
+      ...(cargo !== 'Vendedor' ? { vendedor_nombre_dw: '', canal: '', regional: '' } : {}),
+    }))
+    if (cargo !== 'Vendedor') { setDwSearch(''); setDwOpen(false) }
   }
 
   // Toggle individual
@@ -361,7 +374,7 @@ export default function AdminCrearUsuario() {
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
 
             {/* Cargo */}
-            <div>
+            <div className={form.cargo === 'Vendedor' ? 'sm:col-span-2' : ''}>
               <label className="block text-sm font-medium text-slate-600 mb-1.5">
                 Cargo <span className="text-red-500">*</span>
               </label>
@@ -376,92 +389,119 @@ export default function AdminCrearUsuario() {
               </select>
             </div>
 
-            {/* Regional */}
-            <div>
-              <label className="block text-sm font-medium text-slate-600 mb-1.5">
-                Regional <span className="text-red-500">*</span>
-              </label>
-              <select
-                value={form.regional}
-                onChange={e => set('regional', e.target.value)}
-                required
-                className="input-field"
-              >
-                <option value="">Seleccionar regional…</option>
-                {REGIONALES.map(r => <option key={r} value={r}>{r}</option>)}
-              </select>
-            </div>
-
-            {/* Canal — solo cargos que lo requieren */}
-            {CARGOS_CON_CANAL.has(form.cargo) && (
-              <div className="sm:col-span-2">
+            {/* Vendedor: buscador DW (fuente única de canal + regional) */}
+            {form.cargo === 'Vendedor' && (
+              <div className="sm:col-span-2" ref={dwRef}>
                 <label className="block text-sm font-medium text-slate-600 mb-1.5">
-                  Canal asignado
+                  Vendedor del sistema <span className="text-red-500">*</span>
                 </label>
-                <select
-                  value={form.canal}
-                  onChange={e => set('canal', e.target.value)}
-                  className="input-field"
-                >
-                  <option value="">Todos los canales</option>
-                  {CANALES.map(c => <option key={c} value={c}>{c}</option>)}
-                </select>
-                <p className="text-xs text-slate-400 mt-1">
-                  El usuario solo verá datos del canal seleccionado. Deja en blanco para acceso a todos.
-                </p>
-              </div>
-            )}
-          </div>
 
-          {form.cargo === 'Vendedor' && (
-            <div className="sm:col-span-2" ref={dwRef}>
-              <label className="block text-sm font-medium text-slate-600 mb-1.5">
-                Vincular con vendedor del DW <span className="text-red-500">*</span>
-              </label>
-              <div className="relative">
-                <input
-                  type="text"
-                  value={dwSearch}
-                  onChange={e => { setDwSearch(e.target.value); setDwOpen(true) }}
-                  onFocus={() => setDwOpen(true)}
-                  placeholder="Buscar nombre del vendedor en el DW…"
-                  className="input-field"
-                  autoComplete="off"
-                />
-                {dwOpen && dwVendedores.length > 0 && (
-                  <div className="absolute z-50 top-full mt-1 w-full bg-white border border-slate-200 rounded-xl shadow-xl max-h-56 overflow-y-auto">
-                    {dwVendedores
-                      .filter(v => v.nombre.toLowerCase().includes(dwSearch.toLowerCase()))
-                      .map(v => (
-                        <button
-                          key={v.nombre}
-                          type="button"
-                          onClick={() => selectDwVendedor(v)}
-                          className="w-full text-left px-4 py-2.5 text-sm hover:bg-brand-50 border-b border-slate-50 last:border-0"
-                        >
-                          <span className="font-medium text-slate-800">{v.nombre}</span>
-                          <span className="ml-2 text-xs text-slate-400">{v.canal} · {v.regional}</span>
-                        </button>
-                      ))
-                    }
+                {form.vendedor_nombre_dw ? (
+                  // ── Ya vinculado ─────────────────────────────────────────
+                  <div className="flex items-center gap-3 px-4 py-3 bg-emerald-50 border border-emerald-200 rounded-xl">
+                    <Check size={16} className="text-emerald-600 shrink-0" />
+                    <div className="flex-1 min-w-0 text-sm">
+                      <span className="font-semibold text-slate-800">{form.vendedor_nombre_dw}</span>
+                      <span className="text-slate-400 mx-2">·</span>
+                      <span className="text-slate-600">{form.canal}</span>
+                      <span className="text-slate-400 mx-2">·</span>
+                      <span className="text-slate-600">{form.regional}</span>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={clearDwVendedor}
+                      className="text-xs text-slate-400 hover:text-red-500 transition-colors shrink-0"
+                    >
+                      Cambiar
+                    </button>
+                  </div>
+                ) : (
+                  // ── Buscador ─────────────────────────────────────────────
+                  <div className="relative">
+                    <input
+                      type="text"
+                      value={dwSearch}
+                      onChange={e => { setDwSearch(e.target.value); setDwOpen(true) }}
+                      onFocus={() => setDwOpen(true)}
+                      placeholder={dwVendedores.length === 0 ? 'Cargando vendedores…' : 'Buscar nombre del vendedor…'}
+                      disabled={dwVendedores.length === 0}
+                      className="input-field"
+                      autoComplete="off"
+                    />
+                    {dwOpen && dwVendedores.length > 0 && (
+                      <div className="absolute z-50 top-full mt-1 w-full bg-white border border-slate-200 rounded-xl shadow-xl max-h-56 overflow-y-auto">
+                        {dwVendedores
+                          .filter(v => v.nombre.toLowerCase().includes(dwSearch.toLowerCase()))
+                          .slice(0, 80)
+                          .map(v => (
+                            <button
+                              key={v.nombre}
+                              type="button"
+                              onClick={() => selectDwVendedor(v)}
+                              className="w-full text-left px-4 py-2.5 text-sm hover:bg-brand-50 border-b border-slate-50 last:border-0"
+                            >
+                              <span className="font-medium text-slate-800">{v.nombre}</span>
+                              <span className="ml-2 text-xs text-slate-400">{v.canal} · {v.regional}</span>
+                            </button>
+                          ))
+                        }
+                      </div>
+                    )}
                   </div>
                 )}
+
+                {!form.vendedor_nombre_dw && (
+                  <p className="text-xs text-amber-600 mt-1">
+                    Sin vincular — el dashboard no mostrará datos hasta asociar un vendedor.
+                  </p>
+                )}
               </div>
-              {form.vendedor_nombre_dw && (
-                <p className="text-xs text-emerald-600 mt-1 flex items-center gap-1">
-                  <Check size={11} /> Vinculado: <strong>{form.vendedor_nombre_dw}</strong> · Canal: {form.canal} · Regional: {form.regional}
-                </p>
-              )}
-              {!form.vendedor_nombre_dw && (
-                <p className="text-xs text-amber-600 mt-1">Sin vincular — el dashboard no mostrará datos hasta que se asocie un vendedor del DW.</p>
-              )}
-            </div>
-          )}
+            )}
+
+            {/* No-Vendedor: regional + canal con opciones del DW */}
+            {form.cargo !== '' && form.cargo !== 'Vendedor' && (
+              <>
+                <div>
+                  <label className="block text-sm font-medium text-slate-600 mb-1.5">
+                    Regional <span className="text-red-500">*</span>
+                  </label>
+                  <select
+                    value={form.regional}
+                    onChange={e => set('regional', e.target.value)}
+                    required
+                    className="input-field"
+                  >
+                    <option value="">Seleccionar regional…</option>
+                    {REGIONALES.map(r => <option key={r} value={r}>{r}</option>)}
+                  </select>
+                </div>
+
+                {CARGOS_CON_CANAL.has(form.cargo) && (
+                  <div>
+                    <label className="block text-sm font-medium text-slate-600 mb-1.5">
+                      Canal asignado
+                    </label>
+                    <select
+                      value={form.canal}
+                      onChange={e => set('canal', e.target.value)}
+                      className="input-field"
+                    >
+                      <option value="">Todos los canales</option>
+                      {dwCanales.map(c => <option key={c} value={c}>{c}</option>)}
+                    </select>
+                    <p className="text-xs text-slate-400 mt-1">
+                      Deja en blanco para acceso a todos los canales.
+                    </p>
+                  </div>
+                )}
+              </>
+            )}
+          </div>
 
           {form.cargo && (
             <p className="mt-3 text-xs text-brand-600 flex items-center gap-1.5">
               <Info size={12} className="shrink-0" />
-              Los permisos de acceso se pre-configuraron según el cargo. Puedes ajustarlos en la sección de abajo.
+              Los permisos de acceso se pre-configuraron según el cargo. Puedes ajustarlos abajo.
             </p>
           )}
         </section>

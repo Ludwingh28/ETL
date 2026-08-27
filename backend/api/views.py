@@ -1248,8 +1248,13 @@ def admin_dw_vendedores(request):
         sql = """
             SELECT
                 dv.vendedor_nombre  AS nombre,
-                dv.canal            AS canal,
-                dv.ciudad           AS regional
+                dv.canal_rrhh       AS canal,
+                CASE
+                    WHEN dv.ciudad IN ('SCZ')       THEN 'Santa Cruz'
+                    WHEN dv.ciudad IN ('CBA')        THEN 'Cochabamba'
+                    WHEN dv.ciudad IN ('LPZ', 'EAL') THEN 'La Paz'
+                    ELSE 'Nacional'
+                END                 AS regional
             FROM dw.dim_vendedor dv
             WHERE dv.es_vendedor_actual = true
               AND dv.vendedor_nombre IS NOT NULL
@@ -1313,6 +1318,8 @@ def admin_update_user(request, user_id):
         profile.regional = data['regional']
     if 'canal' in data:
         profile.canal = data['canal']
+    if 'vendedor_nombre_dw' in data:
+        profile.vendedor_nombre_dw = data['vendedor_nombre_dw'].strip()
     profile.save()
 
     return JsonResponse({'success': True, 'user': _serialize_user(target)})
@@ -1375,6 +1382,29 @@ def admin_set_password(request, user_id):
     Token.objects.filter(user=target).delete()
     logger.warning("ADMIN_SET_PASSWORD actor=%s target=%s", request.user.username, target.username)
     return JsonResponse({'success': True, 'message': 'ContraseÃ±a actualizada correctamente'})
+
+
+@api_view(['DELETE'])
+@authentication_classes([ExpiringTokenAuthentication])
+@permission_classes([IsAuthenticated])
+def admin_delete_user(request, user_id):
+    """Elimina permanentemente un usuario (no superusuarios ni el propio actor)."""
+    if not _is_user_manager(request.user):
+        return JsonResponse({'success': False, 'error': 'Sin permisos'}, status=403)
+
+    if request.user.pk == user_id:
+        return JsonResponse({'success': False, 'error': 'No puedes eliminar tu propia cuenta'}, status=403)
+
+    try:
+        target = User.objects.get(pk=user_id, is_superuser=False)
+    except User.DoesNotExist:
+        return JsonResponse({'success': False, 'error': 'Usuario no encontrado'}, status=404)
+
+    username = target.username
+    Token.objects.filter(user=target).delete()
+    target.delete()
+    logger.warning("ADMIN_DELETE_USER actor=%s deleted=%s", request.user.username, username)
+    return JsonResponse({'success': True, 'message': f'Usuario {username} eliminado correctamente'})
 
 
 # â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€

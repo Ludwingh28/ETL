@@ -38,6 +38,7 @@ export interface ManagedUser {
   cargo:                 string
   regional:              string
   canal:                 string
+  vendedor_nombre_dw:    string
   is_active:             boolean
   dashboard_permissions: string[]
   date_joined?:          string

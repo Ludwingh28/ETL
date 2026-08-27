@@ -1,4 +1,4 @@
-export const CURRENT_VERSION = "1.2.9.0";
+export const CURRENT_VERSION = "1.2.9.1";
 
 export interface ChangelogVersion {
   version: string;
@@ -12,6 +12,22 @@ export interface ChangelogVersion {
 }
 
 export const CHANGELOG: ChangelogVersion[] = [
+  {
+    version: "1.2.9.1",
+    date: "Agosto 2026",
+    fixes: [
+      "Administración — al crear o editar un usuario con cargo Vendedor, el select de 'Canal asignado' mostraba la lista hardcodeada en lugar de los canales reales del DW; ahora las opciones de canal se obtienen de dw.dim_vendedor (canal_rrhh) tanto para Vendedores como para todos los demás cargos con canal",
+      "Administración — al seleccionar un vendedor del buscador DW, la regional se guardaba como código de ciudad (SCZ, CBA, LPZ) en lugar del nombre legible; corregido con un CASE en el endpoint admin_dw_vendedores que mapea SCZ → Santa Cruz, CBA → Cochabamba, LPZ/EAL → La Paz y el resto → Nacional",
+      "Administración — al cambiar el cargo de Vendedor a otro cargo en el formulario de creación, los campos canal y regional quedaban con los valores auto-rellenados por el DW; ahora se resetean automáticamente al cambiar de cargo",
+    ],
+    features: [
+      "Administración — flujo de creación de usuario simplificado para el cargo Vendedor: en lugar de mostrar selects separados de canal y regional (redundantes con el DW), se muestra únicamente el buscador 'Vendedor del sistema'; al seleccionar un vendedor aparece un chip verde con nombre, canal y regional auto-rellenados desde el DW; el botón 'Cambiar' permite corregir la selección",
+      "Administración — el buscador de vendedores DW (en creación y edición) limita los resultados visibles a 80 entradas para mejorar el rendimiento al desplegar la lista",
+      "Administración — nueva opción 'Eliminar usuario' en el modal de gestión: botón 'Eliminar' en el footer con confirmación inline ('¿Eliminar a [nombre]? → Sí, eliminar / Cancelar'); el backend invalida el token activo del usuario antes de eliminarlo y registra la acción en el log del servidor; no es posible eliminar la propia cuenta ni superusuarios",
+    ],
+    newDashboardPerms: [],
+    newDashboardNames: {},
+  },
   {
     version: "1.2.9.0",
     date: "Agosto 2026",

@@ -16,6 +16,7 @@ urlpatterns = [
     path('admin/users/<int:user_id>/',            views.admin_update_user,       name='admin-update-user'),
     path('admin/users/<int:user_id>/permissions/', views.admin_update_permissions, name='admin-update-permissions'),
     path('admin/users/<int:user_id>/set-password/', views.admin_set_password,    name='admin-set-password'),
+    path('admin/users/<int:user_id>/delete/',       views.admin_delete_user,     name='admin-delete-user'),
 
     # Reportes / Tickets
     path('reportes/',                        views.reporte_create,       name='reporte-create'),
