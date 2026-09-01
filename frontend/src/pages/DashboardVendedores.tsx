@@ -278,15 +278,23 @@ export default function DashboardVendedores() {
       .catch(() => {});
   }, [apiFetch]);
 
-  // Para usuarios privilegiados: lista de todos los vendedores
+  // Si el mes actual no tiene datos en el DW, ir al último período disponible
+  useEffect(() => {
+    if (mesesDisponibles.length === 0) return;
+    const inList = mesesDisponibles.some(p => p.anho === anho && p.mes_numero === mes);
+    if (!inList) {
+      const latest = mesesDisponibles[0]; // ORDER BY anho DESC, mes_numero DESC → [0] = más reciente
+      setAnho(latest.anho);
+      setMes(latest.mes_numero);
+    }
+  }, [mesesDisponibles]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Para usuarios privilegiados: lista de vendedores activos del DW (independiente del mes)
   useEffect(() => {
     if (!isPrivileged) return;
-    const now2 = new Date();
-    apiFetch<{ success: boolean; data: { vendedor: string }[] }>(
-      `/dashboard/new-nacional/vendedores/?regional=nacional&anho=${now2.getFullYear()}&mes=${now2.getMonth() + 1}`
-    ).then(j => {
-      if (j.success) setAllVendedores(j.data.map(r => r.vendedor).filter(Boolean).sort());
-    }).catch(() => {});
+    apiFetch<{ success: boolean; data: string[] }>('/dashboard/vendedores-nombres/')
+      .then(j => { if (j.success) setAllVendedores(j.data); })
+      .catch(() => {});
   }, [isPrivileged, apiFetch]);
 
   // ── Filtros de panel ──────────────────────────────────────────────────────────

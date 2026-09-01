@@ -1268,6 +1268,35 @@ def admin_dw_vendedores(request):
         return JsonResponse({'success': False, 'error': 'Error interno del servidor'}, status=500)
 
 
+@api_view(['GET'])
+@authentication_classes([ExpiringTokenAuthentication])
+@permission_classes([IsAuthenticated])
+def dashboard_vendedores_nombres(request):
+    """Nombres de vendedores activos del DW — para el selector de usuarios privilegiados."""
+    profile = _get_or_create_profile(request.user)
+    PRIVILEGED = {
+        'Administrador de Sistema', 'Subadministrador de Sistemas',
+        'Gerente General', 'Gerente de Ventas', 'Gerente Regional',
+        'Supervisor', 'Analista de Datos',
+    }
+    if not request.user.is_superuser and profile.cargo not in PRIVILEGED:
+        return JsonResponse({'success': False, 'error': 'Sin permisos'}, status=403)
+    try:
+        sql = """
+            SELECT DISTINCT vendedor_nombre
+            FROM dw.dim_vendedor
+            WHERE es_vendedor_actual = true
+              AND vendedor_nombre IS NOT NULL
+              AND vendedor_nombre <> ''
+            ORDER BY vendedor_nombre
+        """
+        _, rows = _run_dw_query(sql)
+        return JsonResponse({'success': True, 'data': [r['vendedor_nombre'] for r in rows]})
+    except Exception:
+        logger.exception("Error interno dashboard_vendedores_nombres")
+        return JsonResponse({'success': False, 'error': 'Error interno del servidor'}, status=500)
+
+
 @api_view(['PATCH'])
 @authentication_classes([ExpiringTokenAuthentication])
 @permission_classes([IsAuthenticated])
@@ -7176,14 +7205,14 @@ def exportar_clientes_sin_compra(request):
 @_require_perm('tendencia-estacional')
 def dashboard_tendencia_estacional(request):
     """
-    ComparaciÃ³n estacional (mismo mes entre gestiones) o Ãºltimos 6 meses.
+    Comparación estacional (mismo mes entre gestiones) o Últimos 6 meses.
     Params:
       regional  : Nacional | Santa Cruz | Cochabamba | La Paz
       canal     : Todos | WHS | DTS | PROV | SPM
       anho      : int
       mes       : int  (1-12)
       modo      : estacional | ultimos6
-      dia_corte : 0 = mes completo, N = primeros N dÃ­as del mes
+      dia_corte : 0 = mes completo, N = primeros N días del mes
     """
     is_admin = _is_admin(request.user)
     profile  = _get_or_create_profile(request.user)
