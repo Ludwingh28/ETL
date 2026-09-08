@@ -21,3 +21,6 @@ _audit_test.py
 # ── Logs ──────────────────────────────────────────────────────────────────────
 backend/logs/*.log
 backend/logs/*.log.*
+
+# ── PM2 metrics bridge (pendiente de activar en producción) ───────────────────
+metrics-bridge/

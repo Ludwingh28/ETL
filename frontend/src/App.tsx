@@ -22,6 +22,7 @@ import AdminRoute from "./components/AdminRoute";
 import DashboardProveedor from "./pages/DashboardProveedor";
 import DashboardSoftysCanales from "./pages/DashboardSoftysCanales";
 import DashboardNewNacional from "./pages/DashboardNewNacional";
+import DashboardVendedores from "./pages/DashboardVendedores";
 import LegacyPage from "./pages/LegacyPage";
 import DashboardTendenciaEstacional from "./pages/DashboardTendenciaEstacional";
 import DashboardFichaSku from "./pages/DashboardFichaSku";
@@ -144,6 +145,9 @@ export default function App() {
           {/* ── Mock-ups ────────────────────────────────────────────────────── */}
           <Route path="/dashboard/new-nacional"
             element={<Dash perm="new-nacional"><DashboardNewNacional /></Dash>}
+          />
+          <Route path="/dashboard/vendedores-personal"
+            element={<Dash perm="vendedores-personal"><DashboardVendedores /></Dash>}
           />
 
           {/* ── Legacy (solo Administradores) ──────────────────────────────── */}

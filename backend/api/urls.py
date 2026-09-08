@@ -12,9 +12,12 @@ urlpatterns = [
     # Admin – Usuarios
     path('admin/users/',                          views.admin_list_users,        name='admin-list-users'),
     path('admin/users/create/',                   views.admin_create_user,       name='admin-create-user'),
+    path('admin/dw-vendedores/',                  views.admin_dw_vendedores,          name='admin-dw-vendedores'),
+    path('dashboard/vendedores-nombres/',         views.dashboard_vendedores_nombres, name='dashboard-vendedores-nombres'),
     path('admin/users/<int:user_id>/',            views.admin_update_user,       name='admin-update-user'),
     path('admin/users/<int:user_id>/permissions/', views.admin_update_permissions, name='admin-update-permissions'),
     path('admin/users/<int:user_id>/set-password/', views.admin_set_password,    name='admin-set-password'),
+    path('admin/users/<int:user_id>/delete/',       views.admin_delete_user,     name='admin-delete-user'),
 
     # Reportes / Tickets
     path('reportes/',                        views.reporte_create,       name='reporte-create'),
@@ -94,6 +97,13 @@ urlpatterns = [
     path('dashboard/new-nacional/opciones/',     views.dashboard_new_nacional_opciones,     name='new-nacional-opciones'),
     path('dashboard/new-nacional/comparacion/',  views.dashboard_new_nacional_comparacion,  name='new-nacional-comparacion'),
     path('dashboard/new-nacional/skus/',         views.dashboard_new_nacional_skus,         name='new-nacional-skus'),
+    path('dashboard/new-nacional/rutas-mapa/',    views.dashboard_new_nacional_rutas_mapa,    name='new-nacional-rutas-mapa'),
+    path('dashboard/new-nacional/canales-mini/',  views.dashboard_new_nacional_canales_mini,  name='new-nacional-canales-mini'),
+    path('dashboard/new-nacional/vendedores/',     views.dashboard_new_nacional_vendedores,     name='new-nacional-vendedores'),
+    path('dashboard/new-nacional/vendedores-cat/', views.dashboard_new_nacional_vendedores_cat, name='new-nacional-vendedores-cat'),
+    path('dashboard/new-nacional/clientes/',        views.dashboard_new_nacional_clientes,        name='new-nacional-clientes'),
+    path('dashboard/new-nacional/cliente-fechas/', views.dashboard_new_nacional_cliente_fechas,  name='new-nacional-cliente-fechas'),
+    path('dashboard/new-nacional/cliente-skus/',   views.dashboard_new_nacional_cliente_skus,    name='new-nacional-cliente-skus'),
 
     # Dashboard Proveedores  (param: proveedor=PEPSICO|SOFTYS|DMUJER|APEGO|COLHER)
     path('dashboard/proveedor/kpis/',      views.dashboard_proveedor_kpis,      name='proveedor-kpis'),

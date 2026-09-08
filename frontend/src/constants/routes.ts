@@ -25,6 +25,8 @@ export const PERM_TO_ROUTE: Record<string, string> = {
   'dmujer':                    '/dashboard/dmujer',
   'apego':                     '/dashboard/apego',
   'colher':                    '/dashboard/colher',
+  'new-nacional':              '/dashboard/new-nacional',
+  'vendedores-personal':       '/dashboard/vendedores-personal',
 }
 
 const ADMIN_CARGOS = new Set(['Administrador de Sistema', 'Subadministrador de Sistemas'])

@@ -18,6 +18,7 @@ class UserProfile(models.Model):
     cargo    = models.CharField(max_length=100, blank=True, default='')
     regional = models.CharField(max_length=100, blank=True, default='')
     canal    = models.CharField(max_length=100, blank=True, default='')
+    vendedor_nombre_dw = models.CharField(max_length=200, blank=True, default='')
 
     # Lista de IDs de dashboards que el usuario puede ver,
     # ej. ["nacional", "regionales", "canales"]

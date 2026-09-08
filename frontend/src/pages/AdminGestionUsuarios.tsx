@@ -3,13 +3,13 @@ import { Link } from 'react-router-dom'
 import {
   Users2, UserPlus, Search, Pencil, X, Check,
   AlertCircle, Shield, KeyRound, Eye, EyeOff,
-  ChevronDown, UserCheck, UserX, RotateCcw, AtSign,
+  ChevronDown, UserCheck, UserX, RotateCcw, AtSign, Trash2,
 } from 'lucide-react'
 import DashboardLayout from '../components/DashboardLayout'
 import { useAuth } from '../context/AuthContext'
 import type { ManagedUser } from '../types'
 import {
-  CARGOS, REGIONALES, CANALES, CARGOS_CON_CANAL, DASHBOARD_GROUPS,
+  CARGOS, REGIONALES, CARGOS_CON_CANAL, DASHBOARD_GROUPS,
   ALL_DASHBOARD_IDS, PERMISOS_POR_CARGO,
   CARGO_COLOR, type Cargo,
 } from '../constants/adminConstants'
@@ -79,15 +79,18 @@ interface Toast { msg: string; type: 'ok' | 'err' }
 type Tab = 'datos' | 'accesos' | 'contrasena'
 
 interface EditModalProps {
-  user:     ManagedUser
-  onClose:  () => void
-  onSaved:  (u: ManagedUser) => void
-  onToast:  (t: Toast) => void
+  user:      ManagedUser
+  onClose:   () => void
+  onSaved:   (u: ManagedUser) => void
+  onDeleted: (id: number) => void
+  onToast:   (t: Toast) => void
 }
 
-function EditModal({ user, onClose, onSaved, onToast }: EditModalProps) {
+function EditModal({ user, onClose, onSaved, onDeleted, onToast }: EditModalProps) {
   const { apiFetch } = useAuth()
-  const [tab, setTab] = useState<Tab>('datos')
+  const [tab,            setTab]           = useState<Tab>('datos')
+  const [confirmDelete,  setConfirmDelete] = useState(false)
+  const [deleting,       setDeleting]      = useState(false)
 
   useEffect(() => {
     const handler = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose() }
@@ -97,16 +100,52 @@ function EditModal({ user, onClose, onSaved, onToast }: EditModalProps) {
 
   // ── Tab: Datos ───────────────────────────────────────────────────────────
   const [datos, setDatos] = useState({
-    username:   user.username,
-    first_name: user.first_name,
-    last_name:  user.last_name,
-    email:      user.email,
-    cargo:      user.cargo as Cargo | '',
-    regional:   user.regional,
-    canal:      user.canal ?? '',
-    is_active:  user.is_active,
+    username:           user.username,
+    first_name:         user.first_name,
+    last_name:          user.last_name,
+    email:              user.email,
+    cargo:              user.cargo as Cargo | '',
+    regional:           user.regional,
+    canal:              user.canal ?? '',
+    vendedor_nombre_dw: user.vendedor_nombre_dw ?? '',
+    is_active:          user.is_active,
   })
   const [savingDatos, setSavingDatos] = useState(false)
+
+  // Búsqueda DW para vincular vendedor
+  interface DwVendedor { nombre: string; canal: string; regional: string }
+  const [dwVendedores, setDwVendedores] = useState<DwVendedor[]>([])
+  const [dwSearch,     setDwSearch]     = useState(user.vendedor_nombre_dw ?? '')
+  const [dwOpen,       setDwOpen]       = useState(false)
+  const dwRef = useRef<HTMLDivElement>(null)
+
+  useEffect(() => {
+    apiFetch<{ success: boolean; data: DwVendedor[] }>('/admin/dw-vendedores/')
+      .then(j => { if (j.success) setDwVendedores(j.data) })
+      .catch(() => {})
+  }, []) // eslint-disable-line react-hooks/exhaustive-deps
+
+  useEffect(() => {
+    const h = (e: MouseEvent) => {
+      if (dwRef.current && !dwRef.current.contains(e.target as Node)) setDwOpen(false)
+    }
+    document.addEventListener('mousedown', h)
+    return () => document.removeEventListener('mousedown', h)
+  }, [])
+
+  const selectDwVendedor = (v: DwVendedor) => {
+    setDatos(d => ({ ...d, canal: v.canal ?? '', regional: v.regional ?? '', vendedor_nombre_dw: v.nombre }))
+    setDwSearch(v.nombre)
+    setDwOpen(false)
+  }
+
+  const clearDwVendedor = () => {
+    setDwSearch('')
+    setDwOpen(false)
+    setDatos(d => ({ ...d, vendedor_nombre_dw: '', canal: '', regional: '' }))
+  }
+
+  const dwCanales = [...new Set(dwVendedores.map(v => v.canal).filter(Boolean))].sort()
 
   const handleSaveDatos = async () => {
     setSavingDatos(true)
@@ -114,14 +153,15 @@ function EditModal({ user, onClose, onSaved, onToast }: EditModalProps) {
       const updated = await apiFetch<ManagedUser>(`/admin/users/${user.id}/`, {
         method: 'PATCH',
         body: JSON.stringify({
-          username:   datos.username.trim(),
-          first_name: datos.first_name,
-          last_name:  datos.last_name,
-          email:      datos.email,
-          cargo:      datos.cargo,
-          regional:   datos.regional,
-          canal:      datos.canal,
-          is_active:  datos.is_active,
+          username:           datos.username.trim(),
+          first_name:         datos.first_name,
+          last_name:          datos.last_name,
+          email:              datos.email,
+          cargo:              datos.cargo,
+          regional:           datos.regional,
+          canal:              datos.canal,
+          vendedor_nombre_dw: datos.vendedor_nombre_dw,
+          is_active:          datos.is_active,
         }),
       })
       onSaved(updated)
@@ -303,11 +343,66 @@ function EditModal({ user, onClose, onSaved, onToast }: EditModalProps) {
                     onChange={e => setDatos(d => ({ ...d, canal: e.target.value }))}
                     className="input-field">
                     <option value="">Todos los canales</option>
-                    {CANALES.map(c => <option key={c} value={c}>{c}</option>)}
+                    {dwCanales.map(c => <option key={c} value={c}>{c}</option>)}
                   </select>
                   <p className="text-xs text-slate-400 mt-1">
                     El usuario solo verá datos del canal seleccionado. Deja en blanco para todos.
                   </p>
+                </div>
+              )}
+
+              {datos.cargo === 'Vendedor' && (
+                <div ref={dwRef}>
+                  <label className="block text-sm font-medium text-slate-600 mb-1.5">Vendedor del sistema</label>
+
+                  {datos.vendedor_nombre_dw ? (
+                    <div className="flex items-center gap-3 px-4 py-3 bg-emerald-50 border border-emerald-200 rounded-xl">
+                      <Check size={15} className="text-emerald-600 shrink-0" />
+                      <div className="flex-1 min-w-0 text-sm">
+                        <span className="font-semibold text-slate-800">{datos.vendedor_nombre_dw}</span>
+                        <span className="text-slate-400 mx-2">·</span>
+                        <span className="text-slate-600">{datos.canal}</span>
+                        <span className="text-slate-400 mx-2">·</span>
+                        <span className="text-slate-600">{datos.regional}</span>
+                      </div>
+                      <button type="button" onClick={clearDwVendedor}
+                        className="text-xs text-slate-400 hover:text-red-500 transition-colors shrink-0">
+                        Cambiar
+                      </button>
+                    </div>
+                  ) : (
+                    <div className="relative">
+                      <input
+                        type="text"
+                        value={dwSearch}
+                        onChange={e => { setDwSearch(e.target.value); setDwOpen(true) }}
+                        onFocus={() => setDwOpen(true)}
+                        placeholder={dwVendedores.length === 0 ? 'Cargando vendedores…' : 'Buscar nombre del vendedor…'}
+                        disabled={dwVendedores.length === 0}
+                        className="input-field"
+                        autoComplete="off"
+                      />
+                      {dwOpen && dwVendedores.length > 0 && (
+                        <div className="absolute z-50 top-full mt-1 w-full bg-white border border-slate-200 rounded-xl shadow-xl max-h-48 overflow-y-auto">
+                          {dwVendedores
+                            .filter(v => v.nombre.toLowerCase().includes(dwSearch.toLowerCase()))
+                            .slice(0, 80)
+                            .map(v => (
+                              <button key={v.nombre} type="button" onClick={() => selectDwVendedor(v)}
+                                className="w-full text-left px-4 py-2 text-sm hover:bg-brand-50 border-b border-slate-50 last:border-0">
+                                <span className="font-medium text-slate-800">{v.nombre}</span>
+                                <span className="ml-2 text-xs text-slate-400">{v.canal} · {v.regional}</span>
+                              </button>
+                            ))
+                          }
+                        </div>
+                      )}
+                    </div>
+                  )}
+
+                  {!datos.vendedor_nombre_dw && (
+                    <p className="text-xs text-amber-600 mt-1">Sin vincular — el dashboard no mostrará datos.</p>
+                  )}
                 </div>
               )}
 
@@ -432,23 +527,65 @@ function EditModal({ user, onClose, onSaved, onToast }: EditModalProps) {
           )}
         </div>
 
-        <div className="px-6 py-4 border-t border-slate-100 flex items-center justify-end gap-3">
-          <button onClick={onClose} className="btn-ghost text-sm">Cerrar</button>
-          {tab === 'datos' && (
-            <button onClick={handleSaveDatos} disabled={savingDatos} className="btn-primary text-sm flex items-center gap-2">
-              {savingDatos ? <><span className="w-3.5 h-3.5 border-2 border-white/30 border-t-white rounded-full animate-spin" /> Guardando…</> : <><Check size={14} /> Guardar Datos</>}
+        <div className="px-6 py-4 border-t border-slate-100 flex items-center gap-3">
+          {/* Eliminar — izquierda */}
+          {!confirmDelete ? (
+            <button
+              onClick={() => setConfirmDelete(true)}
+              className="flex items-center gap-1.5 text-sm text-red-500 hover:text-red-700 hover:bg-red-50 px-3 py-1.5 rounded-lg transition-colors"
+            >
+              <Trash2 size={14} /> Eliminar
             </button>
+          ) : (
+            <div className="flex items-center gap-2">
+              <span className="text-sm text-red-600 font-medium">¿Eliminar a {user.first_name}?</span>
+              <button
+                onClick={async () => {
+                  setDeleting(true)
+                  try {
+                    await apiFetch(`/admin/users/${user.id}/delete/`, { method: 'DELETE' })
+                    onDeleted(user.id)
+                    onToast({ msg: `Usuario ${user.username} eliminado.`, type: 'ok' })
+                  } catch {
+                    onToast({ msg: 'Error al eliminar el usuario.', type: 'err' })
+                    setConfirmDelete(false)
+                  } finally {
+                    setDeleting(false)
+                  }
+                }}
+                disabled={deleting}
+                className="text-sm px-3 py-1.5 bg-red-600 text-white rounded-lg hover:bg-red-700 transition-colors flex items-center gap-1.5 disabled:opacity-60"
+              >
+                {deleting ? <><span className="w-3 h-3 border-2 border-white/30 border-t-white rounded-full animate-spin" /> Eliminando…</> : 'Sí, eliminar'}
+              </button>
+              <button
+                onClick={() => setConfirmDelete(false)}
+                className="text-sm px-3 py-1.5 rounded-lg text-slate-600 hover:bg-slate-100 transition-colors"
+              >
+                Cancelar
+              </button>
+            </div>
           )}
-          {tab === 'accesos' && (
-            <button onClick={handleSavePerms} disabled={savingPerms} className="btn-primary text-sm flex items-center gap-2">
-              {savingPerms ? <><span className="w-3.5 h-3.5 border-2 border-white/30 border-t-white rounded-full animate-spin" /> Guardando…</> : <><Shield size={14} /> Guardar Permisos</>}
-            </button>
-          )}
-          {tab === 'contrasena' && (
-            <button onClick={handleSavePwd} disabled={savingPwd} className="btn-primary text-sm flex items-center gap-2">
-              {savingPwd ? <><span className="w-3.5 h-3.5 border-2 border-white/30 border-t-white rounded-full animate-spin" /> Guardando…</> : <><KeyRound size={14} /> Cambiar Contraseña</>}
-            </button>
-          )}
+
+          {/* Acciones — derecha */}
+          <div className="ml-auto flex items-center gap-3">
+            <button onClick={onClose} className="btn-ghost text-sm">Cerrar</button>
+            {tab === 'datos' && (
+              <button onClick={handleSaveDatos} disabled={savingDatos} className="btn-primary text-sm flex items-center gap-2">
+                {savingDatos ? <><span className="w-3.5 h-3.5 border-2 border-white/30 border-t-white rounded-full animate-spin" /> Guardando…</> : <><Check size={14} /> Guardar Datos</>}
+              </button>
+            )}
+            {tab === 'accesos' && (
+              <button onClick={handleSavePerms} disabled={savingPerms} className="btn-primary text-sm flex items-center gap-2">
+                {savingPerms ? <><span className="w-3.5 h-3.5 border-2 border-white/30 border-t-white rounded-full animate-spin" /> Guardando…</> : <><Shield size={14} /> Guardar Permisos</>}
+              </button>
+            )}
+            {tab === 'contrasena' && (
+              <button onClick={handleSavePwd} disabled={savingPwd} className="btn-primary text-sm flex items-center gap-2">
+                {savingPwd ? <><span className="w-3.5 h-3.5 border-2 border-white/30 border-t-white rounded-full animate-spin" /> Guardando…</> : <><KeyRound size={14} /> Cambiar Contraseña</>}
+              </button>
+            )}
+          </div>
         </div>
       </div>
     </div>
@@ -496,6 +633,11 @@ export default function AdminGestionUsuarios() {
     setEditing(updated)
   }
 
+  const handleDeleted = (id: number) => {
+    setUsers(us => us.filter(u => u.id !== id))
+    setEditing(null)
+  }
+
   return (
     <DashboardLayout>
 
@@ -513,6 +655,7 @@ export default function AdminGestionUsuarios() {
           user={editing}
           onClose={() => setEditing(null)}
           onSaved={handleSaved}
+          onDeleted={handleDeleted}
           onToast={setToast}
         />
       )}

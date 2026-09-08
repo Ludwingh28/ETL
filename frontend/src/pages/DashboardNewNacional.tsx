@@ -4,11 +4,13 @@ import {
 } from "react";
 import {
   TrendingUp, RefreshCw, AlertCircle, FlaskConical,
-  ChevronDown, Search, ArrowUp, ArrowDown,
+  ChevronDown, Search, ArrowUp, ArrowDown, Pin, PinOff,
 } from "lucide-react";
 import {
-  ResponsiveContainer, LineChart, Line, BarChart, Bar,
-  XAxis, YAxis, CartesianGrid, Tooltip, Cell,
+  ResponsiveContainer, LineChart, Line,
+  XAxis, YAxis, CartesianGrid, Tooltip,
+  PieChart, Pie, Cell,
+  ComposedChart, Bar,
 } from "recharts";
 import { useAuth } from "../context/AuthContext";
 import DashboardLayout from "../components/DashboardLayout";
@@ -25,7 +27,7 @@ interface NacKpisData {
   fecha_corte: string | null; presupuesto: NacPresupuesto;
 }
 interface TendenciaDia { dia: number; avance_acumulado: number | null; presupuesto_acumulado: number | null; proyeccion_acumulada: number | null; }
-interface CanalRow     { canal: string; avance: number; presupuesto: number; porcentaje: number | null; }
+interface CanalRow     { canal: string; avance: number; cantidad: number; presupuesto: number; presupuesto_uds: number; porcentaje: number | null; porcentaje_uds: number | null; clientes: number; }
 interface ComparacionRow {
   name: string; cantidad: number; venta_neta: number; ppto_bs: number; ppto_uds: number;
   pct_cumpl: number | null; gap_bs: number | null;
@@ -33,16 +35,37 @@ interface ComparacionRow {
   pct_camb_bs: number | null; pct_camb_uds: number | null;
 }
 interface SkuRow {
-  codigo: string; producto: string; cantidad: number; venta_neta: number;
+  codigo: string; producto: string; linea: string; cantidad: number; venta_neta: number;
   presupuesto: number; presupuesto_uds: number; pct_cumpl: number | null; gap_pct: number | null;
   cantidad_ant: number; venta_neta_ant: number; pct_camb_bs: number | null; pct_camb_uds: number | null;
+}
+interface VendCatRow {
+  vendedor: string;
+  alimentos: number; alimentos_ppto: number; alimentos_pct: number | null; alimentos_cant: number; alimentos_ppto_uds: number; alimentos_pct_uds: number | null;
+  apego: number;     apego_ppto: number;     apego_pct: number | null;     apego_cant: number;     apego_ppto_uds: number;     apego_pct_uds: number | null;
+  licores: number;   licores_ppto: number;   licores_pct: number | null;   licores_cant: number;   licores_ppto_uds: number;   licores_pct_uds: number | null;
+  hpc: number;       hpc_ppto: number;       hpc_pct: number | null;       hpc_cant: number;       hpc_ppto_uds: number;       hpc_pct_uds: number | null;
+  sin_clasificar: number; sin_clasificar_ppto: number; sin_clasificar_pct: number | null; sin_clasificar_cant: number; sin_clasificar_ppto_uds: number; sin_clasificar_pct_uds: number | null;
+  total: number;     total_ppto: number;     total_pct: number | null;     total_cant: number;     total_ppto_uds: number;     total_pct_uds: number | null;
 }
 
 // ─── Config regional ──────────────────────────────────────────────────────────
 
 type RegionalKey = "nacional" | "santa_cruz" | "cochabamba" | "la_paz";
-type SortKey     = "presupuesto" | "cumplimiento" | "crecimiento";
+type SortKey     = "presupuesto" | "cumplimiento" | "crecimiento" | "ventas_bs";
 type SortDir     = "desc" | "asc";
+type VendSortKey  = "presupuesto" | "cumplimiento" | "ventas_bs";
+
+interface VendedorRow {
+  vendedor: string; venta_neta: number; cantidad: number;
+  presupuesto_bs: number; presupuesto_uds: number; pct_cumpl: number | null;
+}
+interface ClienteFechaFlat {
+  codigo: string; nombre: string; fecha: string; venta_neta: number; cantidad: number;
+}
+interface ClienteSkuRow {
+  codigo: string; producto: string; cantidad: number; venta_neta: number;
+}
 
 interface RegionalDef { key: RegionalKey; label: string; barColor: string; }
 const REGIONALES: RegionalDef[] = [
@@ -51,6 +74,8 @@ const REGIONALES: RegionalDef[] = [
   { key: "cochabamba", label: "Cochabamba", barColor: "#8b5cf6" },
   { key: "la_paz",     label: "La Paz",     barColor: "#f59e0b" },
 ];
+
+const CANAL_COLORS = ["#3b82f6","#10b981","#8b5cf6","#f59e0b","#ef4444","#06b6d4","#ec4899","#84cc16"];
 
 const CATEGORIAS_OPTS = ["Alimentos", "Apego", "Licores", "Home & Personal Care", "Sin Clasificar"];
 const MESES = ["","Enero","Febrero","Marzo","Abril","Mayo","Junio",
@@ -67,12 +92,6 @@ const NUM    = new Intl.NumberFormat("es-BO", { maximumFractionDigits: 0 });
 const fmt    = (n: number | null | undefined) => n != null ? CUR.format(n) : "—";
 const fmtN   = (n: number | null | undefined) => n != null ? NUM.format(Math.round(n)) : "—";
 const fmtPct = (n: number | null | undefined) => n != null ? `${n.toFixed(1)}%` : "—";
-const fmtAbbr = (n: number) => {
-  const abs = Math.abs(n), sign = n < 0 ? "-" : "";
-  if (abs >= 1_000_000) return `${sign}${(abs / 1_000_000).toFixed(1)}M`;
-  if (abs >= 1_000)     return `${sign}${(abs / 1_000).toFixed(0)}K`;
-  return NUM.format(n);
-};
 
 const cumplColor = (p: number | null | undefined) =>
   p == null ? "text-slate-300" : p >= 100 ? "text-emerald-600" : p >= 80 ? "text-amber-500" : "text-red-500";
@@ -106,38 +125,67 @@ function fmtFechaCorte(fc: string | null | undefined): string {
 function buildQS(
   regional: string, canal: string, anho: number, mes: number,
   cats: string[], provs: string[], subs: string[], marcs: string[],
+  prods: string[] = [],
 ): string {
   const p = [
     `regional=${regional}`, `anho=${anho}`, `mes=${mes}`,
     ...(canal ? [`canal=${encodeURIComponent(canal)}`] : []),
     ...cats.map( c => `categoria=${encodeURIComponent(c)}`),
-    ...provs.map(p => `proveedor=${encodeURIComponent(p)}`),
+    ...provs.map(v => `proveedor=${encodeURIComponent(v)}`),
     ...subs.map( s => `subgrupo=${encodeURIComponent(s)}`),
     ...marcs.map(m => `marca=${encodeURIComponent(m)}`),
+    ...prods.map(p => `producto=${encodeURIComponent(p)}`),
   ];
   return p.join("&");
 }
 
+// Cuando hay drill activo, reemplaza el filtro del campo correspondiente con solo el valor del drill
+// (en lugar de agregarlo como param extra, que causaría OR con los filtros base)
+function buildDrillQS(
+  regional: string, canal: string, anho: number, mes: number,
+  cats: string[], provs: string[], subs: string[], marcs: string[], prods: string[],
+  drill: { field: string; value: string } | null,
+): string {
+  if (!drill) return buildQS(regional, canal, anho, mes, cats, provs, subs, marcs, prods);
+  const ov = (f: string, list: string[]) => drill.field === f ? [drill.value] : list;
+  return buildQS(regional, canal, anho, mes,
+    ov('categoria', cats), ov('proveedor', provs), ov('subgrupo', subs), ov('marca', marcs), ov('producto', prods),
+  );
+}
+
 // ─── MultiSelect ──────────────────────────────────────────────────────────────
 
-function MultiSelect({ label, value, options, onChange, placeholder = "Todos", searchable = false }: {
+function MultiSelect({ label, value, options, onChange, placeholder = "Todos", searchable = false, loading = false }: {
   label: string; value: string[]; options: string[];
-  onChange: (v: string[]) => void; placeholder?: string; searchable?: boolean;
+  onChange: (v: string[]) => void; placeholder?: string; searchable?: boolean; loading?: boolean;
 }) {
   const [open,   setOpen]   = useState(false);
   const [search, setSearch] = useState("");
+  const [pos,    setPos]    = useState({ top: 0, left: 0, width: 0 });
   const ref     = useRef<HTMLDivElement>(null);
+  const btnRef  = useRef<HTMLButtonElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
+
+  const recalcPos = () => {
+    const r = btnRef.current?.getBoundingClientRect();
+    if (r) setPos({ top: r.bottom + 6, left: r.left, width: r.width });
+  };
 
   useEffect(() => {
     if (!open) { setSearch(""); return; }
+    recalcPos();
     if (searchable) setTimeout(() => inputRef.current?.focus(), 50);
-    function handle(e: MouseEvent) {
+    function onMouseDown(e: MouseEvent) {
       if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
     }
-    document.addEventListener("mousedown", handle);
-    return () => document.removeEventListener("mousedown", handle);
-  }, [open, searchable]);
+    function onScroll() { recalcPos(); }
+    document.addEventListener("mousedown", onMouseDown);
+    window.addEventListener("scroll", onScroll, true);
+    return () => {
+      document.removeEventListener("mousedown", onMouseDown);
+      window.removeEventListener("scroll", onScroll, true);
+    };
+  }, [open, searchable]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const toggle = (opt: string) =>
     onChange(value.includes(opt) ? value.filter((v) => v !== opt) : [...value, opt]);
@@ -157,21 +205,27 @@ function MultiSelect({ label, value, options, onChange, placeholder = "Todos", s
     <div ref={ref} className="relative flex flex-col gap-0.5">
       <span className="text-[10px] uppercase tracking-widest text-slate-400 font-semibold">{label}</span>
       <button
-        onClick={() => setOpen((o) => !o)}
-        disabled={options.length === 0}
+        ref={btnRef}
+        onClick={() => !loading && setOpen((o) => !o)}
+        disabled={!loading && options.length === 0}
         className={`text-xs rounded-lg px-3 py-2 text-left flex items-center justify-between gap-2 min-w-36 transition-all border
-          ${hasValue
-            ? "border-brand-400 bg-brand-50 text-brand-700 font-semibold"
-            : "border-slate-200 bg-white text-slate-600 hover:border-slate-300"}
+          ${loading ? "border-slate-200 bg-slate-50 text-slate-400 cursor-wait"
+            : hasValue
+              ? "border-brand-400 bg-brand-50 text-brand-700 font-semibold"
+              : "border-slate-200 bg-white text-slate-600 hover:border-slate-300"}
           disabled:opacity-40 disabled:cursor-not-allowed`}
       >
-        <span className="truncate max-w-36">{btnLabel}</span>
-        <ChevronDown size={12} className={`shrink-0 text-slate-400 transition-transform ${open ? "rotate-180" : ""}`} />
+        <span className="truncate max-w-36">{loading ? "Cargando…" : btnLabel}</span>
+        {loading
+          ? <RefreshCw size={12} className="shrink-0 text-slate-400 animate-spin" />
+          : <ChevronDown size={12} className={`shrink-0 text-slate-400 transition-transform ${open ? "rotate-180" : ""}`} />
+        }
       </button>
 
       {open && options.length > 0 && (
-        <div className="absolute top-full left-0 z-50 mt-1.5 min-w-full w-max max-w-72 bg-white border border-slate-200 rounded-xl shadow-xl overflow-hidden flex flex-col">
-          {/* Buscador interno */}
+        <div
+          style={{ position: "fixed", top: pos.top, left: pos.left, minWidth: pos.width, zIndex: 9999 }}
+          className="w-max max-w-72 bg-white border border-slate-200 rounded-xl shadow-xl overflow-hidden flex flex-col">
           {searchable && (
             <div className="px-2.5 pt-2.5 pb-1.5 border-b border-slate-100">
               <div className="relative">
@@ -193,8 +247,6 @@ function MultiSelect({ label, value, options, onChange, placeholder = "Todos", s
               </div>
             </div>
           )}
-
-          {/* Lista de opciones */}
           <div className="overflow-y-auto max-h-60 py-1">
             {value.length > 0 && (
               <button
@@ -224,6 +276,118 @@ function MultiSelect({ label, value, options, onChange, placeholder = "Todos", s
     </div>
   );
 }
+
+// ─── SingleSelect ─────────────────────────────────────────────────────────────
+
+function SingleSelect({ label, value, options, onChange, placeholder = "Todos", searchable = false, loading = false }: {
+  label: string; value: string; options: { value: string; label: string }[];
+  onChange: (v: string) => void; placeholder?: string; searchable?: boolean; loading?: boolean;
+}) {
+  const [open,   setOpen]   = useState(false);
+  const [search, setSearch] = useState("");
+  const [pos,    setPos]    = useState({ top: 0, left: 0, width: 0 });
+  const ref      = useRef<HTMLDivElement>(null);
+  const btnRef   = useRef<HTMLButtonElement>(null);
+  const inputRef = useRef<HTMLInputElement>(null);
+
+  const recalcPos = () => {
+    const r = btnRef.current?.getBoundingClientRect();
+    if (r) setPos({ top: r.bottom + 6, left: r.left, width: r.width });
+  };
+
+  useEffect(() => {
+    if (!open) { setSearch(""); return; }
+    recalcPos();
+    if (searchable) setTimeout(() => inputRef.current?.focus(), 50);
+    function onMouseDown(e: MouseEvent) {
+      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
+    }
+    function onScroll() { recalcPos(); }
+    document.addEventListener("mousedown", onMouseDown);
+    window.addEventListener("scroll", onScroll, true);
+    return () => {
+      document.removeEventListener("mousedown", onMouseDown);
+      window.removeEventListener("scroll", onScroll, true);
+    };
+  }, [open, searchable]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const filtered = searchable && search.trim()
+    ? options.filter(o => o.label.toLowerCase().includes(search.trim().toLowerCase()))
+    : options;
+
+  const selected = options.find(o => o.value === value);
+  const hasValue = value !== "";
+
+  return (
+    <div ref={ref} className="relative flex flex-col gap-0.5">
+      <span className="text-[10px] uppercase tracking-widest text-slate-400 font-semibold">{label}</span>
+      <button
+        ref={btnRef}
+        onClick={() => !loading && setOpen(o => !o)}
+        disabled={!loading && options.length === 0}
+        className={`text-xs rounded-lg px-3 py-2 text-left flex items-center justify-between gap-2 min-w-36 transition-all border
+          ${loading ? "border-slate-200 bg-slate-50 text-slate-400 cursor-wait"
+            : hasValue
+              ? "border-brand-400 bg-brand-50 text-brand-700 font-semibold"
+              : "border-slate-200 bg-white text-slate-600 hover:border-slate-300"}
+          disabled:opacity-40 disabled:cursor-not-allowed`}
+      >
+        <span className="truncate max-w-36">{loading ? "Cargando…" : (selected?.label ?? placeholder)}</span>
+        {loading
+          ? <RefreshCw size={12} className="shrink-0 text-slate-400 animate-spin" />
+          : <ChevronDown size={12} className={`shrink-0 text-slate-400 transition-transform ${open ? "rotate-180" : ""}`} />
+        }
+      </button>
+
+      {open && (
+        <div
+          style={{ position: "fixed", top: pos.top, left: pos.left, minWidth: pos.width, zIndex: 9999 }}
+          className="w-max max-w-72 bg-white border border-slate-200 rounded-xl shadow-xl overflow-hidden flex flex-col">
+          {searchable && (
+            <div className="px-2.5 pt-2.5 pb-1.5 border-b border-slate-100">
+              <div className="relative">
+                <Search size={11} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" />
+                <input
+                  ref={inputRef} type="text" value={search}
+                  onChange={(e: ChangeEvent<HTMLInputElement>) => setSearch(e.target.value)}
+                  placeholder="Buscar…"
+                  className="w-full text-xs pl-7 pr-2.5 py-1.5 border border-slate-200 rounded-lg bg-slate-50 focus:outline-none focus:ring-2 focus:ring-brand-400 placeholder:text-slate-300"
+                />
+                {search && <button onClick={() => setSearch("")} className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600">✕</button>}
+              </div>
+            </div>
+          )}
+          <div className="overflow-y-auto max-h-60 py-1">
+            {hasValue && (
+              <button onClick={() => { onChange(""); setOpen(false); }}
+                className="w-full text-left px-3 py-1.5 text-[10px] font-semibold text-red-500 hover:bg-red-50 transition-colors border-b border-slate-100 mb-1">
+                Limpiar selección ✕
+              </button>
+            )}
+            {filtered.length === 0
+              ? <p className="text-xs text-slate-400 px-3 py-2">Sin resultados</p>
+              : filtered.map(opt => (
+                <button key={opt.value}
+                  onClick={() => { onChange(opt.value === value ? "" : opt.value); setOpen(false); }}
+                  className={`w-full text-left px-3 py-2 text-xs hover:bg-slate-50 transition-colors flex items-center gap-2.5
+                    ${opt.value === value ? "font-semibold text-brand-700" : "text-slate-700"}`}
+                >
+                  <span className={`w-3.5 h-3.5 rounded-full border-2 shrink-0 flex items-center justify-center
+                    ${opt.value === value ? "border-brand-600 bg-brand-600" : "border-slate-300"}`}>
+                    {opt.value === value && <span className="w-1.5 h-1.5 rounded-full bg-white" />}
+                  </span>
+                  {opt.label}
+                </button>
+              ))
+            }
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+interface EvoRow { _key: string; valor: number; lineHistorica: number | null; lineProyectada: number | null; esMesActual: boolean; valorProyectado?: number }
 
 // ─── Regional Card ────────────────────────────────────────────────────────────
 
@@ -329,20 +493,6 @@ function TooltipTendencia({ active, payload, label }: TProps) {
   );
 }
 
-function TooltipCanal({ active, payload, label }: TProps) {
-  if (!active || !payload?.length) return null;
-  const avance = payload.find((p) => p.dataKey === "avance")?.value as number | undefined;
-  const ppto   = payload.find((p) => p.dataKey === "presupuesto")?.value as number | undefined;
-  const pct    = ppto && avance ? (avance / ppto) * 100 : null;
-  return (
-    <div className="bg-white border border-slate-200 rounded-xl shadow-xl px-4 py-3 text-sm">
-      <p className="font-semibold text-slate-700 mb-2">{label as string}</p>
-      {avance != null && <div className="flex gap-2 items-center mb-1"><span className="w-2.5 h-2.5 rounded-full bg-blue-500 shrink-0" /><span className="text-slate-500">Avance:</span><span className="font-semibold">{fmt(avance)}</span></div>}
-      {ppto != null && ppto > 0 && <div className="flex gap-2 items-center mb-1"><span className="w-2.5 h-2.5 rounded-full bg-emerald-500 shrink-0" /><span className="text-slate-500">Presupuesto:</span><span className="font-semibold">{fmt(ppto)}</span></div>}
-      {pct != null && <div className="mt-2 pt-2 border-t border-slate-100 text-xs"><span className="text-slate-400">Cumplimiento: </span><span className={`font-bold ${cumplColor(pct)}`}>{pct.toFixed(1)}%</span></div>}
-    </div>
-  );
-}
 
 // ─── Page ─────────────────────────────────────────────────────────────────────
 
@@ -358,18 +508,24 @@ export default function DashboardNewNacional() {
   const [anho,       setAnho]       = useState(0);
   const [mes,        setMes]        = useState(0);
   const [selectedRegional, setSelectedRegional] = useState<RegionalKey>("nacional");
-  const [canal,      setCanal]      = useState<string>("");
+  const [canal, setCanal] = useState<string>("");
 
-  // Multi-select filters
-  const [fCats,  setFCats]  = useState<string[]>([]);
-  const [fProvs, setFProvs] = useState<string[]>([]);
-  const [fSubs,  setFSubs]  = useState<string[]>([]);
-  const [fMarcs, setFMarcs] = useState<string[]>([]);
+  // Multi-select filters (cascada: Categoría → Sub-categoría → Proveedor → Marca → Productos)
+  const [fCats,      setFCats]      = useState<string[]>([]);
+  const [fProvs,     setFProvs]     = useState<string[]>([]);
+  const [fSubs,      setFSubs]      = useState<string[]>([]);
+  const [fMarcs,     setFMarcs]     = useState<string[]>([]);
+  const [fProductos, setFProductos] = useState<string[]>([]);
 
   // Dynamic options
-  const [opProvs, setOpProvs] = useState<string[]>([]);
-  const [opSubs,  setOpSubs]  = useState<string[]>([]);
-  const [opMarcs, setOpMarcs] = useState<string[]>([]);
+  const [opCanales,   setOpCanales]   = useState<string[]>([]);
+  const [opProvs,     setOpProvs]     = useState<string[]>([]);
+  const [opSubs,      setOpSubs]      = useState<string[]>([]);
+  const [opMarcs,     setOpMarcs]     = useState<string[]>([]);
+  const [opProductos, setOpProductos] = useState<string[]>([]);
+
+  // Panel de filtros
+  const [filterPinned, setFilterPinned] = useState(false);
 
   // SKU table controls
   const [sortKey, setSortKey] = useState<SortKey>("presupuesto");
@@ -380,6 +536,9 @@ export default function DashboardNewNacional() {
   const [nacKpis,         setNacKpis]         = useState<NacKpisData | null>(null);
   const [tendencia,       setTendencia]       = useState<TendenciaDia[]>([]);
   const [esPeriodoActual, setEsPeriodoActual] = useState(true);
+  const [tendenciaMode,   setTendenciaMode]   = useState<"proyectado" | "evolutivo">("proyectado");
+  const [evoData,         setEvoData]         = useState<EvoRow[]>([]);
+  const [loadingEvo,      setLoadingEvo]      = useState(false);
   const [canales,         setCanales]         = useState<CanalRow[]>([]);
   const [comparacion,     setComparacion]     = useState<ComparacionRow[]>([]);
   const [groupBy,         setGroupBy]         = useState("total");
@@ -388,10 +547,33 @@ export default function DashboardNewNacional() {
   const [prevSkuLabel,    setPrevSkuLabel]    = useState("");
 
   // Loading
+  const [loadingOpciones, setLoadingOpciones] = useState(false);
   const [loadingNac,   setLoadingNac]   = useState(true);
   const [loadingCan,   setLoadingCan]   = useState(true);
+  const [canalViewUds, setCanalViewUds] = useState(false);
   const [loadingComp,  setLoadingComp]  = useState(false);
   const [loadingSkus,  setLoadingSkus]  = useState(false);
+  const [loadingVend,  setLoadingVend]  = useState(false);
+  const [vendedores,   setVendedores]   = useState<VendedorRow[]>([]);
+  const [vendCatRows,  setVendCatRows]  = useState<VendCatRow[]>([]);
+  const [loadingVendCat, setLoadingVendCat] = useState(false);
+  const [vendView,     setVendView]     = useState<"gral" | "cat">("gral");
+  const [vendSearch,   setVendSearch]   = useState("");
+  const [vendSortKey,  setVendSortKey]  = useState<VendSortKey>("presupuesto");
+  const [vendSortDir,  setVendSortDir]  = useState<SortDir>("desc");
+  const [selectedVend, setSelectedVend] = useState<string | null>(null);
+  const [compDrill,    setCompDrill]    = useState<{ field: string; value: string } | null>(null);
+  const [selectedSku,  setSelectedSku]  = useState<SkuRow | null>(null);
+  const [clientesFlat,     setClientesFlat]     = useState<ClienteFechaFlat[]>([]);
+  const [loadingCliFechas, setLoadingCliFechas] = useState(false);
+  const [cliSearch,        setCliSearch]        = useState("");
+  const [cliViewUds,       setCliViewUds]       = useState(false); // false = Bs, true = Uds
+  const [cliSortAsc,       setCliSortAsc]       = useState(false); // false = mayor a menor
+  const [selectedCli,      setSelectedCli]      = useState<{ codigo: string; nombre: string } | null>(null);
+  const [selectedCliFecha, setSelectedCliFecha] = useState<string | null>(null);
+  const [cliSkus,          setCliSkus]          = useState<ClienteSkuRow[]>([]);
+  const [loadingCliSkus,   setLoadingCliSkus]   = useState(false);
+  const [cliSkuSearch,     setCliSkuSearch]     = useState("");
   const [nacError,     setNacError]     = useState<string | null>(null);
 
   // Active filters store
@@ -399,13 +581,30 @@ export default function DashboardNewNacional() {
     setActiveFilters({ anho, mes, regional: selectedRegional, canal, categorias: fCats, proveedores: fProvs });
   }, [anho, mes, selectedRegional, canal, fCats, fProvs]);
 
-  // Cascading reset handlers
-  function onCats(v: string[]) { setFCats(v); setFProvs([]); setFSubs([]); setFMarcs([]); }
-  function onProvs(v: string[]) { setFProvs(v); setFSubs([]); setFMarcs([]); }
-  function onSubs(v: string[])  { setFSubs(v);  setFMarcs([]); }
-  function onMarcs(v: string[]) { setFMarcs(v); }
+  // Cascada: Categoría → Sub-categoría → Proveedor → Marca → Productos
+  function resetDrill() { setCompDrill(null); setSelectedSku(null); setSelectedVend(null); setSelectedCli(null); setSelectedCliFecha(null); }
+  function onCats(v: string[])      { setFCats(v);  setFSubs([]); setFProvs([]); setFMarcs([]); setFProductos([]); resetDrill(); }
+  function onSubs(v: string[])      { setFSubs(v);  setFProvs([]); setFMarcs([]); setFProductos([]); resetDrill(); }
+  function onProvs(v: string[])     { setFProvs(v); setFMarcs([]); setFProductos([]); resetDrill(); }
+  function onMarcs(v: string[])     { setFMarcs(v); setFProductos([]); resetDrill(); }
+  function onProductos(v: string[]) { setFProductos(v); resetDrill(); }
+  function clearAll() { onCats([]); setCanal(""); }
 
-  const hasFilters = fCats.length > 0 || fProvs.length > 0 || fSubs.length > 0 || fMarcs.length > 0;
+  function onCompDrillClick(row: ComparacionRow) {
+    if (!groupBy || groupBy === "total") return;
+    const isActive = compDrill?.field === groupBy && compDrill?.value === row.name;
+    setCompDrill(isActive ? null : { field: groupBy, value: row.name });
+    setSelectedSku(null); setSelectedVend(null); setSelectedCli(null);
+  }
+  function onSkuClick(sku: SkuRow) {
+    const isActive = selectedSku?.codigo === sku.codigo;
+    setSelectedSku(isActive ? null : sku);
+    setSelectedVend(null); setSelectedCli(null); setSelectedCliFecha(null);
+  }
+
+  const hasFilters = canal !== ""
+    || fCats.length > 0 || fSubs.length > 0 || fProvs.length > 0
+    || fMarcs.length > 0 || fProductos.length > 0;
 
   // ── Periodos ──────────────────────────────────────────────────────────────────
   useEffect(() => {
@@ -425,50 +624,98 @@ export default function DashboardNewNacional() {
     if (!anho || !mes) return;
     setLoadingNac(true); setNacError(null);
     try {
-      const qs = buildQS(selectedRegional, canal, anho, mes, fCats, fProvs, fSubs, fMarcs);
+      const qs = buildQS(selectedRegional, canal, anho, mes, fCats, fProvs, fSubs, fMarcs, fProductos);
       const [k, t] = await Promise.all([
-        apiFetch<{ success: boolean; data: NacKpisData }>(`/dashboard/nacional/kpis/?${qs}`),
-        apiFetch<{ success: boolean; data: TendenciaDia[]; es_periodo_actual: boolean }>(`/dashboard/nacional/tendencia/?${qs}`),
+        apiFetchRef.current<{ success: boolean; data: NacKpisData }>(`/dashboard/nacional/kpis/?${qs}`),
+        apiFetchRef.current<{ success: boolean; data: TendenciaDia[]; es_periodo_actual: boolean }>(`/dashboard/nacional/tendencia/?${qs}`),
       ]);
       if (k.success) setNacKpis(k.data);
       if (t.success) { setTendencia(t.data); setEsPeriodoActual(t.es_periodo_actual); }
     } catch (e) { setNacError(e instanceof Error ? e.message : "Error al cargar KPIs"); }
     finally { setLoadingNac(false); }
-  }, [apiFetch, anho, mes, selectedRegional, canal, fCats, fProvs, fSubs, fMarcs]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [anho, mes, selectedRegional, canal, fCats, fProvs, fSubs, fMarcs, fProductos]);
 
   useEffect(() => { void fetchNacKpis(); }, [fetchNacKpis]);
+
+  // ── Evolutivo: últimos 6 meses (reutiliza endpoint tendencia-estacional) ──────
+  useEffect(() => {
+    if (tendenciaMode !== "evolutivo" || !anho || !mes) return;
+    setLoadingEvo(true);
+    const regionalKey = selectedRegional === "nacional" ? "nacional"
+      : selectedRegional === "santa_cruz" ? "santa_cruz"
+      : selectedRegional === "cochabamba" ? "cochabamba" : "la_paz";
+    const qs = new URLSearchParams({ regional: regionalKey, canal: canal || "Todos", anho: String(anho), mes: String(mes), modo: "ultimos6", dia_corte: "0" });
+    apiFetchRef.current<{ success: boolean; data: { anho: number; mes_numero: number; total: number; cantidad: number }[] }>(
+      `/dashboard/tendencia-estacional/?${qs}`
+    ).then(j => {
+      if (!j.success || !j.data?.length) { setEvoData([]); return; }
+      const rows = j.data;
+      const MESES_SHORT = ["","Ene","Feb","Mar","Abr","May","Jun","Jul","Ago","Sep","Oct","Nov","Dic"];
+      // Proyección del mes actual: regresión sobre los últimos 3 meses completos
+      const base   = rows.slice(0, -1); // meses completos (sin el mes actual)
+      const recent = base.slice(-3);    // últimos 3 meses completos
+      // Proyección = promedio simple de los 3 últimos meses completos
+      const valorProyectado = Math.round(recent.reduce((s, r) => s + r.total, 0) / recent.length);
+      setEvoData(rows.map((r, i) => {
+        const isCurrent = i === rows.length - 1;
+        const isBridge  = i === rows.length - 2; // último mes completo — punto de partida de la proyección
+        return {
+          _key:            `${MESES_SHORT[r.mes_numero]} ${r.anho}`,
+          valor:           r.total,
+          lineHistorica:   !isCurrent ? r.total : null,        // línea sólida: meses 1-5
+          lineProyectada:  isBridge ? r.total : (isCurrent ? valorProyectado : null), // punteada: mes5→mes6
+          esMesActual:     isCurrent,
+          valorProyectado: isCurrent ? valorProyectado : undefined,
+        };
+      }));
+    }).catch(() => setEvoData([]))
+      .finally(() => setLoadingEvo(false));
+  }, [tendenciaMode, selectedRegional, canal, anho, mes]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // ── Canales ───────────────────────────────────────────────────────────────────
   const fetchCanales = useCallback(async () => {
     if (!anho || !mes) return;
     setLoadingCan(true);
     try {
-      const j = await apiFetch<{ success: boolean; data: CanalRow[] }>(
-        `/dashboard/canales/kpis/?regional=${selectedRegional}&anho=${anho}&mes=${mes}`
+      const qs = buildQS(selectedRegional, "", anho, mes, fCats, fProvs, fSubs, fMarcs, fProductos);
+      const j = await apiFetchRef.current<{ success: boolean; data: CanalRow[] }>(
+        `/dashboard/new-nacional/canales-mini/?${qs}`
       );
       if (j.success) setCanales(j.data); else setCanales([]);
     } catch { setCanales([]); }
     finally { setLoadingCan(false); }
-  }, [apiFetch, selectedRegional, anho, mes]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedRegional, fCats, fProvs, fSubs, fMarcs, fProductos, anho, mes]);
 
   useEffect(() => { void fetchCanales(); }, [fetchCanales]);
 
   // ── Opciones en cascada ───────────────────────────────────────────────────────
+  // Canal es filtro operacional — NO afecta el catálogo de productos
   const fetchOpciones = useCallback(async () => {
     if (!anho || !mes) return;
+    setLoadingOpciones(true);
     try {
-      const qs = buildQS(selectedRegional, canal, anho, mes, fCats, fProvs, fSubs, []);
-      const j = await apiFetchRef.current<{ success: boolean; proveedores: string[]; subgrupos: string[]; marcas: string[] }>(
-        `/dashboard/new-nacional/opciones/?${qs}`
-      );
+      const qs = buildQS(selectedRegional, "", anho, mes, fCats, fProvs, fSubs, fMarcs);
+      const j = await apiFetchRef.current<{
+        success: boolean;
+        proveedores: string[]; subgrupos: string[]; marcas: string[];
+        canales: string[]; productos: string[];
+      }>(`/dashboard/new-nacional/opciones/?${qs}`);
       if (j.success) {
-        setOpProvs(j.proveedores);
-        setOpSubs(j.subgrupos);
-        setOpMarcs(j.marcas);
+        setOpSubs(j.subgrupos     ?? []);
+        setOpProvs(j.proveedores  ?? []);
+        setOpMarcs(j.marcas       ?? []);
+        setOpCanales(j.canales    ?? []);
+        setOpProductos(j.productos ?? []);
       }
-    } catch { /* silencioso */ }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selectedRegional, canal, fCats, fProvs, fSubs, anho, mes]);
+    } catch (err) {
+      console.error("[fetchOpciones] Error al cargar opciones de filtros:", err);
+    } finally {
+      setLoadingOpciones(false);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedRegional, fCats, fSubs, fProvs, fMarcs, anho, mes]);
 
   useEffect(() => { void fetchOpciones(); }, [fetchOpciones]);
 
@@ -477,7 +724,7 @@ export default function DashboardNewNacional() {
     if (!anho || !mes) return;
     setLoadingComp(true);
     try {
-      const qs = buildQS(selectedRegional, canal, anho, mes, fCats, fProvs, fSubs, fMarcs);
+      const qs = buildQS(selectedRegional, canal, anho, mes, fCats, fProvs, fSubs, fMarcs, fProductos);
       const j = await apiFetchRef.current<{ success: boolean; data: ComparacionRow[]; group_by: string; prev_anho: number; prev_mes: number }>(
         `/dashboard/new-nacional/comparacion/?${qs}`
       );
@@ -488,8 +735,8 @@ export default function DashboardNewNacional() {
       }
     } catch { setComparacion([]); }
     finally { setLoadingComp(false); }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selectedRegional, canal, fCats, fProvs, fSubs, fMarcs, anho, mes]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedRegional, canal, fCats, fProvs, fSubs, fMarcs, fProductos, anho, mes]);
 
   useEffect(() => { void fetchComparacion(); }, [fetchComparacion]);
 
@@ -498,9 +745,10 @@ export default function DashboardNewNacional() {
     if (!anho || !mes) return;
     setLoadingSkus(true); setSkuSearch("");
     try {
-      const qs = buildQS(selectedRegional, canal, anho, mes, fCats, fProvs, fSubs, fMarcs);
+      const qs       = buildDrillQS(selectedRegional, canal, anho, mes, fCats, fProvs, fSubs, fMarcs, fProductos, compDrill);
+      const vendParam = selectedVend ? `&vendedor=${encodeURIComponent(selectedVend)}` : "";
       const j = await apiFetchRef.current<{ success: boolean; data: SkuRow[]; prev_anho: number; prev_mes: number }>(
-        `/dashboard/new-nacional/skus/?${qs}`
+        `/dashboard/new-nacional/skus/?${qs}${vendParam}`
       );
       if (j.success) {
         setSkus(j.data);
@@ -508,21 +756,19 @@ export default function DashboardNewNacional() {
       }
     } catch { setSkus([]); }
     finally { setLoadingSkus(false); }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selectedRegional, canal, fCats, fProvs, fSubs, fMarcs, anho, mes]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedRegional, canal, fCats, fProvs, fSubs, fMarcs, fProductos, compDrill, selectedVend, anho, mes]);
 
   useEffect(() => { void fetchSkus(); }, [fetchSkus]);
 
-  // ── Limpiar canal al cambiar regional ─────────────────────────────────────────
-  useEffect(() => { setCanal(""); }, [selectedRegional]);
-
-  // ── Derivados ─────────────────────────────────────────────────────────────────
+  // ── SKU derivados — deben estar antes de los callbacks que los usan ───────────
 
   const sortedSkus = useMemo(() => {
     const sorted = [...skus].sort((a, b) => {
       let diff: number;
       if      (sortKey === "cumplimiento") diff = (b.pct_cumpl ?? -Infinity) - (a.pct_cumpl ?? -Infinity);
       else if (sortKey === "crecimiento")  diff = (b.pct_camb_bs ?? -Infinity) - (a.pct_camb_bs ?? -Infinity);
+      else if (sortKey === "ventas_bs")    diff = b.venta_neta - a.venta_neta;
       else                                 diff = b.presupuesto - a.presupuesto;
       return sortDir === "desc" ? diff : -diff;
     });
@@ -534,15 +780,142 @@ export default function DashboardNewNacional() {
     return q ? sortedSkus.filter((s) => s.producto.toLowerCase().includes(q) || s.codigo.toLowerCase().includes(q)) : sortedSkus;
   }, [sortedSkus, skuSearch]);
 
+  // Cuando hay búsqueda activa y ningún SKU clickado, drilla automáticamente a todos los SKUs visibles
+  const skuDrillParam = useMemo(() => {
+    if (selectedSku) return `&sku_drill=${encodeURIComponent(selectedSku.producto)}`;
+    const q = skuSearch.trim().toLowerCase();
+    if (q && filteredSkus.length > 0 && filteredSkus.length < skus.length) {
+      return filteredSkus.map(s => `&sku_drill=${encodeURIComponent(s.producto)}`).join("");
+    }
+    return "";
+  }, [selectedSku, skuSearch, filteredSkus, skus.length]);
+
+  const fetchVendedores = useCallback(async () => {
+    if (!anho || !mes) return;
+    setLoadingVend(true);
+    try {
+      const qs = buildDrillQS(selectedRegional, canal, anho, mes, fCats, fProvs, fSubs, fMarcs, fProductos, compDrill);
+      const j = await apiFetchRef.current<{ success: boolean; data: VendedorRow[] }>(
+        `/dashboard/new-nacional/vendedores/?${qs}${skuDrillParam}`
+      );
+      if (j.success) setVendedores(j.data); else setVendedores([]);
+    } catch { setVendedores([]); }
+    finally { setLoadingVend(false); }
+  }, [selectedRegional, canal, fCats, fProvs, fSubs, fMarcs, fProductos, compDrill, skuDrillParam, anho, mes]);
+
+  useEffect(() => { void fetchVendedores(); }, [fetchVendedores]);
+
+  const fetchVendedoresCat = useCallback(async () => {
+    if (!anho || !mes) return;
+    setLoadingVendCat(true);
+    try {
+      const qs = buildDrillQS(selectedRegional, canal, anho, mes, fCats, fProvs, fSubs, fMarcs, fProductos, compDrill);
+      const j = await apiFetchRef.current<{ success: boolean; data: VendCatRow[] }>(
+        `/dashboard/new-nacional/vendedores-cat/?${qs}${skuDrillParam}`
+      );
+      if (j.success) setVendCatRows(j.data); else setVendCatRows([]);
+    } catch { setVendCatRows([]); }
+    finally { setLoadingVendCat(false); }
+  }, [selectedRegional, canal, fCats, fProvs, fSubs, fMarcs, fProductos, compDrill, skuDrillParam, anho, mes]);
+
+  useEffect(() => { if (vendView === "cat") void fetchVendedoresCat(); }, [fetchVendedoresCat, vendView]);
+
+  const fetchClientesFechas = useCallback(async () => {
+    if (!anho || !mes) return;
+    setLoadingCliFechas(true);
+    setSelectedCli(null);
+    setSelectedCliFecha(null);
+    try {
+      const qs        = buildDrillQS(selectedRegional, canal, anho, mes, fCats, fProvs, fSubs, fMarcs, fProductos, compDrill);
+      const vendParam = selectedVend ? `&vendedor=${encodeURIComponent(selectedVend)}` : "";
+      const j = await apiFetchRef.current<{ success: boolean; data: ClienteFechaFlat[] }>(
+        `/dashboard/new-nacional/cliente-fechas/?${qs}${skuDrillParam}${vendParam}`
+      );
+      if (j.success) setClientesFlat(j.data); else setClientesFlat([]);
+    } catch { setClientesFlat([]); }
+    finally { setLoadingCliFechas(false); }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedRegional, canal, fCats, fProvs, fSubs, fMarcs, fProductos, compDrill, skuDrillParam, selectedVend, anho, mes]);
+
+  useEffect(() => { void fetchClientesFechas(); }, [fetchClientesFechas]);
+
+  useEffect(() => {
+    if (!selectedCli) { setCliSkus([]); setCliSkuSearch(""); return; }
+    setCliSkuSearch("");
+    setLoadingCliSkus(true);
+    const qs         = buildQS(selectedRegional, canal, anho, mes, fCats, fProvs, fSubs, fMarcs, fProductos);
+    const fechaParam = selectedCliFecha ? `&fecha=${encodeURIComponent(selectedCliFecha)}` : "";
+    apiFetchRef.current<{ success: boolean; data: ClienteSkuRow[] }>(
+      `/dashboard/new-nacional/cliente-skus/?cliente_codigo=${encodeURIComponent(selectedCli.codigo)}&${qs}${fechaParam}`
+    ).then((j) => { if (j.success) setCliSkus(j.data); else setCliSkus([]); })
+     .catch(() => setCliSkus([]))
+     .finally(() => setLoadingCliSkus(false));
+  }, [selectedCli, selectedCliFecha, selectedRegional, canal, fCats, fProvs, fSubs, fMarcs, fProductos, anho, mes]);
+
+  // ── Limpiar filtros operacionales al cambiar regional ─────────────────────────
+
+  // ── Derivados ─────────────────────────────────────────────────────────────────
+
+  const sortedVendedores = useMemo(() => {
+    return [...vendedores].sort((a, b) => {
+      let diff: number;
+      if      (vendSortKey === "cumplimiento") diff = (b.pct_cumpl ?? -Infinity) - (a.pct_cumpl ?? -Infinity);
+      else if (vendSortKey === "ventas_bs")    diff = b.venta_neta - a.venta_neta;
+      else                                     diff = b.presupuesto_bs - a.presupuesto_bs;
+      return vendSortDir === "desc" ? diff : -diff;
+    });
+  }, [vendedores, vendSortKey, vendSortDir]);
+
+  const filteredVendedores = useMemo(() => {
+    const q = vendSearch.trim().toLowerCase();
+    return q ? sortedVendedores.filter((v) => v.vendedor.toLowerCase().includes(q)) : sortedVendedores;
+  }, [sortedVendedores, vendSearch]);
+
+  // Categoria col key para highlight en Vista por Categoría
+  const LINEA_TO_COL: Record<string, string> = {
+    'ALIMENTOS':            'alimentos',
+    'APEGO':                'apego',
+    'BEBIDAS ALC':          'licores',
+    'HOME Y PERSONAL CARE': 'hpc',
+  };
+  const activeCatCol = useMemo<string | null>(() => {
+    if (selectedSku)                               return LINEA_TO_COL[selectedSku.linea] ?? 'sin_clasificar';
+    if (compDrill?.field === 'categoria')          return LINEA_TO_COL[compDrill.value]   ?? 'sin_clasificar';
+    return null;
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedSku, compDrill]);
+
+  const sortedVendCat = useMemo(() => {
+    return [...vendCatRows].sort((a, b) => {
+      let diff: number;
+      if      (vendSortKey === "cumplimiento") diff = (b.total_pct ?? -Infinity) - (a.total_pct ?? -Infinity);
+      else if (vendSortKey === "ventas_bs")    diff = b.total - a.total;
+      else                                     diff = b.total_ppto - a.total_ppto;
+      return vendSortDir === "desc" ? diff : -diff;
+    });
+  }, [vendCatRows, vendSortKey, vendSortDir]);
+
+  const filteredVendCat = useMemo(() => {
+    const q = vendSearch.trim().toLowerCase();
+    return q ? sortedVendCat.filter((v) => v.vendedor.toLowerCase().includes(q)) : sortedVendCat;
+  }, [sortedVendCat, vendSearch]);
+
+
+  const filteredCliSkus = useMemo(() => {
+    const q = cliSkuSearch.trim().toLowerCase();
+    return q ? cliSkus.filter((s) => s.producto.toLowerCase().includes(q) || s.codigo.toLowerCase().includes(q)) : cliSkus;
+  }, [cliSkus, cliSkuSearch]);
+
   const anhos = [...new Set(periodos.map((p) => p.anho))].sort((a, b) => b - a);
   const mesesDisponibles = periodos.filter((p) => p.anho === anho);
 
   const activeFilterChips = [
-    ...fCats.map(v => ({ label: v, color: "bg-slate-100 text-slate-700", clear: () => onCats(fCats.filter(x => x !== v)) })),
-    ...fProvs.map(v => ({ label: v, color: "bg-blue-50 text-blue-700", clear: () => onProvs(fProvs.filter(x => x !== v)) })),
-    ...fSubs.map(v => ({ label: v, color: "bg-violet-50 text-violet-700", clear: () => onSubs(fSubs.filter(x => x !== v)) })),
-    ...fMarcs.map(v => ({ label: v, color: "bg-emerald-50 text-emerald-700", clear: () => onMarcs(fMarcs.filter(x => x !== v)) })),
     ...(canal ? [{ label: `Canal: ${canal}`, color: "bg-amber-50 text-amber-700", clear: () => setCanal("") }] : []),
+    ...fCats.map(v => ({ label: v, color: "bg-slate-100 text-slate-700", clear: () => onCats(fCats.filter(x => x !== v)) })),
+    ...fSubs.map(v => ({ label: v, color: "bg-violet-50 text-violet-700", clear: () => onSubs(fSubs.filter(x => x !== v)) })),
+    ...fProvs.map(v => ({ label: v, color: "bg-blue-50 text-blue-700", clear: () => onProvs(fProvs.filter(x => x !== v)) })),
+    ...fMarcs.map(v => ({ label: v, color: "bg-emerald-50 text-emerald-700", clear: () => onMarcs(fMarcs.filter(x => x !== v)) })),
+    ...fProductos.map(v => ({ label: v, color: "bg-teal-50 text-teal-700", clear: () => onProductos(fProductos.filter(x => x !== v)) })),
   ];
 
   // ─── Render ───────────────────────────────────────────────────────────────────
@@ -560,8 +933,10 @@ export default function DashboardNewNacional() {
             </span>
           </div>
           {nacKpis?.fecha_corte && (
-            <p className="text-[11px] text-slate-400 font-medium">
-              Datos al <span className="text-slate-600 font-semibold">{fmtFechaCorte(nacKpis.fecha_corte)}</span>
+            <p className="text-xs text-slate-400 font-medium flex items-center gap-1.5">
+              <span className="w-2 h-2 rounded-full bg-emerald-400 shrink-0" />
+              Información vigente al{" "}
+              <span className="text-slate-600 font-semibold">{fmtFechaCorte(nacKpis.fecha_corte)}</span>
             </p>
           )}
         </div>
@@ -585,7 +960,7 @@ export default function DashboardNewNacional() {
             </select>
           </div>
           <button
-            onClick={() => { void fetchNacKpis(); void fetchCanales(); void fetchOpciones(); void fetchComparacion(); void fetchSkus(); }}
+            onClick={() => { void fetchNacKpis(); void fetchCanales(); void fetchOpciones(); void fetchComparacion(); void fetchSkus(); void fetchVendedores(); void fetchVendedoresCat(); void fetchClientesFechas(); }}
             disabled={loadingNac}
             className="btn-ghost flex items-center gap-1.5 text-sm">
             <RefreshCw size={14} className={loadingNac ? "animate-spin" : ""} />Actualizar
@@ -600,20 +975,38 @@ export default function DashboardNewNacional() {
       )}
 
       {/* ── Panel de Filtros ─────────────────────────────────────────────────── */}
-      <div className="bg-white border border-slate-200 rounded-2xl shadow-sm px-6 py-4 mb-5">
-        <div className="flex flex-wrap items-end gap-x-3 gap-y-3">
-          <MultiSelect label="Categoría"    value={fCats}  options={CATEGORIAS_OPTS} onChange={onCats} />
-          <div className="w-px h-9 bg-slate-100 self-end hidden sm:block" />
-          <MultiSelect label="Proveedor"    value={fProvs} options={opProvs} onChange={onProvs} searchable />
-          <MultiSelect label="Sub-categoría" value={fSubs} options={opSubs}  onChange={onSubs}  />
-          <MultiSelect label="Marca"        value={fMarcs} options={opMarcs} onChange={onMarcs} searchable />
+      <div className={`${filterPinned ? "sticky top-16 z-20" : ""} bg-white border border-slate-200 rounded-2xl shadow-sm px-4 sm:px-6 py-4 mb-5`}>
+        <div className="flex items-center justify-between gap-2 mb-3">
+          <button
+            onClick={() => setFilterPinned(p => !p)}
+            className={`flex items-center gap-1.5 text-[11px] font-semibold px-2.5 py-1.5 rounded-lg border transition-colors ${
+              filterPinned
+                ? "bg-brand-50 text-brand-600 border-brand-200 hover:bg-brand-100"
+                : "bg-white text-slate-400 border-slate-200 hover:text-slate-600 hover:border-slate-300"
+            }`}>
+            {filterPinned ? <Pin size={11} /> : <PinOff size={11} />}
+            {filterPinned ? "Fijado" : "Fijar"}
+          </button>
           {hasFilters && (
-            <button
-              onClick={() => { onCats([]); }}
-              className="self-end text-[11px] font-semibold text-slate-400 hover:text-red-500 transition-colors px-2 py-2 rounded-lg hover:bg-red-50">
+            <button onClick={clearAll}
+              className="text-[11px] font-semibold text-slate-400 hover:text-red-500 transition-colors px-2 py-1.5 rounded-lg hover:bg-red-50">
               Limpiar todo ✕
             </button>
           )}
+        </div>
+        <div className="grid grid-cols-2 sm:grid-cols-3 gap-x-3 gap-y-3 md:flex md:flex-wrap md:items-end">
+          <SingleSelect
+            label="Canal"
+            value={canal}
+            options={opCanales.map(c => ({ value: c, label: c }))}
+            onChange={setCanal}
+            loading={loadingOpciones}
+          />
+          <MultiSelect label="Categoría"     value={fCats}      options={CATEGORIAS_OPTS} onChange={onCats} />
+          <MultiSelect label="Sub-categoría" value={fSubs}      options={opSubs}      onChange={onSubs}      searchable loading={loadingOpciones} />
+          <MultiSelect label="Proveedor"     value={fProvs}     options={opProvs}     onChange={onProvs}     searchable loading={loadingOpciones} />
+          <MultiSelect label="Marca"         value={fMarcs}     options={opMarcs}     onChange={onMarcs}     searchable loading={loadingOpciones} />
+          <MultiSelect label="Productos"     value={fProductos} options={opProductos} onChange={onProductos} searchable loading={loadingOpciones} />
         </div>
 
         {/* Active filter chips */}
@@ -641,86 +1034,162 @@ export default function DashboardNewNacional() {
         ))}
       </div>
 
-      {/* ── Tendencia + Canal ────────────────────────────────────────────────── */}
-      <div className="grid grid-cols-10 gap-4 mb-5">
-
-        {/* Tendencia */}
-        <div className="card col-span-10 xl:col-span-6">
-          <div className="flex items-center justify-between mb-4">
-            <h2 className="font-semibold text-slate-700 text-sm">Tendencia de Ventas</h2>
-            <span className="text-xs text-slate-400 bg-slate-50 px-2 py-1 rounded-lg">{REGIONALES.find(r => r.key === selectedRegional)?.label ?? "Nacional"} · {MESES[mes]} {anho}</span>
-          </div>
-          {loadingNac ? (
-            <div className="h-56 flex items-center justify-center text-slate-400 text-sm">Cargando...</div>
-          ) : tendencia.length === 0 ? (
-            <div className="h-56 flex items-center justify-center text-slate-400 text-sm">
-              <div className="text-center"><TrendingUp size={28} className="mx-auto mb-2 opacity-30" /><p>Sin datos</p></div>
-            </div>
-          ) : (
-            <>
-              <ResponsiveContainer width="100%" height={220}>
-                <LineChart data={tendencia} margin={{ top: 4, right: 12, left: 0, bottom: 4 }}>
-                  <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" />
-                  <XAxis dataKey="dia" tick={{ fontSize: 11 }} interval={3} />
-                  <YAxis tick={{ fontSize: 11 }} tickFormatter={(v) => `${(v/1_000_000).toFixed(1)}M`} width={48} />
-                  <Tooltip content={<TooltipTendencia />} />
-                  <Line dataKey="avance_acumulado" name="Avance" stroke="#3b82f6" strokeWidth={2.5} dot={false} connectNulls />
-                  {esPeriodoActual && <Line dataKey="proyeccion_acumulada" name="Proyección" stroke="#f97316" strokeWidth={2} strokeDasharray="6 3" dot={false} connectNulls />}
-                  <Line dataKey="presupuesto_acumulado" name="Presupuesto" stroke="#22c55e" strokeWidth={2} strokeDasharray="6 4" dot={false} connectNulls />
-                </LineChart>
-              </ResponsiveContainer>
-              <div className="flex flex-wrap gap-5 text-xs text-slate-400 pt-2 border-t border-slate-100 mt-2">
-                <span className="flex items-center gap-2"><svg width="24" height="8"><line x1="0" y1="4" x2="24" y2="4" stroke="#22c55e" strokeWidth="2" strokeDasharray="5 3" /></svg>Presupuesto</span>
-                <span className="flex items-center gap-2"><svg width="24" height="8"><line x1="0" y1="4" x2="24" y2="4" stroke="#3b82f6" strokeWidth="2.5" /></svg>Avance</span>
-                {esPeriodoActual && <span className="flex items-center gap-2"><svg width="24" height="8"><line x1="0" y1="4" x2="24" y2="4" stroke="#f97316" strokeWidth="2" strokeDasharray="6 3" /></svg>Proyección</span>}
-              </div>
-            </>
-          )}
-        </div>
-
-        {/* Canal */}
-        <div className="card col-span-10 xl:col-span-4">
-          <div className="flex items-center justify-between mb-1">
-            <h2 className="font-semibold text-slate-700 text-sm">Por Canal</h2>
-            <span className="text-[11px] text-slate-400">{REGIONALES.find(r => r.key === selectedRegional)?.label} · {MESES[mes]} {anho}</span>
-          </div>
-          <p className="text-[11px] text-slate-400 mb-3">Clic en un canal para filtrar la tabla</p>
+      {/* ── Mini-cards por Canal ─────────────────────────────────────────────── */}
+      {(loadingCan || (canal === "" && canales.length > 0)) && (
+        <div className="mb-5">
           {loadingCan ? (
-            <div className="h-48 flex items-center justify-center text-slate-400 text-xs">Cargando...</div>
-          ) : canales.length === 0 ? (
-            <div className="h-48 flex items-center justify-center text-slate-400 text-xs">Sin datos</div>
-          ) : (
-            <>
-              <ResponsiveContainer width="100%" height={Math.max(160, canales.length * 34)}>
-                <BarChart layout="vertical" data={canales} margin={{ top: 2, right: 48, left: 4, bottom: 2 }}
-                  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-                  onClick={(d: any) => { if (d?.activePayload?.[0]) { const c = (d.activePayload[0].payload as CanalRow).canal; setCanal((prev) => prev === c ? "" : c); } }}>
-                  <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" horizontal={false} />
-                  <XAxis type="number" tick={{ fontSize: 10 }} tickFormatter={fmtAbbr} />
-                  <YAxis dataKey="canal" type="category" tick={{ fontSize: 10, fontWeight: 700 }} width={60} />
-                  <Tooltip content={<TooltipCanal />} />
-                  <Bar dataKey="avance" name="Avance" radius={[0, 3, 3, 0]} barSize={9}
-                    label={{ position: "right", fontSize: 9, fill: "#94a3b8", formatter: ((_v: unknown, _e: unknown, i: number) => fmtPct(canales[i]?.porcentaje)) as any }}>
-                    {canales.map((c) => <Cell key={c.canal} fill={canal === c.canal ? "#1d4ed8" : "#3b82f6"} cursor="pointer" />)}
-                  </Bar>
-                  <Bar dataKey="presupuesto" name="Presupuesto" radius={[0, 3, 3, 0]} barSize={9}>
-                    {canales.map((c) => <Cell key={c.canal} fill={canal === c.canal ? "#15803d" : "#22c55e"} cursor="pointer" />)}
-                  </Bar>
-                </BarChart>
-              </ResponsiveContainer>
-              {canal && (
-                <div className="mt-2 flex items-center gap-2 text-xs">
-                  <span className="text-slate-400">Canal activo:</span>
-                  <button onClick={() => setCanal("")}
-                    className="flex items-center gap-1 bg-blue-50 text-blue-700 border border-blue-200 px-2.5 py-1 rounded-full font-semibold hover:bg-blue-100 transition-colors">
-                    {canal} ✕
+            <div className="flex flex-wrap gap-2">
+              {Array.from({ length: 5 }).map((_, i) => (
+                <div key={i} className="h-20 w-36 bg-slate-100 animate-pulse rounded-xl" />
+              ))}
+            </div>
+          ) : (() => {
+            const totalAvance = canales.reduce((s, c) => s + (canalViewUds ? c.cantidad : c.avance), 0);
+            const totalPpto   = canales.reduce((s, c) => s + (canalViewUds ? c.presupuesto_uds : c.presupuesto), 0);
+            const totalPct    = totalPpto > 0 ? (totalAvance / totalPpto * 100) : 0;
+            const totalPctColor = totalPct >= 100 ? "text-emerald-600" : totalPct >= 80 ? "text-amber-500" : "text-red-500";
+            // Donut: cada segmento = peso del canal sobre el presupuesto total
+            const pieData = canales.map(c => ({
+              name: c.canal,
+              value: canalViewUds ? c.presupuesto_uds : c.presupuesto,
+              avance: canalViewUds ? c.cantidad : c.avance,
+              pct: canalViewUds ? c.porcentaje_uds : c.porcentaje,
+              impactoPpto: totalPpto > 0 ? ((canalViewUds ? c.presupuesto_uds : c.presupuesto) / totalPpto * 100) : 0,
+            }));
+
+            return (
+              <>
+                {/* Toggle Bs / Uds */}
+                <div className="flex items-center gap-1 mb-2.5">
+                  <button
+                    onClick={() => setCanalViewUds(false)}
+                    className={`px-3 py-1 text-[11px] font-semibold rounded-full border transition-all ${!canalViewUds ? "bg-blue-600 text-white border-blue-600" : "bg-white text-slate-500 border-slate-200 hover:border-blue-300"}`}
+                  >
+                    Bs
+                  </button>
+                  <button
+                    onClick={() => setCanalViewUds(true)}
+                    className={`px-3 py-1 text-[11px] font-semibold rounded-full border transition-all ${canalViewUds ? "bg-blue-600 text-white border-blue-600" : "bg-white text-slate-500 border-slate-200 hover:border-blue-300"}`}
+                  >
+                    Unidades
                   </button>
                 </div>
-              )}
-            </>
-          )}
+
+                {/* Cards (izq) + Donut (der) */}
+                <div className="flex gap-5 items-start">
+
+                  {/* Grid 4 columnas, 2 filas */}
+                  <div className="grid grid-cols-4 gap-2 shrink-0">
+                    {canales.map((c, i) => {
+                      const pct = canalViewUds ? c.porcentaje_uds : c.porcentaje;
+                      const pctColor =
+                        pct == null ? "text-slate-400"  :
+                        pct >= 100  ? "text-emerald-600" :
+                        pct >= 80   ? "text-amber-500"   :
+                                      "text-red-500";
+                      const hasPpto = canalViewUds ? c.presupuesto_uds > 0 : c.presupuesto > 0;
+                      const dotColor = CANAL_COLORS[i % CANAL_COLORS.length];
+
+                      return (
+                        <div
+                          key={c.canal}
+                          className="flex flex-col gap-1 px-3 py-2.5 rounded-xl border border-slate-200 bg-white w-36"
+                        >
+                          <div className="flex items-center gap-1.5">
+                            <span className="w-2 h-2 rounded-full shrink-0" style={{ background: dotColor }} />
+                            <span className="text-[10px] font-bold uppercase tracking-widest truncate text-slate-500">
+                              {c.canal}
+                            </span>
+                          </div>
+                          <span className={`text-xl font-black leading-none tabular-nums ${pctColor}`}>
+                            {pct != null ? `${pct.toFixed(1)}%` : "—"}
+                          </span>
+                          <div className="flex items-center justify-between gap-2 mt-0.5">
+                            <span className="text-[10px] text-slate-400 tabular-nums">
+                              {canalViewUds ? fmtN(c.cantidad) : fmt(c.avance)}
+                            </span>
+                            <span className="text-[10px] text-slate-400 tabular-nums">{fmtN(c.clientes)} cli.</span>
+                          </div>
+                          {hasPpto && (
+                            <div className="w-full bg-slate-100 rounded-full h-1 mt-0.5 overflow-hidden">
+                              <div
+                                className={`h-1 rounded-full ${pct != null && pct >= 100 ? "bg-emerald-500" : pct != null && pct >= 80 ? "bg-amber-400" : "bg-red-400"}`}
+                                style={{ width: `${Math.min(pct ?? 0, 100)}%` }}
+                              />
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>
+
+                  {/* Donut dinámico */}
+                  <div className="flex-1 min-w-0 flex flex-col items-center">
+                    <p className="text-[11px] font-semibold text-slate-500 mb-1 self-start">
+                      Impacto al presupuesto por canal · {REGIONALES.find(r => r.key === selectedRegional)?.label}
+                    </p>
+                    <div className="relative w-full" style={{ height: 190 }}>
+                      <ResponsiveContainer width="100%" height="100%">
+                        <PieChart>
+                          <Pie
+                            data={pieData}
+                            cx="50%"
+                            cy="50%"
+                            innerRadius={52}
+                            outerRadius={80}
+                            dataKey="value"
+                            paddingAngle={2}
+                          >
+                            {pieData.map((_, i) => (
+                              <Cell key={i} fill={CANAL_COLORS[i % CANAL_COLORS.length]} />
+                            ))}
+                          </Pie>
+                          <Tooltip
+                            wrapperStyle={{ zIndex: 50 }}
+                            content={({ active, payload }) => {
+                              if (!active || !payload?.length) return null;
+                              const d = payload[0].payload;
+                              return (
+                                <div style={{ fontSize: 11, borderRadius: 8, border: "1px solid #e2e8f0", background: "#fff", padding: "8px 12px", lineHeight: "1.6" }}>
+                                  <div style={{ fontWeight: 700, marginBottom: 2 }}>{d.name}</div>
+                                  <div style={{ color: "#64748b" }}>
+                                    Ppto: <b>{canalViewUds ? fmtN(d.value) : fmt(d.value)}</b>
+                                    {" · "}<b style={{ color: "#3b82f6" }}>{d.impactoPpto.toFixed(1)}% del total</b>
+                                  </div>
+                                  <div style={{ color: "#64748b" }}>
+                                    Avance: <b>{canalViewUds ? fmtN(d.avance) : fmt(d.avance)}</b>
+                                    {d.pct != null && (
+                                      <span style={{ color: d.pct >= 100 ? "#10b981" : d.pct >= 80 ? "#f59e0b" : "#ef4444", marginLeft: 4 }}>
+                                        ({d.pct.toFixed(1)}% cumpl.)
+                                      </span>
+                                    )}
+                                  </div>
+                                </div>
+                              );
+                            }}
+                          />
+                        </PieChart>
+                      </ResponsiveContainer>
+                      {/* Label central */}
+                      <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
+                        <div className="text-center">
+                          <div className={`text-lg font-black tabular-nums ${totalPctColor}`}>
+                            {totalPct.toFixed(1)}%
+                          </div>
+                          <div className="text-[9px] text-slate-400 leading-tight">
+                            cumpl.<br />{canalViewUds ? "uds." : "Bs."}
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+
+                </div>
+              </>
+            );
+          })()}
         </div>
-      </div>
+      )}
 
       {/* ── Comparación por filtro ───────────────────────────────────────────── */}
       <div className="card mb-5">
@@ -733,6 +1202,13 @@ export default function DashboardNewNacional() {
               {MESES[mes]} {anho} vs {prevLabel || "mes anterior"} · {REGIONALES.find(r => r.key === selectedRegional)?.label}
             </p>
           </div>
+          {compDrill && (
+            <button onClick={() => { setCompDrill(null); setSelectedSku(null); }}
+              className="inline-flex items-center gap-1.5 text-[11px] font-semibold px-2.5 py-1 rounded-full bg-violet-50 text-violet-700 border border-violet-200 hover:bg-violet-100 transition-colors">
+              {GROUP_BY_LABEL[compDrill.field] ?? compDrill.field}: {compDrill.value}
+              <span className="opacity-60">✕</span>
+            </button>
+          )}
         </div>
 
         {loadingComp ? (
@@ -754,9 +1230,14 @@ export default function DashboardNewNacional() {
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-50">
-                {comparacion.map((row) => (
-                  <tr key={row.name} className="hover:bg-slate-50 transition-colors">
-                    <td className="py-3 font-semibold text-slate-800 truncate max-w-40" title={row.name}>{row.name}</td>
+                {comparacion.map((row) => {
+                  const isDrillActive = compDrill?.field === groupBy && compDrill?.value === row.name;
+                  const isClickable   = groupBy !== "total";
+                  return (
+                  <tr key={row.name}
+                    onClick={() => isClickable && onCompDrillClick(row)}
+                    className={`transition-colors ${isClickable ? "cursor-pointer" : ""} ${isDrillActive ? "bg-violet-50" : "hover:bg-slate-50"}`}>
+                    <td className={`py-3 font-semibold truncate max-w-40 ${isDrillActive ? "text-violet-700" : "text-slate-800"}`} title={row.name}>{row.name}</td>
                     <td className="py-3 text-right tabular-nums text-slate-700">{fmtN(row.cantidad)}</td>
                     <td className="py-3 text-right tabular-nums text-slate-700 font-semibold">{fmt(row.venta_neta)}</td>
                     <td className="py-3 text-right tabular-nums text-slate-500">{fmt(row.ppto_bs)}</td>
@@ -771,15 +1252,211 @@ export default function DashboardNewNacional() {
                       )}
                     </td>
                   </tr>
-                ))}
+                  );
+                })}
               </tbody>
             </table>
           </div>
         )}
       </div>
 
+      {/* ── Tabla Vendedores ─────────────────────────────────────────────────── */}
+      <div className="card mt-5">
+        <div className="flex flex-wrap items-start justify-between gap-3 mb-4">
+          <div>
+            <h2 className="font-semibold text-slate-700 text-sm">Por Vendedor</h2>
+            <p className="text-[11px] text-slate-400 mt-0.5">
+              {MESES[mes]} {anho} · {REGIONALES.find(r => r.key === selectedRegional)?.label}
+            </p>
+            <div className="flex flex-wrap gap-1.5 mt-1.5">
+              {compDrill && (
+                <span className="inline-flex items-center gap-1 text-[11px] font-semibold px-2 py-0.5 rounded-full bg-violet-50 text-violet-600 border border-violet-200">
+                  {GROUP_BY_LABEL[compDrill.field]}: {compDrill.value}
+                </span>
+              )}
+              {selectedSku && (
+                <span className="inline-flex items-center gap-1 text-[11px] font-semibold px-2 py-0.5 rounded-full bg-teal-50 text-teal-600 border border-teal-200">
+                  SKU: {selectedSku.producto}
+                </span>
+              )}
+              {!selectedSku && skuSearch.trim() && filteredSkus.length > 0 && filteredSkus.length < skus.length && (
+                <span className="inline-flex items-center gap-1 text-[11px] font-semibold px-2 py-0.5 rounded-full bg-orange-50 text-orange-600 border border-orange-200">
+                  Búsqueda: "{skuSearch}" · {filteredSkus.length} SKUs
+                </span>
+              )}
+            </div>
+          </div>
+
+          <div className="flex flex-wrap items-center gap-2">
+            {/* Vista Gral / Vista por Categoría */}
+            <div className="flex rounded-lg overflow-hidden border border-slate-200 text-[11px] font-semibold">
+              <button onClick={() => setVendView("gral")}
+                className={`px-2.5 py-1.5 transition-colors ${vendView === "gral" ? "bg-brand-600 text-white" : "bg-white text-slate-500 hover:bg-slate-50"}`}>
+                Vista Gral
+              </button>
+              <button onClick={() => { setVendView("cat"); void fetchVendedoresCat(); }}
+                className={`px-2.5 py-1.5 transition-colors ${vendView === "cat" ? "bg-brand-600 text-white" : "bg-white text-slate-500 hover:bg-slate-50"}`}>
+                Por Categoría
+              </button>
+            </div>
+            {/* Sort key */}
+            <div className="flex rounded-lg overflow-hidden border border-slate-200 text-[11px] font-semibold">
+              {(["presupuesto", "cumplimiento", "ventas_bs"] as VendSortKey[]).map((k) => (
+                <button key={k} onClick={() => setVendSortKey(k)}
+                  className={`px-2.5 py-1.5 transition-colors ${vendSortKey === k ? "bg-brand-600 text-white" : "bg-white text-slate-500 hover:bg-slate-50"}`}>
+                  {k === "presupuesto" ? "Presupuesto" : k === "cumplimiento" ? "Cumplimiento" : "Ventas Bs"}
+                </button>
+              ))}
+            </div>
+            {/* Asc/Desc */}
+            <button onClick={() => setVendSortDir((d) => d === "desc" ? "asc" : "desc")}
+              className="flex items-center gap-1 text-[11px] font-semibold px-2.5 py-1.5 rounded-lg border border-slate-200 bg-white text-slate-500 hover:border-brand-400 hover:text-brand-600 transition-all">
+              {vendSortDir === "desc" ? <ArrowDown size={12} /> : <ArrowUp size={12} />}
+              {vendSortDir === "desc" ? "Mayor → Menor" : "Menor → Mayor"}
+            </button>
+          </div>
+        </div>
+
+        {/* Buscador */}
+        <div className="relative mb-3">
+          <Search size={13} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" />
+          <input type="text" value={vendSearch} onChange={(e) => setVendSearch(e.target.value)}
+            placeholder="Buscar vendedor..."
+            className="w-full pl-8 pr-3 py-2 text-xs border border-slate-200 rounded-lg focus:outline-none focus:border-brand-400 bg-white" />
+          {vendView === "gral" && filteredVendedores.length !== vendedores.length && (
+            <span className="absolute right-3 top-1/2 -translate-y-1/2 text-[10px] text-slate-400">
+              {filteredVendedores.length}/{vendedores.length}
+            </span>
+          )}
+          {vendView === "cat" && filteredVendCat.length !== vendCatRows.length && (
+            <span className="absolute right-3 top-1/2 -translate-y-1/2 text-[10px] text-slate-400">
+              {filteredVendCat.length}/{vendCatRows.length}
+            </span>
+          )}
+        </div>
+
+        {/* ── Vista Gral ── */}
+        {vendView === "gral" && (
+          loadingVend ? (
+            <div className="h-40 flex items-center justify-center text-slate-400 text-sm">Cargando...</div>
+          ) : filteredVendedores.length === 0 ? (
+            <div className="h-40 flex items-center justify-center text-slate-400 text-sm">Sin datos</div>
+          ) : (
+            <div className="overflow-auto max-h-96">
+              <table className="w-full text-xs">
+                <thead className="sticky top-0 bg-white">
+                  <tr className="border-b border-slate-100 text-slate-400 text-[11px] uppercase tracking-wider">
+                    <th className="text-left py-2 pb-3 font-semibold pl-1">Vendedor</th>
+                    <th className="text-right py-2 pb-3 font-semibold">Bs. Vendidos</th>
+                    <th className="text-right py-2 pb-3 font-semibold">Uds. Vendidas</th>
+                    <th className="text-right py-2 pb-3 font-semibold">Presupuesto Bs.</th>
+                    <th className="text-right py-2 pb-3 font-semibold">Presupuesto Uds.</th>
+                    <th className="text-right py-2 pb-3 font-semibold pr-1">% Cumpl.</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-50">
+                  {filteredVendedores.map((v) => {
+                    const isActive = selectedVend === v.vendedor;
+                    return (
+                      <tr key={v.vendedor}
+                        onClick={() => setSelectedVend(isActive ? null : v.vendedor)}
+                        className={`cursor-pointer transition-colors ${isActive ? "bg-brand-50" : "hover:bg-slate-50/60"}`}>
+                        <td className={`py-2.5 pl-1 font-medium ${isActive ? "text-brand-700" : "text-slate-700"}`}>{v.vendedor}</td>
+                        <td className="py-2.5 text-right tabular-nums text-slate-700 font-semibold">{fmt(v.venta_neta)}</td>
+                        <td className="py-2.5 text-right tabular-nums text-slate-600">{fmtN(v.cantidad)}</td>
+                        <td className="py-2.5 text-right tabular-nums text-slate-500">{fmt(v.presupuesto_bs)}</td>
+                        <td className="py-2.5 text-right tabular-nums text-slate-500">{fmtN(v.presupuesto_uds)}</td>
+                        <td className={`py-2.5 text-right tabular-nums font-bold pr-1 ${cumplColor(v.pct_cumpl)}`}>{fmtPct(v.pct_cumpl)}</td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          )
+        )}
+
+        {/* ── Vista por Categoría ── */}
+        {vendView === "cat" && (() => {
+          const CAT_COLS: { key: string; label: string; color: string }[] = [
+            { key: "alimentos",      label: "Alimentos",  color: "text-green-700"  },
+            { key: "apego",          label: "Apego",      color: "text-pink-700"   },
+            { key: "licores",        label: "Licores",    color: "text-rose-700"   },
+            { key: "hpc",            label: "HPC",        color: "text-sky-700"    },
+            { key: "sin_clasificar", label: "Sin Clas.",  color: "text-orange-700" },
+          ];
+          const isMetricaUds = false; // siempre Bs en la vista cat (toggle Bs/Uds aplica en Gral)
+          void isMetricaUds;
+          return loadingVendCat ? (
+            <div className="h-40 flex items-center justify-center text-slate-400 text-sm">Cargando...</div>
+          ) : filteredVendCat.length === 0 ? (
+            <div className="h-40 flex items-center justify-center text-slate-400 text-sm">Sin datos</div>
+          ) : (
+            <div className="overflow-auto max-h-96">
+              <table className="w-full text-xs min-w-max">
+                <thead className="sticky top-0 bg-white z-10 shadow-[0_1px_0_0_#f1f5f9]">
+                  <tr className="text-slate-500 text-[10px]">
+                    <th className="text-left py-2 pr-3 font-semibold w-36">Vendedor</th>
+                    {CAT_COLS.map(({ key, label, color }) => {
+                      const isHl = key === activeCatCol;
+                      return (
+                        <th key={key} colSpan={2}
+                          className={`text-center py-2 px-1 font-semibold ${isHl ? `${color} ring-1 ring-inset ring-current rounded` : color}`}>
+                          {label}
+                          {isHl && <span className="ml-1 opacity-60">▲</span>}
+                        </th>
+                      );
+                    })}
+                    <th colSpan={3} className="text-center py-2 px-1 font-semibold text-slate-700">Total</th>
+                  </tr>
+                  <tr className="text-slate-400 text-[9px] border-b border-slate-100">
+                    <th />
+                    {CAT_COLS.map(({ key }) => (
+                      <th key={`${key}-sub`} className="text-right py-1 px-1" colSpan={2}>
+                        <span className="inline-flex gap-3 w-full justify-end">
+                          <span>Bs.</span><span className="opacity-70">Cumpl.</span>
+                        </span>
+                      </th>
+                    ))}
+                    <th className="text-right py-1 px-1">Bs.</th>
+                    <th className="text-right py-1 px-1 opacity-70">Ppto.</th>
+                    <th className="text-right py-1 px-1 opacity-70">Cumpl.</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {filteredVendCat.map((v) => {
+                    const isActive = selectedVend === v.vendedor;
+                    return (
+                      <tr key={v.vendedor}
+                        onClick={() => setSelectedVend(isActive ? null : v.vendedor)}
+                        className={`border-b border-slate-50 cursor-pointer transition-colors ${isActive ? "bg-brand-50 ring-1 ring-inset ring-brand-300" : "hover:bg-slate-50"}`}>
+                        <td className={`py-2 pr-3 font-semibold truncate max-w-36 ${isActive ? "text-brand-700" : "text-slate-700"}`} title={v.vendedor}>{v.vendedor}</td>
+                        {CAT_COLS.map(({ key }) => {
+                          const isHl = key === activeCatCol;
+                          const bs  = v[key as keyof VendCatRow] as number;
+                          const pct = v[`${key}_pct` as keyof VendCatRow] as number | null;
+                          return (
+                            <>
+                              <td key={`${key}-bs`}  className={`py-2 px-1 text-right tabular-nums text-slate-700 ${isHl ? "font-semibold bg-amber-50" : ""}`}>{fmt(bs)}</td>
+                              <td key={`${key}-pct`} className={`py-2 px-1 text-right tabular-nums text-[10px] font-semibold ${isHl ? "bg-amber-50 " : ""}${cumplColor(pct)}`}>{fmtPct(pct)}</td>
+                            </>
+                          );
+                        })}
+                        <td className={`py-2 px-1 text-right tabular-nums font-bold ${isActive ? "text-brand-700" : "text-slate-800"}`}>{fmt(v.total)}</td>
+                        <td className="py-2 px-1 text-right tabular-nums text-[10px] text-emerald-600">{fmt(v.total_ppto)}</td>
+                        <td className={`py-2 px-1 text-right tabular-nums text-[10px] font-bold ${cumplColor(v.total_pct)}`}>{fmtPct(v.total_pct)}</td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          );
+        })()}
+      </div>
+
       {/* ── SKUs ────────────────────────────────────────────────────────────── */}
-      <div className="card">
+      <div className="card mt-5">
         {/* Toolbar */}
         <div className="flex flex-wrap items-start justify-between gap-3 mb-4">
           <div>
@@ -788,15 +1465,29 @@ export default function DashboardNewNacional() {
               {MESES[mes]} {anho} · {REGIONALES.find(r => r.key === selectedRegional)?.label}
               {activeFilterChips.length > 0 && ` · ${activeFilterChips.map(c => c.label).join(", ")}`}
             </p>
+            <div className="flex flex-wrap gap-1.5 mt-1.5">
+              {selectedVend && (
+                <button onClick={() => setSelectedVend(null)}
+                  className="inline-flex items-center gap-1.5 text-[11px] font-semibold px-2.5 py-1 rounded-full bg-brand-50 text-brand-700 border border-brand-200 hover:bg-brand-100 transition-colors">
+                  Vendedor: {selectedVend} <span className="opacity-60">✕</span>
+                </button>
+              )}
+              {selectedSku && (
+                <button onClick={() => setSelectedSku(null)}
+                  className="inline-flex items-center gap-1.5 text-[11px] font-semibold px-2.5 py-1 rounded-full bg-teal-50 text-teal-700 border border-teal-200 hover:bg-teal-100 transition-colors">
+                  SKU: {selectedSku.producto} <span className="opacity-60">✕</span>
+                </button>
+              )}
+            </div>
           </div>
 
           <div className="flex flex-wrap items-center gap-2">
             {/* Sort key toggle */}
             <div className="flex rounded-lg overflow-hidden border border-slate-200 text-[11px] font-semibold">
-              {(["presupuesto", "cumplimiento", "crecimiento"] as SortKey[]).map((k) => (
+              {(["presupuesto", "cumplimiento", "crecimiento", "ventas_bs"] as SortKey[]).map((k) => (
                 <button key={k} onClick={() => setSortKey(k)}
-                  className={`px-2.5 py-1.5 capitalize transition-colors ${sortKey === k ? "bg-brand-600 text-white" : "bg-white text-slate-500 hover:bg-slate-50"}`}>
-                  {k === "presupuesto" ? "Presupuesto" : k === "cumplimiento" ? "Cumplimiento" : "Crecimiento"}
+                  className={`px-2.5 py-1.5 transition-colors ${sortKey === k ? "bg-brand-600 text-white" : "bg-white text-slate-500 hover:bg-slate-50"}`}>
+                  {k === "presupuesto" ? "Presupuesto" : k === "cumplimiento" ? "Cumplimiento" : k === "crecimiento" ? "Crecimiento" : "Ventas Bs"}
                 </button>
               ))}
             </div>
@@ -844,11 +1535,15 @@ export default function DashboardNewNacional() {
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-50">
-                {filteredSkus.map((s) => (
-                  <tr key={s.codigo} className="hover:bg-slate-50 transition-colors">
+                {filteredSkus.map((s) => {
+                  const isSkuActive = selectedSku?.codigo === s.codigo;
+                  return (
+                  <tr key={s.codigo}
+                    onClick={() => onSkuClick(s)}
+                    className={`cursor-pointer transition-colors ${isSkuActive ? "bg-teal-50" : "hover:bg-slate-50"}`}>
                     <td className="py-2.5 pl-3 w-72">
                       <span className="font-mono text-[10px] text-slate-400 block">{s.codigo}</span>
-                      <span className="text-slate-700 font-medium leading-tight">{s.producto}</span>
+                      <span className={`font-medium leading-tight ${isSkuActive ? "text-teal-700" : "text-slate-700"}`}>{s.producto}</span>
                     </td>
                     <td className="py-2.5 text-right tabular-nums text-slate-700 font-semibold">{fmt(s.venta_neta)}</td>
                     <td className="py-2.5 text-right tabular-nums text-slate-600">{fmtN(s.cantidad)}</td>
@@ -864,11 +1559,382 @@ export default function DashboardNewNacional() {
                       )}
                     </td>
                   </tr>
-                ))}
+                  );
+                })}
               </tbody>
             </table>
           </div>
         )}
+      </div>
+
+      {/* ── Tabla Clientes por fecha ─────────────────────────────────────────── */}
+      <div className="mt-5 flex flex-col lg:flex-row gap-4 items-stretch">
+
+        {/* Card grilla de fechas */}
+        <div className="card flex-1 min-w-0">
+          <div className="flex flex-wrap items-start justify-between gap-3 mb-3">
+            <div>
+              <h2 className="font-semibold text-slate-700 text-sm">Por Cliente</h2>
+              <p className="text-[11px] text-slate-400 mt-0.5">
+                {MESES[mes]} {anho} · {REGIONALES.find(r => r.key === selectedRegional)?.label}
+                {" · "}
+                <span className="text-slate-500">Nombre → acumulado · Fecha → ese día</span>
+              </p>
+              <div className="flex flex-wrap gap-1.5 mt-1.5">
+                {selectedVend && (
+                  <button onClick={() => setSelectedVend(null)}
+                    className="inline-flex items-center gap-1 text-[11px] font-semibold px-2 py-0.5 rounded-full bg-brand-50 text-brand-700 border border-brand-200 hover:bg-brand-100 transition-colors">
+                    Vendedor: {selectedVend} <span className="opacity-60">✕</span>
+                  </button>
+                )}
+                {selectedCli && (
+                  <button onClick={() => { setSelectedCli(null); setSelectedCliFecha(null); }}
+                    className="inline-flex items-center gap-1 text-[11px] font-semibold px-2 py-0.5 rounded-full bg-teal-50 text-teal-700 border border-teal-200 hover:bg-teal-100 transition-colors">
+                    {selectedCli.nombre}{selectedCliFecha ? ` · ${selectedCliFecha.slice(8,10)}/${selectedCliFecha.slice(5,7)}` : " · Todo el mes"} <span className="opacity-60">✕</span>
+                  </button>
+                )}
+              </div>
+            </div>
+            <div className="flex items-center gap-2 flex-wrap justify-end">
+              {/* Toggle Bs / Uds */}
+              <div className="flex rounded-lg border border-slate-200 overflow-hidden">
+                <button onClick={() => setCliViewUds(false)}
+                  className={`px-3 py-1.5 text-[11px] font-semibold transition-all ${!cliViewUds ? "bg-blue-600 text-white" : "bg-white text-slate-500 hover:bg-slate-50"}`}>
+                  Bs
+                </button>
+                <button onClick={() => setCliViewUds(true)}
+                  className={`px-3 py-1.5 text-[11px] font-semibold transition-all border-l border-slate-200 ${cliViewUds ? "bg-blue-600 text-white" : "bg-white text-slate-500 hover:bg-slate-50"}`}>
+                  Uds
+                </button>
+              </div>
+              {/* Toggle orden */}
+              <button onClick={() => setCliSortAsc(v => !v)}
+                className="flex items-center gap-1 px-3 py-1.5 text-[11px] font-semibold border border-slate-200 rounded-lg bg-white text-slate-500 hover:bg-slate-50 transition-all">
+                {cliSortAsc ? <ArrowUp size={11} /> : <ArrowDown size={11} />}
+                {cliSortAsc ? "Menor a mayor" : "Mayor a menor"}
+              </button>
+              {/* Buscador */}
+              <div className="relative">
+                <Search size={13} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" />
+                <input type="text" value={cliSearch} onChange={(e) => setCliSearch(e.target.value)}
+                  placeholder="Buscar cliente..."
+                  className="pl-8 pr-3 py-2 text-xs border border-slate-200 rounded-lg focus:outline-none focus:border-brand-400 bg-white w-44" />
+              </div>
+            </div>
+          </div>
+
+          {loadingCliFechas ? (
+            <div className="space-y-1.5">{Array.from({ length: 6 }).map((_, i) => <div key={i} className="h-8 bg-slate-50 animate-pulse rounded" />)}</div>
+          ) : clientesFlat.length === 0 ? (
+            <div className="h-40 flex items-center justify-center text-slate-400 text-sm">Sin datos</div>
+          ) : (() => {
+            const clienteMap = new Map<string, { nombre: string; fechas: Map<string, { venta_neta: number; cantidad: number }> }>();
+            const fechasSet = new Set<string>();
+            for (const row of clientesFlat) {
+              if (!clienteMap.has(row.codigo)) clienteMap.set(row.codigo, { nombre: row.nombre, fechas: new Map() });
+              fechasSet.add(row.fecha);
+              clienteMap.get(row.codigo)!.fechas.set(row.fecha, { venta_neta: row.venta_neta, cantidad: row.cantidad });
+            }
+            const fechas = Array.from(fechasSet).sort();
+            const q = cliSearch.trim().toLowerCase();
+            const clientes = Array.from(clienteMap.entries())
+              .filter(([, { nombre }]) => !q || nombre.toLowerCase().includes(q))
+              .sort((a, b) => {
+                const totA = Array.from(a[1].fechas.values()).reduce((s, v) => s + (cliViewUds ? v.cantidad : v.venta_neta), 0);
+                const totB = Array.from(b[1].fechas.values()).reduce((s, v) => s + (cliViewUds ? v.cantidad : v.venta_neta), 0);
+                return cliSortAsc ? totA - totB : totB - totA;
+              });
+            return (
+              <div className="overflow-x-auto overflow-y-auto" style={{ maxHeight: 420 }}>
+                <table className="text-xs border-collapse" style={{ minWidth: `${Math.max(400, fechas.length * 76 + 260)}px` }}>
+                  <thead className="sticky top-0 z-20">
+                    <tr>
+                      <th className="sticky left-0 z-30 bg-white text-left py-2 pr-4 font-semibold text-slate-600 shadow-[1px_0_0_0_#f1f5f9] min-w-56 border-b border-slate-100">
+                        Cliente
+                      </th>
+                      {fechas.map(f => (
+                        <th key={f} className="bg-white py-2 px-2 font-semibold text-center text-slate-400 min-w-18 border-b border-slate-100 whitespace-nowrap">
+                          {f.slice(8,10)}/{f.slice(5,7)}
+                        </th>
+                      ))}
+                      <th className="sticky right-0 z-30 bg-white py-2 pl-3 pr-3 font-semibold text-right text-slate-600 shadow-[-1px_0_0_0_#f1f5f9] min-w-24 border-b border-slate-100">
+                        Total
+                      </th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {clientes.map(([codigo, { nombre, fechas: fechaMap }]) => {
+                      const totalMes     = Array.from(fechaMap.values()).reduce((s, v) => s + (cliViewUds ? v.cantidad : v.venta_neta), 0);
+                      const isSelCliente = selectedCli?.codigo === codigo;
+                      return (
+                        <tr key={codigo} className={`border-b border-slate-50 transition-colors ${isSelCliente ? "bg-brand-50" : "hover:bg-slate-50/60"}`}>
+                          <td
+                            className={`sticky left-0 z-10 py-2 pr-4 shadow-[1px_0_0_0_#f1f5f9] cursor-pointer ${isSelCliente ? "bg-brand-50" : "bg-white hover:bg-slate-50"}`}
+                            onClick={() => {
+                              if (isSelCliente && selectedCliFecha === null) {
+                                setSelectedCli(null);
+                              } else {
+                                setSelectedCli({ codigo, nombre });
+                                setSelectedCliFecha(null);
+                              }
+                            }}
+                          >
+                            <div className="flex items-center gap-1.5">
+                              <span className={`shrink-0 text-[9px] font-mono font-semibold px-1 py-0.5 rounded ${isSelCliente ? "bg-brand-100 text-brand-600" : "bg-slate-100 text-slate-400"}`}>
+                                {codigo}
+                              </span>
+                              <span className={`font-semibold leading-snug text-[11px] ${isSelCliente ? "text-brand-700" : "text-slate-700"}`}>{nombre}</span>
+                            </div>
+                          </td>
+                          {fechas.map(f => {
+                            const v         = fechaMap.get(f);
+                            const isSelCell = isSelCliente && selectedCliFecha === f;
+                            return (
+                              <td key={f}
+                                className={`py-1.5 px-2 text-center tabular-nums transition-colors text-[11px] ${
+                                  isSelCell ? "bg-brand-500 text-white font-bold rounded"
+                                  : v        ? "text-slate-700 cursor-pointer hover:bg-brand-50 hover:text-brand-700"
+                                  :            "text-slate-200"
+                                }`}
+                                onClick={() => {
+                                  if (!v) return;
+                                  if (isSelCell) {
+                                    setSelectedCliFecha(null);
+                                    setSelectedCli({ codigo, nombre });
+                                  } else {
+                                    setSelectedCli({ codigo, nombre });
+                                    setSelectedCliFecha(f);
+                                  }
+                                }}
+                              >
+                                {v ? fmtN(cliViewUds ? v.cantidad : v.venta_neta) : "—"}
+                              </td>
+                            );
+                          })}
+                          <td className={`sticky right-0 z-10 py-2 pl-3 pr-3 text-right tabular-nums font-bold shadow-[-1px_0_0_0_#f1f5f9] ${isSelCliente ? "bg-brand-50 text-brand-700" : "bg-white text-slate-700"}`}>
+                            {fmtN(totalMes)}
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                  <tfoot className="sticky bottom-0 z-20">
+                    <tr className="border-t border-slate-200">
+                      <td className="sticky left-0 z-30 py-2 pr-4 font-bold text-slate-700 bg-slate-50 shadow-[1px_0_0_0_#e2e8f0]">
+                        Total
+                      </td>
+                      {fechas.map(f => {
+                        const colTotal = clientes.reduce((s, [, { fechas: fm }]) => s + (cliViewUds ? (fm.get(f)?.cantidad ?? 0) : (fm.get(f)?.venta_neta ?? 0)), 0);
+                        return (
+                          <td key={f} className="py-2 px-2 text-center tabular-nums font-bold text-slate-700 bg-slate-50 text-[11px]">
+                            {colTotal > 0 ? fmtN(colTotal) : "—"}
+                          </td>
+                        );
+                      })}
+                      <td className="sticky right-0 z-30 py-2 pl-3 pr-3 text-right tabular-nums font-bold text-brand-700 bg-slate-50 shadow-[-1px_0_0_0_#e2e8f0]">
+                        {fmtN(clientes.reduce((s, [, { fechas: fm }]) => s + Array.from(fm.values()).reduce((ss, v) => ss + (cliViewUds ? v.cantidad : v.venta_neta), 0), 0))}
+                      </td>
+                    </tr>
+                  </tfoot>
+                </table>
+              </div>
+            );
+          })()}
+        </div>
+
+        {/* Panel SKUs del cliente — aparece a la derecha al seleccionar */}
+        {selectedCli && (
+          <div className="card lg:w-96 flex flex-col gap-3 shrink-0">
+            <div className="flex items-start justify-between">
+              <div>
+                <p className="text-[10px] uppercase tracking-widest text-slate-400 font-semibold">SKUs vendidos</p>
+                <p className="text-sm font-semibold text-slate-700 mt-0.5 leading-tight">{selectedCli.nombre}</p>
+                <p className="text-[11px] text-slate-400 mt-0.5">{selectedCli.codigo}</p>
+                <p className="text-[11px] font-semibold mt-0.5 text-slate-500">
+                  {selectedCliFecha
+                    ? `${selectedCliFecha.slice(8,10)}/${selectedCliFecha.slice(5,7)}/${selectedCliFecha.slice(0,4)}`
+                    : "Todo el mes"}
+                </p>
+              </div>
+              <button onClick={() => { setSelectedCli(null); setSelectedCliFecha(null); }}
+                className="text-slate-400 hover:text-slate-600 transition-colors text-lg leading-none mt-0.5">✕</button>
+            </div>
+
+            <div className="relative">
+              <Search size={13} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" />
+              <input type="text" value={cliSkuSearch} onChange={(e) => setCliSkuSearch(e.target.value)}
+                placeholder="Buscar SKU..."
+                className="w-full pl-8 pr-3 py-2 text-xs border border-slate-200 rounded-lg focus:outline-none focus:border-brand-400 bg-white" />
+              {filteredCliSkus.length !== cliSkus.length && (
+                <span className="absolute right-3 top-1/2 -translate-y-1/2 text-[10px] text-slate-400">
+                  {filteredCliSkus.length}/{cliSkus.length}
+                </span>
+              )}
+            </div>
+
+            {loadingCliSkus ? (
+              <div className="h-40 flex items-center justify-center text-slate-400 text-sm">Cargando...</div>
+            ) : cliSkus.length === 0 ? (
+              <div className="h-40 flex items-center justify-center text-slate-400 text-sm">Sin datos</div>
+            ) : (
+              <>
+                <div className="overflow-auto max-h-80 flex-1">
+                  <table className="w-full text-xs">
+                    <thead className="sticky top-0 bg-white">
+                      <tr className="border-b border-slate-100 text-slate-400 text-[11px] uppercase tracking-wider">
+                        <th className="text-left py-2 pb-3 font-semibold">Producto</th>
+                        <th className="text-right py-2 pb-3 font-semibold">Uds.</th>
+                        <th className="text-right py-2 pb-3 pr-3 font-semibold">Bs.</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-50">
+                      {filteredCliSkus.map((s) => (
+                        <tr key={s.codigo} className="hover:bg-slate-50/60">
+                          <td className="py-2.5 pr-2 text-slate-700 leading-tight">{s.producto}</td>
+                          <td className="py-2.5 text-right tabular-nums text-slate-600 whitespace-nowrap">{fmtN(s.cantidad)}</td>
+                          <td className="py-2.5 text-right tabular-nums text-slate-700 font-semibold whitespace-nowrap pr-3">{fmt(s.venta_neta)}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+                <div className="pt-3 border-t border-slate-100 flex justify-between text-xs font-bold text-slate-700">
+                  <span>Total{filteredCliSkus.length !== cliSkus.length ? ` (${filteredCliSkus.length}/${cliSkus.length})` : ""}</span>
+                  <div className="flex gap-5">
+                    <span>{fmtN(filteredCliSkus.reduce((a, s) => a + s.cantidad, 0))} uds.</span>
+                    <span>{fmt(filteredCliSkus.reduce((a, s) => a + s.venta_neta, 0))}</span>
+                  </div>
+                </div>
+              </>
+            )}
+          </div>
+        )}
+      </div>
+
+      {/* ── Tendencia + Canal ────────────────────────────────────────────────── */}
+      <div className="grid grid-cols-10 gap-4 mt-5">
+
+        {/* Tendencia */}
+        <div className="card col-span-10">
+          <div className="flex items-center justify-between mb-4">
+            <div>
+              <h2 className="font-semibold text-slate-700 text-sm">Tendencia de Ventas</h2>
+              <span className="text-xs text-slate-400">{REGIONALES.find(r => r.key === selectedRegional)?.label ?? "Nacional"} · {MESES[mes]} {anho}</span>
+            </div>
+            {/* Toggle Proyectado / Evolutivo */}
+            <div className="flex items-center gap-0.5 bg-slate-100 p-0.5 rounded-lg">
+              {(["proyectado", "evolutivo"] as const).map(m => (
+                <button key={m} onClick={() => setTendenciaMode(m)}
+                  className={`px-3 py-1.5 rounded-md text-xs font-semibold transition-colors ${
+                    tendenciaMode === m ? "bg-white text-slate-800 shadow-sm" : "text-slate-500 hover:text-slate-700"
+                  }`}>
+                  {m === "proyectado" ? "Proyectado" : "Evolutivo"}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          {/* ── Vista Proyectado ── */}
+          {tendenciaMode === "proyectado" && (
+            loadingNac ? (
+              <div className="h-56 flex items-center justify-center text-slate-400 text-sm">Cargando...</div>
+            ) : tendencia.length === 0 ? (
+              <div className="h-56 flex items-center justify-center text-slate-400 text-sm">
+                <div className="text-center"><TrendingUp size={28} className="mx-auto mb-2 opacity-30" /><p>Sin datos</p></div>
+              </div>
+            ) : (
+              <>
+                <ResponsiveContainer width="100%" height={220}>
+                  <LineChart data={tendencia} margin={{ top: 4, right: 12, left: 0, bottom: 4 }}>
+                    <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" />
+                    <XAxis dataKey="dia" tick={{ fontSize: 11 }} interval={3} />
+                    <YAxis tick={{ fontSize: 11 }} tickFormatter={(v) => `${(v/1_000_000).toFixed(1)}M`} width={48} />
+                    <Tooltip content={<TooltipTendencia />} />
+                    <Line dataKey="avance_acumulado" name="Avance" stroke="#3b82f6" strokeWidth={2.5} dot={false} connectNulls />
+                    {esPeriodoActual && <Line dataKey="proyeccion_acumulada" name="Proyección" stroke="#f97316" strokeWidth={2} strokeDasharray="6 3" dot={false} connectNulls />}
+                    <Line dataKey="presupuesto_acumulado" name="Presupuesto" stroke="#22c55e" strokeWidth={2} strokeDasharray="6 4" dot={false} connectNulls />
+                  </LineChart>
+                </ResponsiveContainer>
+                <div className="flex flex-wrap gap-5 text-xs text-slate-400 pt-2 border-t border-slate-100 mt-2">
+                  <span className="flex items-center gap-2"><svg width="24" height="8"><line x1="0" y1="4" x2="24" y2="4" stroke="#22c55e" strokeWidth="2" strokeDasharray="5 3" /></svg>Presupuesto</span>
+                  <span className="flex items-center gap-2"><svg width="24" height="8"><line x1="0" y1="4" x2="24" y2="4" stroke="#3b82f6" strokeWidth="2.5" /></svg>Avance</span>
+                  {esPeriodoActual && <span className="flex items-center gap-2"><svg width="24" height="8"><line x1="0" y1="4" x2="24" y2="4" stroke="#f97316" strokeWidth="2" strokeDasharray="6 3" /></svg>Proyección</span>}
+                </div>
+              </>
+            )
+          )}
+
+          {/* ── Vista Evolutivo: barras 6 meses + tendencia ── */}
+          {tendenciaMode === "evolutivo" && (
+            loadingEvo ? (
+              <div className="h-56 flex items-center justify-center text-slate-400 text-sm">Cargando...</div>
+            ) : evoData.length === 0 ? (
+              <div className="h-56 flex items-center justify-center text-slate-400 text-sm">
+                <div className="text-center"><TrendingUp size={28} className="mx-auto mb-2 opacity-30" /><p>Sin datos</p></div>
+              </div>
+            ) : (
+              <>
+                <ResponsiveContainer width="100%" height={220}>
+                  <ComposedChart data={evoData} margin={{ top: 4, right: 12, left: 0, bottom: 4 }} barCategoryGap="30%">
+                    <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" />
+                    <XAxis dataKey="_key" tick={{ fontSize: 11, fontWeight: 600 }} />
+                    <YAxis tick={{ fontSize: 11 }} tickFormatter={(v) => `${(v/1_000_000).toFixed(1)}M`} width={48} />
+                    <Tooltip
+                      content={({ active, payload, label }) => {
+                        if (!active || !payload?.length) return null;
+                        const row = evoData.find(d => d._key === label);
+                        if (!row) return null;
+                        return (
+                          <div className="bg-white border border-slate-200 rounded-xl shadow-xl p-3 text-xs min-w-44">
+                            <p className="font-semibold text-slate-700 mb-2">{label}{row.esMesActual ? " · mes actual" : ""}</p>
+                            <div className="flex justify-between gap-4 mb-1">
+                              <span className="flex items-center gap-1.5 text-slate-500">
+                                <span className="w-2.5 h-2.5 rounded-sm" style={{ background: row.esMesActual ? "#93c5fd" : "#3b82f6" }} />
+                                {row.esMesActual ? "Avance parcial" : "Ventas"}
+                              </span>
+                              <span className="font-semibold text-slate-800">{fmt(row.valor)}</span>
+                            </div>
+                            {row.esMesActual && row.valorProyectado != null && (
+                              <>
+                                <div className="flex justify-between gap-4">
+                                  <span className="flex items-center gap-1.5 text-slate-500">
+                                    <span className="w-2.5 h-2.5 rounded-sm bg-amber-400" />Proyección cierre
+                                  </span>
+                                  <span className="font-semibold text-amber-600">{fmt(row.valorProyectado)}</span>
+                                </div>
+                                <p className="text-[10px] text-slate-400 mt-1.5 border-t border-slate-100 pt-1.5">
+                                  Promedio de los últimos 3 meses completos
+                                </p>
+                              </>
+                            )}
+                          </div>
+                        );
+                      }}
+                    />
+                    <Bar dataKey="valor" name="Ventas Bs" radius={[4, 4, 0, 0]}>
+                      {evoData.map((d, i) => <Cell key={i} fill={d.esMesActual ? "#93c5fd" : "#3b82f6"} />)}
+                    </Bar>
+                    {/* Línea histórica sólida — sigue las subidas y bajadas reales */}
+                    <Line dataKey="lineHistorica" name="Evolución" stroke="#1d4ed8" strokeWidth={2.5}
+                      dot={{ r: 4, fill: "#1d4ed8", strokeWidth: 0 }} activeDot={{ r: 6 }}
+                      connectNulls={false} legendType="none" />
+                    {/* Línea de proyección punteada — del último mes completo al proyectado */}
+                    <Line dataKey="lineProyectada" name="Proyección" stroke="#f59e0b" strokeWidth={2.5}
+                      dot={{ r: 4, fill: "#f59e0b", strokeWidth: 0 }} activeDot={{ r: 6 }}
+                      strokeDasharray="6 3" connectNulls={false} legendType="none" />
+                  </ComposedChart>
+                </ResponsiveContainer>
+                <div className="flex flex-wrap gap-5 text-xs text-slate-400 pt-2 border-t border-slate-100 mt-2">
+                  <span className="flex items-center gap-2"><span className="w-4 h-3 rounded-sm bg-blue-600 inline-block" />Ventas (mes completo)</span>
+                  <span className="flex items-center gap-2"><span className="w-4 h-3 rounded-sm bg-blue-300 inline-block" />Mes actual (parcial)</span>
+                  <span className="flex items-center gap-2"><svg width="24" height="8"><line x1="0" y1="4" x2="24" y2="4" stroke="#1d4ed8" strokeWidth="2.5" /></svg>Evolución real</span>
+                  <span className="flex items-center gap-2"><svg width="24" height="8"><line x1="0" y1="4" x2="24" y2="4" stroke="#f59e0b" strokeWidth="2" strokeDasharray="6 3" /></svg>Proyección cierre</span>
+                </div>
+              </>
+            )
+          )}
+        </div>
+
       </div>
 
     </DashboardLayout>

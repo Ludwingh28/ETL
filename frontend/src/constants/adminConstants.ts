@@ -101,7 +101,8 @@ export const DASHBOARD_GROUPS: DashboardGroup[] = [
   {
     grupo: 'Mock-ups',
     items: [
-      { id: 'new-nacional', label: 'Ventas Nacional (Mock-up)' },
+      { id: 'new-nacional',        label: 'Ventas Nacional (Mock-up)' },
+      { id: 'vendedores-personal', label: 'Dashboard Vendedor'        },
     ],
   },
   {
@@ -121,7 +122,7 @@ export const PERMISOS_POR_CARGO: Record<Cargo, string[]> = {
   'Gerente de Ventas':          ['nacional', 'regionales', 'canales', 'supervisores', 'unidades-vendidas', 'unidades-supervisores', 'informacion-rutas', 'tendencia-estacional', 'ticket-promedio', 'ficha-sku', 'distribucion-rutas', 'comportamiento-productos', 'margen-bruto'],
   'Gerente Regional':           ['regionales', 'canales', 'supervisores', 'preventas-realizadas', 'avances-ventas', 'unidades-vendidas', 'unidades-supervisores', 'informacion-rutas', 'tendencia-estacional', 'distribucion-rutas', 'comportamiento-productos'],
   'Supervisor':                  ['canales', 'supervisores', 'preventas-realizadas', 'avances-ventas', 'unidades-supervisores', 'informacion-rutas', 'distribucion-rutas'],
-  'Vendedor':                    ['preventas-realizadas', 'avances-ventas'],
+  'Vendedor':                    ['vendedores-personal', 'preventas-realizadas', 'avances-ventas'],
   'Proveedor':                   ['lista-precios', 'pepsico', 'softys', 'dmujer', 'apego', 'colher'],
   'Analista de Datos':          ['nacional', 'regionales', 'canales', 'supervisores', 'preventas-realizadas', 'avances-ventas', 'unidades-vendidas', 'unidades-supervisores', 'informacion-rutas', 'ticket-promedio', 'ficha-sku', 'comportamiento-productos', 'margen-bruto', 'matriz', 'descargas'],
   'Administrador de Sistema':   ALL_DASHBOARD_IDS,
