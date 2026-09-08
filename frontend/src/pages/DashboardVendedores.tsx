@@ -350,10 +350,13 @@ export default function DashboardVendedores() {
   const [skuSearch,   setSkuSearch]   = useState("");
   const [skuSortKey,  setSkuSortKey]  = useState<SkuSortKey>("presupuesto");
   const [skuSortDir,  setSkuSortDir]  = useState<SortDir>("desc");
-  const [cliSearch,   setCliSearch]   = useState("");
+  const [cliSearch,    setCliSearch]    = useState("");
+  const [cliViewUds,   setCLiViewUds]   = useState(false);
+  const [cliSortAsc,   setCliSortAsc]   = useState(false);
+  const [cliDateFilter, setCLiDateFilter] = useState<string>("");
 
   // ── Reset drills cuando cambian filtros base ──────────────────────────────────
-  function resetDrill() { setCompDrill(null); setSelectedSku(null); setSelectedCli(null); setSelectedCliFecha(null); }
+  function resetDrill() { setCompDrill(null); setSelectedSku(null); setSelectedCli(null); setSelectedCliFecha(null); setCLiDateFilter(""); }
   function onCats(v: string[])      { setFCats(v);  setFSubs([]); setFProvs([]); setFMarcs([]); setFProductos([]); resetDrill(); }
   function onSubs(v: string[])      { setFSubs(v);  setFProvs([]); setFMarcs([]); setFProductos([]); resetDrill(); }
   function onProvs(v: string[])     { setFProvs(v); setFMarcs([]); setFProductos([]); resetDrill(); }
@@ -494,6 +497,8 @@ export default function DashboardVendedores() {
   const totalVendedor  = kpisData.total_vendedor != null ? (kpisData.total_vendedor  as number) : null;
   const rutaActiva     = fRutas.length > 0;
   const pctCumpl       = pptoTotal > 0 ? ventaTotal / pptoTotal * 100 : null;
+  const pctCumplUds    = pptoUdsTotal > 0 ? cantTotal / pptoUdsTotal * 100 : null;
+  const gapUds         = cantTotal - pptoUdsTotal;
   const pctParticip    = totalVendedor != null && totalVendedor > 0
     ? ventaTotal / totalVendedor * 100 : null;
   const pctCambMes     = totalAnterior != null && totalAnterior > 0
@@ -538,16 +543,20 @@ export default function DashboardVendedores() {
 
   const filteredCliRows = useMemo(() => {
     const q = cliSearch.trim().toLowerCase();
-    const entries = [...clienteMap.m.entries()].filter(([cod]) => {
+    let entries = [...clienteMap.m.entries()].filter(([cod]) => {
       const nom = clienteMap.info.get(cod) ?? "";
       return !q || nom.toLowerCase().includes(q) || cod.toLowerCase().includes(q);
     });
+    if (cliDateFilter) {
+      entries = entries.filter(([, fm]) => fm.has(cliDateFilter));
+    }
+    const valKey = cliViewUds ? "cantidad" : "venta_neta";
     return entries.sort((a, b) => {
-      const totA = [...a[1].values()].reduce((s, v) => s + v.venta_neta, 0);
-      const totB = [...b[1].values()].reduce((s, v) => s + v.venta_neta, 0);
-      return totB - totA;
+      const totA = [...a[1].values()].reduce((s, v) => s + v[valKey], 0);
+      const totB = [...b[1].values()].reduce((s, v) => s + v[valKey], 0);
+      return cliSortAsc ? totA - totB : totB - totA;
     });
-  }, [clienteMap, cliSearch]);
+  }, [clienteMap, cliSearch, cliDateFilter, cliViewUds, cliSortAsc]);
 
   const filteredCliSkus = useMemo(() => {
     const q = cliSkuSearch.trim().toLowerCase();
@@ -760,10 +769,20 @@ export default function DashboardVendedores() {
           />
           <div className="card flex-1 min-w-44">
             <p className="text-[11px] font-semibold text-slate-400 uppercase tracking-wider mb-1">Unidades Vendidas</p>
-            <p className="text-xl font-bold text-slate-800 leading-tight">{fmtN(cantTotal)}</p>
+            <p className="text-xl font-bold text-slate-800 leading-tight tabular-nums">{fmtN(cantTotal)}</p>
             {pptoUdsTotal > 0 && (
               <p className="text-[11px] text-slate-400 mt-0.5">/ {fmtN(pptoUdsTotal)} ppto.</p>
             )}
+            <div className="flex items-center gap-2 mt-1.5">
+              {pctCumplUds != null && (
+                <span className={`text-sm font-bold ${cumplColor(pctCumplUds)}`}>{fmtPct(pctCumplUds)}</span>
+              )}
+              {pptoUdsTotal > 0 && (
+                <span className={`text-[10px] font-semibold ${gapUds >= 0 ? "text-emerald-600" : "text-red-500"}`}>
+                  {gapUds >= 0 ? "+" : ""}{fmtN(gapUds)}
+                </span>
+              )}
+            </div>
           </div>
           <div className="card flex-1 min-w-44">
             <p className="text-[11px] font-semibold text-slate-400 uppercase tracking-wider mb-1">Clientes Activos</p>
@@ -997,6 +1016,39 @@ export default function DashboardVendedores() {
                 </span>
               )}
             </div>
+            {/* Controles: fecha, Bs/Uds, sort */}
+            <div className="flex flex-wrap items-center gap-2">
+              {uniqueFechas.length > 0 && (
+                <div className="flex flex-col gap-0.5">
+                  <span className="text-[10px] uppercase tracking-widest text-slate-400 font-semibold">Fecha</span>
+                  <select
+                    value={cliDateFilter}
+                    onChange={e => { setCLiDateFilter(e.target.value); setSelectedCli(null); setSelectedCliFecha(null); }}
+                    className="text-xs border border-slate-200 rounded-lg px-2.5 py-1.5 bg-white text-slate-700 focus:outline-none focus:ring-2 focus:ring-brand-400">
+                    <option value="">Todas las fechas</option>
+                    {uniqueFechas.map(f => (
+                      <option key={f} value={f}>
+                        {new Date(f + "T00:00:00").toLocaleDateString("es-BO", { day: "2-digit", month: "short" })}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              )}
+              <div className="flex rounded-lg overflow-hidden border border-slate-200 text-[11px] font-semibold self-end">
+                <button onClick={() => setCLiViewUds(false)}
+                  className={`px-2.5 py-1.5 transition-colors ${!cliViewUds ? "bg-brand-600 text-white" : "bg-white text-slate-500 hover:bg-slate-50"}`}>
+                  Bs.
+                </button>
+                <button onClick={() => setCLiViewUds(true)}
+                  className={`px-2.5 py-1.5 transition-colors ${cliViewUds ? "bg-brand-600 text-white" : "bg-white text-slate-500 hover:bg-slate-50"}`}>
+                  Uds.
+                </button>
+              </div>
+              <button onClick={() => setCliSortAsc(a => !a)}
+                className="flex items-center gap-1 text-[11px] font-semibold px-2.5 py-1.5 rounded-lg border border-slate-200 bg-white text-slate-500 hover:border-brand-400 hover:text-brand-600 transition-all self-end">
+                {cliSortAsc ? <ArrowUp size={12} /> : <ArrowDown size={12} />}
+              </button>
+            </div>
           </div>
 
           <div className="relative mb-3">
@@ -1010,88 +1062,92 @@ export default function DashboardVendedores() {
             <div className="h-40 flex items-center justify-center text-slate-400 text-sm">Cargando…</div>
           ) : filteredCliRows.length === 0 ? (
             <div className="h-40 flex items-center justify-center text-slate-400 text-sm">Sin datos</div>
-          ) : (
-            <div className="overflow-x-auto overflow-y-auto" style={{ maxHeight: 420 }}>
-              <table className="text-xs border-collapse"
-                style={{ minWidth: `${Math.max(400, uniqueFechas.length * 80 + 280)}px` }}>
-                <thead className="sticky top-0 z-20">
-                  <tr>
-                    <th className="sticky left-0 z-30 bg-white text-left py-2 pr-4 font-semibold text-slate-400 uppercase tracking-wider shadow-[1px_0_0_0_#f1f5f9] min-w-48 border-b border-slate-100 pl-1">
-                      Cliente
-                    </th>
-                    {uniqueFechas.map(f => (
-                      <th key={f} className="bg-white py-2 px-2 font-semibold text-center text-slate-400 uppercase tracking-wider min-w-20 border-b border-slate-100 whitespace-nowrap">
-                        {f.slice(8, 10)}/{f.slice(5, 7)}
+          ) : (() => {
+            const displayFechas = cliDateFilter ? [cliDateFilter] : uniqueFechas;
+            const valKey = cliViewUds ? "cantidad" : "venta_neta";
+            return (
+              <div className="overflow-x-auto overflow-y-auto" style={{ maxHeight: 420 }}>
+                <table className="text-xs border-collapse"
+                  style={{ minWidth: `${Math.max(400, displayFechas.length * 80 + 280)}px` }}>
+                  <thead className="sticky top-0 z-20">
+                    <tr>
+                      <th className="sticky left-0 z-30 bg-white text-left py-2 pr-4 font-semibold text-slate-400 uppercase tracking-wider shadow-[1px_0_0_0_#f1f5f9] min-w-48 border-b border-slate-100 pl-1">
+                        Cliente
                       </th>
-                    ))}
-                    <th className="sticky right-0 z-30 bg-white py-2 pl-3 pr-3 font-semibold text-right text-slate-400 uppercase tracking-wider shadow-[-1px_0_0_0_#f1f5f9] min-w-24 border-b border-slate-100 whitespace-nowrap">
-                      Total
-                    </th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {filteredCliRows.map(([cod, fechaMap]) => {
-                    const nombre     = clienteMap.info.get(cod) ?? cod;
-                    const isActive   = selectedCli?.codigo === cod;
-                    const totalVenta = [...fechaMap.values()].reduce((s, v) => s + v.venta_neta, 0);
-                    return (
-                      <tr key={cod} className={`border-b border-slate-50 transition-colors ${isActive ? "bg-brand-50" : "hover:bg-slate-50/60"}`}>
-                        <td
-                          className={`sticky left-0 z-10 py-2 pr-4 pl-1 shadow-[1px_0_0_0_#f1f5f9] cursor-pointer ${isActive ? "bg-brand-50" : "bg-white hover:bg-slate-50"}`}
-                          onClick={() => {
-                            if (isActive && selectedCliFecha == null) { setSelectedCli(null); }
-                            else { setSelectedCli({ codigo: cod, nombre }); setSelectedCliFecha(null); }
-                          }}>
-                          <span className={`block font-semibold leading-snug ${isActive && !selectedCliFecha ? "text-brand-700" : "text-slate-700"}`}>{nombre}</span>
-                          <span className="text-[10px] text-slate-400 font-mono">{cod}</span>
-                        </td>
-                        {uniqueFechas.map(f => {
-                          const cell       = fechaMap.get(f);
-                          const isCellActive = isActive && selectedCliFecha === f;
-                          return (
-                            <td key={f}
-                              onClick={() => {
-                                if (!cell) return;
-                                if (isCellActive) { setSelectedCliFecha(null); setSelectedCli({ codigo: cod, nombre }); }
-                                else { setSelectedCli({ codigo: cod, nombre }); setSelectedCliFecha(f); }
-                              }}
-                              className={`py-1.5 px-2 text-center tabular-nums transition-colors text-[11px] ${
-                                isCellActive ? "bg-brand-500 text-white font-bold rounded"
-                                : cell       ? "text-slate-700 cursor-pointer hover:bg-brand-50 hover:text-brand-700"
-                                :              "text-slate-200"
-                              }`}>
-                              {cell ? fmtN(cell.venta_neta) : "—"}
-                            </td>
-                          );
-                        })}
-                        <td className={`sticky right-0 z-10 py-2 pl-3 pr-3 text-right tabular-nums font-bold shadow-[-1px_0_0_0_#f1f5f9] ${isActive && !selectedCliFecha ? "bg-brand-50 text-brand-700" : "bg-white text-slate-700"}`}>
-                          {fmtN(totalVenta)}
-                        </td>
-                      </tr>
-                    );
-                  })}
-                </tbody>
-                <tfoot className="sticky bottom-0 z-20">
-                  <tr className="border-t border-slate-200">
-                    <td className="sticky left-0 z-30 py-2 pr-4 pl-1 font-bold text-slate-700 bg-slate-50 shadow-[1px_0_0_0_#e2e8f0]">
-                      Total
-                    </td>
-                    {uniqueFechas.map(f => {
-                      const colTotal = filteredCliRows.reduce((s, [, fm]) => s + (fm.get(f)?.venta_neta ?? 0), 0);
+                      {displayFechas.map(f => (
+                        <th key={f} className="bg-white py-2 px-2 font-semibold text-center text-slate-400 uppercase tracking-wider min-w-20 border-b border-slate-100 whitespace-nowrap">
+                          {f.slice(8, 10)}/{f.slice(5, 7)}
+                        </th>
+                      ))}
+                      <th className="sticky right-0 z-30 bg-white py-2 pl-3 pr-3 font-semibold text-right text-slate-400 uppercase tracking-wider shadow-[-1px_0_0_0_#f1f5f9] min-w-24 border-b border-slate-100 whitespace-nowrap">
+                        {cliViewUds ? "Uds." : "Total"}
+                      </th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {filteredCliRows.map(([cod, fechaMap]) => {
+                      const nombre   = clienteMap.info.get(cod) ?? cod;
+                      const isActive = selectedCli?.codigo === cod;
+                      const totalVal = [...fechaMap.values()].reduce((s, v) => s + v[valKey], 0);
                       return (
-                        <td key={f} className="py-2 px-2 text-center tabular-nums font-bold text-slate-700 bg-slate-50 text-[11px]">
-                          {colTotal > 0 ? fmtN(colTotal) : "—"}
-                        </td>
+                        <tr key={cod} className={`border-b border-slate-50 transition-colors ${isActive ? "bg-brand-50" : "hover:bg-slate-50/60"}`}>
+                          <td
+                            className={`sticky left-0 z-10 py-2 pr-4 pl-1 shadow-[1px_0_0_0_#f1f5f9] cursor-pointer ${isActive ? "bg-brand-50" : "bg-white hover:bg-slate-50"}`}
+                            onClick={() => {
+                              if (isActive && selectedCliFecha == null) { setSelectedCli(null); }
+                              else { setSelectedCli({ codigo: cod, nombre }); setSelectedCliFecha(null); }
+                            }}>
+                            <span className={`block font-semibold leading-snug ${isActive && !selectedCliFecha ? "text-brand-700" : "text-slate-700"}`}>{nombre}</span>
+                            <span className="text-[10px] text-slate-400 font-mono">{cod}</span>
+                          </td>
+                          {displayFechas.map(f => {
+                            const cell         = fechaMap.get(f);
+                            const isCellActive = isActive && selectedCliFecha === f;
+                            return (
+                              <td key={f}
+                                onClick={() => {
+                                  if (!cell) return;
+                                  if (isCellActive) { setSelectedCliFecha(null); setSelectedCli({ codigo: cod, nombre }); }
+                                  else { setSelectedCli({ codigo: cod, nombre }); setSelectedCliFecha(f); }
+                                }}
+                                className={`py-1.5 px-2 text-center tabular-nums transition-colors text-[11px] ${
+                                  isCellActive ? "bg-brand-500 text-white font-bold rounded"
+                                  : cell       ? "text-slate-700 cursor-pointer hover:bg-brand-50 hover:text-brand-700"
+                                  :              "text-slate-200"
+                                }`}>
+                                {cell ? fmtN(cell[valKey]) : "—"}
+                              </td>
+                            );
+                          })}
+                          <td className={`sticky right-0 z-10 py-2 pl-3 pr-3 text-right tabular-nums font-bold shadow-[-1px_0_0_0_#f1f5f9] ${isActive && !selectedCliFecha ? "bg-brand-50 text-brand-700" : "bg-white text-slate-700"}`}>
+                            {fmtN(totalVal)}
+                          </td>
+                        </tr>
                       );
                     })}
-                    <td className="sticky right-0 z-30 py-2 pl-3 pr-3 text-right tabular-nums font-bold text-brand-700 bg-slate-50 shadow-[-1px_0_0_0_#e2e8f0]">
-                      {fmtN(filteredCliRows.reduce((s, [, fm]) => s + [...fm.values()].reduce((ss, v) => ss + v.venta_neta, 0), 0))}
-                    </td>
-                  </tr>
-                </tfoot>
-              </table>
-            </div>
-          )}
+                  </tbody>
+                  <tfoot className="sticky bottom-0 z-20">
+                    <tr className="border-t border-slate-200">
+                      <td className="sticky left-0 z-30 py-2 pr-4 pl-1 font-bold text-slate-700 bg-slate-50 shadow-[1px_0_0_0_#e2e8f0]">
+                        Total
+                      </td>
+                      {displayFechas.map(f => {
+                        const colTotal = filteredCliRows.reduce((s, [, fm]) => s + (fm.get(f)?.[valKey] ?? 0), 0);
+                        return (
+                          <td key={f} className="py-2 px-2 text-center tabular-nums font-bold text-slate-700 bg-slate-50 text-[11px]">
+                            {colTotal > 0 ? fmtN(colTotal) : "—"}
+                          </td>
+                        );
+                      })}
+                      <td className="sticky right-0 z-30 py-2 pl-3 pr-3 text-right tabular-nums font-bold text-brand-700 bg-slate-50 shadow-[-1px_0_0_0_#e2e8f0]">
+                        {fmtN(filteredCliRows.reduce((s, [, fm]) => s + [...fm.values()].reduce((ss, v) => ss + v[valKey], 0), 0))}
+                      </td>
+                    </tr>
+                  </tfoot>
+                </table>
+              </div>
+            );
+          })()}
         </div>
 
         {/* Panel SKUs del cliente */}

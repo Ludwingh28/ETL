@@ -24,9 +24,8 @@ export default function WhatsNewModal() {
 
   if (!open || !user) return null;
 
-  const entry = CHANGELOG[0]; // versión más reciente
+  const entry = CHANGELOG[0];
 
-  // Dashboards nuevos a los que este usuario tiene acceso
   const perms: string[] = (user as any).dashboard_permissions ?? [];
   const myNewDashboards = entry.newDashboardPerms.filter((p) =>
     perms.includes(p)
@@ -55,7 +54,6 @@ export default function WhatsNewModal() {
         {/* Body */}
         <div className="overflow-y-auto scrollbar-thin scrollbar-thumb-slate-200 scrollbar-track-transparent px-6 py-4 space-y-5">
 
-          {/* Dashboards nuevos para este usuario */}
           {myNewDashboards.length > 0 && (
             <section>
               <div className="flex items-center gap-1.5 mb-2">
@@ -75,7 +73,6 @@ export default function WhatsNewModal() {
             </section>
           )}
 
-          {/* Novedades */}
           {entry.features.length > 0 && (
             <section>
               <div className="flex items-center gap-1.5 mb-2">
@@ -95,7 +92,6 @@ export default function WhatsNewModal() {
             </section>
           )}
 
-          {/* Correcciones */}
           {entry.fixes.length > 0 && (
             <section>
               <div className="flex items-center gap-1.5 mb-2">

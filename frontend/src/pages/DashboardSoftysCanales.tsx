@@ -1,7 +1,7 @@
 import { useEffect, useState, useCallback, useMemo, type ChangeEvent } from "react";
 import { DollarSign, ShoppingCart, Store, Building2, Wine, Truck, RefreshCw, UtensilsCrossed, BarChart2, Globe, Layers, Package, AlertCircle, Search, TrendingUp, Download } from "lucide-react";
 import ExcelJS from "exceljs";
-import { ResponsiveContainer, LineChart, Line, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Cell } from "recharts";
+import { ResponsiveContainer, ComposedChart, LineChart, Line, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip } from "recharts";
 import type { LucideIcon } from "lucide-react";
 import { useAuth } from "../context/AuthContext";
 import DashboardLayout from "../components/DashboardLayout";
@@ -124,9 +124,14 @@ const SOFTYS_GRUPO_CONFIG: Record<SoftysGrupo, { color: string; bg: string; acti
   "Servilletas":          { color: "text-orange-700", bg: "bg-orange-50", active: "bg-orange-500 text-white" },
 };
 
-// Conversion rates (pending confirmation)
-const CAJA_SIZE: number | null = null;
-const JAVA_SIZE: number | null = null;
+// Factores de conversión — pendientes de confirmación, reservados para toggle Uds/Caja/Java
+export const CAJA_SIZE: number | null = null;
+export const JAVA_SIZE: number | null = null;
+export function unidadLabel(u: "uds" | "caja" | "java") {
+  if (u === "caja") return CAJA_SIZE ? `Cajas (÷${CAJA_SIZE})` : "Cajas";
+  if (u === "java") return JAVA_SIZE ? `Javas (÷${JAVA_SIZE})` : "Javas";
+  return "Uds";
+}
 
 const CHART_COLORS = [
   "#3b82f6","#22c55e","#f59e0b","#ef4444","#8b5cf6",
@@ -280,29 +285,29 @@ function CanalCard({ nombre, avance, objetivo, clientes, universo, cobertura, se
         {selected && <span className="ml-auto shrink-0 text-[9px] bg-brand-500 text-white px-1.5 py-0.5 rounded-full font-bold uppercase tracking-wide">✓</span>}
       </div>
 
-      {/* 70 / 30 split */}
-      <div className="flex gap-3 items-stretch">
-        {/* Left ~65%: ventas, presupuesto, gap + % */}
-        <div className="flex-7 min-w-0">
-          <p className={`text-lg font-bold leading-tight ${selected ? "text-brand-800" : "text-slate-800"}`}>{fmt(avance)}</p>
-          <p className="text-[10px] text-slate-400 mt-0.5 mb-2">/ {fmt(objetivo)}</p>
-          <div className="pt-2 border-t border-slate-100 flex items-center justify-between">
-            <span className={`text-[10px] font-bold ${gap >= 0 ? "text-emerald-600" : "text-red-500"}`}>
+      {/* Layout principal */}
+      <div className="flex gap-2 items-stretch">
+        {/* Left: ventas, presupuesto, gap + % */}
+        <div className="flex-1 min-w-0">
+          <p className={`text-base font-bold leading-tight truncate ${selected ? "text-brand-800" : "text-slate-800"}`}>{fmt(avance)}</p>
+          <p className="text-[10px] text-slate-400 mt-0.5 mb-2 truncate">/ {fmt(objetivo)}</p>
+          <div className="pt-2 border-t border-slate-100 flex items-center justify-between gap-1">
+            <span className={`text-[10px] font-bold truncate ${gap >= 0 ? "text-emerald-600" : "text-red-500"}`}>
               {gap >= 0 ? "▲" : "▼"} {fmtN(Math.abs(gap))}
             </span>
             {pct != null && (
-              <span className={`text-[10px] font-bold ${pct >= 100 ? "text-emerald-600" : pct >= 80 ? "text-amber-500" : "text-red-500"}`}>
+              <span className={`text-[10px] font-bold shrink-0 ${pct >= 100 ? "text-emerald-600" : pct >= 80 ? "text-amber-500" : "text-red-500"}`}>
                 {pct.toFixed(1)}%
               </span>
             )}
           </div>
         </div>
 
-        {/* Divider */}
-        <div className="w-px bg-slate-100 shrink-0 self-stretch" />
+        {/* Divider — visible only on wider cards */}
+        <div className="hidden sm:block w-px bg-slate-100 shrink-0 self-stretch" />
 
-        {/* Right ~35%: métricas secundarias */}
-        <div className="flex-3 min-w-0">
+        {/* Right: métricas secundarias — visible only on wider cards */}
+        <div className="hidden sm:block flex-none w-24">
           <MetricasSecundarias ticketPromedio={ticketPromedio} cobertura={cobertura} universo={universo} clientes={clientes} />
         </div>
       </div>
@@ -329,7 +334,7 @@ function TotalCard({ regional, avance, objetivo, clientes, universo, cobertura, 
         ${selected ? "ring-2 ring-brand-500 shadow-md bg-brand-50/40" : "ring-1 ring-slate-200 hover:ring-brand-300"}
       `}
     >
-      <div className="flex items-stretch gap-6">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-stretch sm:gap-4">
         {/* Izquierda: ventas + gap */}
         <div className="flex items-center gap-3 flex-1 min-w-0">
           <div className={`p-2.5 rounded-xl shrink-0 ${selected ? "bg-brand-100" : cfg.bg}`}>
@@ -341,9 +346,9 @@ function TotalCard({ regional, avance, objetivo, clientes, universo, cobertura, 
               {canalNombre && <span className="text-[9px] bg-sky-500 text-white px-1.5 py-0.5 rounded-full font-bold">CANAL</span>}
               {!canalNombre && selected && <span className="text-[9px] bg-brand-500 text-white px-1.5 py-0.5 rounded-full font-bold">TOTAL</span>}
             </p>
-            <p className="text-2xl font-bold text-slate-800">{fmt(avance)}</p>
-            <p className="text-xs text-slate-400 mt-0.5">/ {fmt(objetivo)}</p>
-            <div className="mt-2 flex items-center gap-3">
+            <p className="text-xl sm:text-2xl font-bold text-slate-800 truncate">{fmt(avance)}</p>
+            <p className="text-xs text-slate-400 mt-0.5 truncate">/ {fmt(objetivo)}</p>
+            <div className="mt-2 flex items-center gap-3 flex-wrap">
               {pct != null && (
                 <span className={`text-sm font-bold ${pct >= 100 ? "text-emerald-600" : pct >= 80 ? "text-amber-500" : "text-red-500"}`}>
                   {pct.toFixed(1)}%
@@ -357,11 +362,14 @@ function TotalCard({ regional, avance, objetivo, clientes, universo, cobertura, 
         </div>
 
         {/* Divider */}
-        <div className="w-px bg-slate-100 shrink-0 self-stretch" />
+        <div className="hidden sm:block w-px bg-slate-100 shrink-0 self-stretch" />
+        <div className="sm:hidden border-t border-slate-100" />
 
         {/* Métricas secundarias */}
-        <div className="shrink-0 w-36">
-          <MetricasSecundarias ticketPromedio={ticketPromedio} cobertura={cobertura} universo={universo} clientes={clientes} />
+        <div className="sm:shrink-0 sm:w-32">
+          <div className="flex gap-4 sm:flex-col sm:gap-0">
+            <MetricasSecundarias ticketPromedio={ticketPromedio} cobertura={cobertura} universo={universo} clientes={clientes} />
+          </div>
         </div>
       </div>
     </button>
@@ -480,6 +488,39 @@ function TooltipHistSkus({ active, payload, label, skus }: CustomTooltipProps & 
   );
 }
 
+function TooltipSkuTendencia({ active, payload, label }: CustomTooltipProps) {
+  if (!active || !payload?.length) return null;
+  const ppto  = payload.find(p => p.dataKey === "presupuesto_acumulado")?.value as number | undefined;
+  const avance = payload.find(p => p.dataKey === "avance_acumulado")?.value as number | undefined;
+  const proy  = payload.find(p => p.dataKey === "proyeccion_acumulada")?.value as number | undefined;
+  return (
+    <div className="bg-white border border-slate-200 rounded-xl shadow-xl px-4 py-3 text-sm">
+      <p className="font-semibold text-slate-700 mb-2">Día {label as number}</p>
+      {ppto != null && (
+        <div className="flex items-center gap-2 mb-1">
+          <svg width="12" height="8"><line x1="0" y1="4" x2="12" y2="4" stroke="#22c55e" strokeWidth="2" strokeDasharray="4 2" /></svg>
+          <span className="text-slate-500">Presupuesto:</span>
+          <span className="font-semibold text-emerald-600">{fmt(ppto)}</span>
+        </div>
+      )}
+      {avance != null && (
+        <div className="flex items-center gap-2 mb-1">
+          <span className="w-2.5 h-2.5 rounded-sm bg-sky-400 shrink-0" />
+          <span className="text-slate-500">Avance:</span>
+          <span className="font-semibold">{fmt(avance)}</span>
+        </div>
+      )}
+      {proy != null && avance == null && (
+        <div className="flex items-center gap-2">
+          <svg width="12" height="8"><line x1="0" y1="4" x2="12" y2="4" stroke="#ef4444" strokeWidth="1.5" strokeDasharray="4 2" /></svg>
+          <span className="text-slate-500">Proyección:</span>
+          <span className="font-semibold text-red-500">{fmt(proy)}</span>
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ─── Page ──────────────────────────────────────────────────────────────────────
 
 export default function DashboardSoftysCanales() {
@@ -489,7 +530,7 @@ export default function DashboardSoftysCanales() {
   const isGerenteRegional = !isAdmin && user?.cargo === "Gerente Regional";
   const isProveedor = !isAdmin && !isGerenteRegional && user?.cargo === "Proveedor";
 
-  const [regional, setRegional] = useState<Regional>("Santa Cruz");
+  const [regional, setRegional] = useState<Regional>("Nacional");
   const [anho, setAnho]         = useState(0);
   const [mes, setMes]           = useState(0);
   const [canal, setCanal]       = useState<string | null>(null);
@@ -506,9 +547,6 @@ export default function DashboardSoftysCanales() {
   }, [isAdmin, isGerenteRegional, isProveedor, user?.regional, user?.canal]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const [grupo, setGrupo] = useState<SoftysGrupo>("Todos");
-
-  // Uds / Caja / Java toggle — only affects bar chart
-  const [unidadVista, setUnidadVista] = useState<"uds" | "caja" | "java">("uds");
 
   const [selectedSkuCode, setSelectedSkuCode]   = useState<string | null>(null);
   const [skuSearch, setSkuSearch]               = useState("");
@@ -632,16 +670,9 @@ export default function DashboardSoftysCanales() {
     }
   }, [esNacional, kpis]);
 
-  // Convert quantity based on current unit view
-  const convertCantidad = useCallback((cant: number): number => {
-    if (unidadVista === "caja" && CAJA_SIZE) return Math.round(cant / CAJA_SIZE);
-    if (unidadVista === "java" && JAVA_SIZE) return Math.round(cant / JAVA_SIZE);
-    return cant;
-  }, [unidadVista]);
-
   const sortedSkus = useMemo(() => {
-    return [...skus].sort((a, b) => convertCantidad(b.cantidad) - convertCantidad(a.cantidad));
-  }, [skus, convertCantidad]);
+    return [...skus].sort((a, b) => b.venta_neta - a.venta_neta);
+  }, [skus]);
 
   const filteredSkus = useMemo(() => {
     const q = skuSearch.trim().toLowerCase();
@@ -650,6 +681,8 @@ export default function DashboardSoftysCanales() {
       (s) => s.producto.toLowerCase().includes(q) || s.codigo.toLowerCase().includes(q)
     );
   }, [sortedSkus, skuSearch]);
+
+  // skuTend.data se usa directamente en el chart (valores acumulados)
 
   // ── Export Excel ────────────────────────────────────────────────────────────
 
@@ -1032,12 +1065,6 @@ export default function DashboardSoftysCanales() {
   const mesesDisponibles = periodos.filter(p => p.anho === anho);
 
   const desgloseLabel = esNacional ? "Ventas por Regional" : "Ventas por Canal";
-
-  const unidadLabel = (u: "uds" | "caja" | "java") => {
-    if (u === "caja") return CAJA_SIZE ? `Cajas (÷${CAJA_SIZE})` : "Cajas";
-    if (u === "java") return JAVA_SIZE ? `Javas (÷${JAVA_SIZE})` : "Javas";
-    return "Uds";
-  };
 
   return (
     <DashboardLayout>
@@ -2136,78 +2163,9 @@ export default function DashboardSoftysCanales() {
             <GrupoBotones value={grupo} onChange={setGrupo} size="md" />
           </div>
 
-          {/* Controles: toggle Uds/Caja/Java */}
-          <div className="flex flex-col gap-1">
-            <label className="text-[10px] uppercase tracking-widest text-slate-400 font-semibold">Unidad (gráfico)</label>
-            <div className="flex gap-2">
-              <div className="flex rounded-lg overflow-hidden border border-slate-200 text-xs font-semibold">
-                {(["uds", "caja", "java"] as const).map((u) => (
-                  <button key={u} onClick={() => setUnidadVista(u)}
-                    disabled={u === "caja" && !CAJA_SIZE || u === "java" && !JAVA_SIZE}
-                    title={u === "caja" && !CAJA_SIZE ? "Unidades/caja pendiente" : u === "java" && !JAVA_SIZE ? "Unidades/java pendiente" : undefined}
-                    className={`px-3 py-1.5 transition-colors capitalize disabled:opacity-40 ${
-                      unidadVista === u ? "bg-brand-600 text-white" : "bg-white text-slate-500 hover:bg-slate-50"
-                    }`}>
-                    {unidadLabel(u)}
-                  </button>
-                ))}
-              </div>
-            </div>
-          </div>
         </div>
 
-        <div className="grid grid-cols-1 xl:grid-cols-5 gap-6 items-start">
-          {/* Barra horizontal SKUs */}
-          <div className="xl:col-span-3">
-            {loadingSku ? (
-              <div className="h-64 bg-slate-50 animate-pulse rounded-xl" />
-            ) : (
-              <div className="overflow-y-auto rounded-xl border border-slate-100" style={{ maxHeight: 560 }}>
-                <div style={{ height: Math.max(filteredSkus.length * 36 + 20, 100) }}>
-                  <ResponsiveContainer width="100%" height="100%">
-                    <BarChart layout="vertical" data={filteredSkus} margin={{ top: 4, right: 64, left: 8, bottom: 4 }}>
-                      <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" horizontal={false} />
-                      <XAxis type="number" tick={{ fontSize: 10 }} tickFormatter={fmtAbbr} />
-                      <YAxis dataKey="codigo" type="category" tick={{ fontSize: 9, fontWeight: 700, fill: "#64748b" }} width={70} />
-                      <Tooltip
-                        content={(props: any) => {
-                          if (!props.active || !props.payload?.length) return null;
-                          const row = filteredSkus.find((s) => s.codigo === props.payload[0]?.payload?.codigo);
-                          if (!row) return null;
-                          return (
-                            <div className="bg-white border border-slate-200 rounded-xl shadow-xl px-4 py-3 text-sm max-w-72">
-                              <p className="font-bold text-slate-800 mb-0.5">{row.codigo}</p>
-                              <p className="text-slate-500 text-xs mb-2 leading-tight">{row.producto}</p>
-                              <div className="flex gap-3 flex-wrap">
-                                <div><p className="text-[10px] text-slate-400">Venta Neta</p><p className="font-semibold text-sky-600">{fmt(row.venta_neta)}</p></div>
-                                {row.presupuesto > 0 && <div><p className="text-[10px] text-slate-400">Presupuesto</p><p className="font-semibold text-emerald-600">{fmt(row.presupuesto)}</p></div>}
-                                {row.porcentaje != null && <div><p className="text-[10px] text-slate-400">Cumpl.</p><p className={`font-bold ${row.porcentaje >= 100 ? "text-emerald-600" : row.porcentaje >= 80 ? "text-amber-500" : "text-red-500"}`}>{row.porcentaje.toFixed(1)}%</p></div>}
-                                <div><p className="text-[10px] text-slate-400">Unidades</p><p className="font-semibold text-slate-700">{row.cantidad.toLocaleString()}</p></div>
-                              </div>
-                            </div>
-                          );
-                        }}
-                      />
-                      <Bar dataKey="cantidad" name="Unidades" radius={[0, 3, 3, 0]} barSize={10}
-                        label={{ position: "right", fontSize: 9, fill: "#94a3b8", formatter: ((v: number) => fmtAbbr(convertCantidad(v))) as any }}>
-                        {filteredSkus.map((entry) => (
-                          <Cell key={entry.codigo} fill={entry.codigo === selectedSkuCode ? "#0369a1" : "#0ea5e9"} />
-                        ))}
-                      </Bar>
-                      <Bar dataKey="presupuesto_uds" name="Ppto Uds" radius={[0, 3, 3, 0]} barSize={10}>
-                        {filteredSkus.map((entry) => (
-                          <Cell key={entry.codigo} fill={entry.codigo === selectedSkuCode ? "#15803d" : "#22c55e"} />
-                        ))}
-                      </Bar>
-                    </BarChart>
-                  </ResponsiveContainer>
-                </div>
-              </div>
-            )}
-          </div>
-
-          {/* Tabla detalle SKU — Bs fijo + Uds fija */}
-          <div className="xl:col-span-2">
+        <div>
             <div className="flex items-center justify-between gap-2 mb-2">
               <div className="flex items-center gap-2">
                 <Package size={14} className={SOFTYS_GRUPO_CONFIG[grupo]?.color ?? "text-slate-500"} />
@@ -2257,7 +2215,6 @@ export default function DashboardSoftysCanales() {
                 </tbody>
               </table>
             </div>
-          </div>
         </div>
       </div>
 
@@ -2274,7 +2231,7 @@ export default function DashboardSoftysCanales() {
               }
             </h2>
             <p className="text-xs text-slate-400 mt-0.5">
-              {MESES[mes]} {anho} · acumulado diario
+              {MESES[mes]} {anho} · venta diaria
               {skuTend?.presupuestoTotal ? <span className="ml-2 text-emerald-600 font-semibold">Presupuesto: {fmt(skuTend.presupuestoTotal)}</span> : null}
             </p>
           </div>
@@ -2297,17 +2254,32 @@ export default function DashboardSoftysCanales() {
         ) : (
           <>
             <ResponsiveContainer width="100%" height={260}>
-              <LineChart data={skuTend.data} margin={{ top: 4, right: 12, left: 0, bottom: 4 }}>
-                <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" />
+              <ComposedChart data={skuTend.data} margin={{ top: 4, right: 12, left: 0, bottom: 4 }}>
+                <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" vertical={false} />
                 <XAxis dataKey="dia" tick={{ fontSize: 11 }} interval={3} />
                 <YAxis tick={{ fontSize: 11 }} tickFormatter={fmtAbbr} width={56} />
-                <Tooltip content={<TooltipTendencia />} />
+                <Tooltip content={<TooltipSkuTendencia />} />
+                {/* Presupuesto acumulado — igual que gráfico de tendencia principal */}
                 <Line dataKey="presupuesto_acumulado" name="Presupuesto" stroke="#22c55e" strokeWidth={2} strokeDasharray="6 4" dot={false} connectNulls />
-                <Line dataKey="avance_acumulado"      name="Avance"      stroke="#0ea5e9" strokeWidth={2.5} dot={false} connectNulls />
-                <Line dataKey="proyeccion_acumulada"  name="Proyección"  stroke="#ef4444" strokeWidth={1.5} strokeDasharray="4 4" dot={false} connectNulls />
-              </LineChart>
+                {/* Proyección acumulada */}
+                <Line dataKey="proyeccion_acumulada" name="Proyección" stroke="#ef4444" strokeWidth={1.5} strokeDasharray="4 4" dot={false} connectNulls />
+                {/* Avance acumulado como barras — crece cada día como la línea del chart principal */}
+                <Bar dataKey="avance_acumulado" name="Avance" fill="#38bdf8" radius={[2, 2, 0, 0]} maxBarSize={20} />
+              </ComposedChart>
             </ResponsiveContainer>
-            <LeyendaLineas esPeriodoActual={skuTend.esPeriodoActual} />
+            <div className="flex flex-wrap gap-5 text-xs text-slate-500 pt-3 border-t border-slate-100 mt-3">
+              <span className="flex items-center gap-2">
+                <span className="inline-block w-4 h-3 rounded-sm bg-sky-400" />Avance acumulado
+              </span>
+              <span className="flex items-center gap-2">
+                <svg width="28" height="8"><line x1="0" y1="4" x2="28" y2="4" stroke="#22c55e" strokeWidth="2" strokeDasharray="5 3" /></svg>
+                Presupuesto
+              </span>
+              <span className="flex items-center gap-2">
+                <svg width="28" height="8"><line x1="0" y1="4" x2="28" y2="4" stroke="#ef4444" strokeWidth="1.5" strokeDasharray="4 4" /></svg>
+                Proyección
+              </span>
+            </div>
           </>
         )}
       </div>

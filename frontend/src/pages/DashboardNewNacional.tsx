@@ -9,6 +9,8 @@ import {
 import {
   ResponsiveContainer, LineChart, Line,
   XAxis, YAxis, CartesianGrid, Tooltip,
+  PieChart, Pie, Cell,
+  ComposedChart, Bar,
 } from "recharts";
 import { useAuth } from "../context/AuthContext";
 import DashboardLayout from "../components/DashboardLayout";
@@ -72,6 +74,8 @@ const REGIONALES: RegionalDef[] = [
   { key: "cochabamba", label: "Cochabamba", barColor: "#8b5cf6" },
   { key: "la_paz",     label: "La Paz",     barColor: "#f59e0b" },
 ];
+
+const CANAL_COLORS = ["#3b82f6","#10b981","#8b5cf6","#f59e0b","#ef4444","#06b6d4","#ec4899","#84cc16"];
 
 const CATEGORIAS_OPTS = ["Alimentos", "Apego", "Licores", "Home & Personal Care", "Sin Clasificar"];
 const MESES = ["","Enero","Febrero","Marzo","Abril","Mayo","Junio",
@@ -383,6 +387,8 @@ function SingleSelect({ label, value, options, onChange, placeholder = "Todos", 
   );
 }
 
+interface EvoRow { _key: string; valor: number; lineHistorica: number | null; lineProyectada: number | null; esMesActual: boolean; valorProyectado?: number }
+
 // ─── Regional Card ────────────────────────────────────────────────────────────
 
 function RegionalCard({ def, nacKpis, loading, isSelected, onClick }: {
@@ -530,6 +536,9 @@ export default function DashboardNewNacional() {
   const [nacKpis,         setNacKpis]         = useState<NacKpisData | null>(null);
   const [tendencia,       setTendencia]       = useState<TendenciaDia[]>([]);
   const [esPeriodoActual, setEsPeriodoActual] = useState(true);
+  const [tendenciaMode,   setTendenciaMode]   = useState<"proyectado" | "evolutivo">("proyectado");
+  const [evoData,         setEvoData]         = useState<EvoRow[]>([]);
+  const [loadingEvo,      setLoadingEvo]      = useState(false);
   const [canales,         setCanales]         = useState<CanalRow[]>([]);
   const [comparacion,     setComparacion]     = useState<ComparacionRow[]>([]);
   const [groupBy,         setGroupBy]         = useState("total");
@@ -558,6 +567,8 @@ export default function DashboardNewNacional() {
   const [clientesFlat,     setClientesFlat]     = useState<ClienteFechaFlat[]>([]);
   const [loadingCliFechas, setLoadingCliFechas] = useState(false);
   const [cliSearch,        setCliSearch]        = useState("");
+  const [cliViewUds,       setCliViewUds]       = useState(false); // false = Bs, true = Uds
+  const [cliSortAsc,       setCliSortAsc]       = useState(false); // false = mayor a menor
   const [selectedCli,      setSelectedCli]      = useState<{ codigo: string; nombre: string } | null>(null);
   const [selectedCliFecha, setSelectedCliFecha] = useState<string | null>(null);
   const [cliSkus,          setCliSkus]          = useState<ClienteSkuRow[]>([]);
@@ -626,6 +637,41 @@ export default function DashboardNewNacional() {
   }, [anho, mes, selectedRegional, canal, fCats, fProvs, fSubs, fMarcs, fProductos]);
 
   useEffect(() => { void fetchNacKpis(); }, [fetchNacKpis]);
+
+  // ── Evolutivo: últimos 6 meses (reutiliza endpoint tendencia-estacional) ──────
+  useEffect(() => {
+    if (tendenciaMode !== "evolutivo" || !anho || !mes) return;
+    setLoadingEvo(true);
+    const regionalKey = selectedRegional === "nacional" ? "nacional"
+      : selectedRegional === "santa_cruz" ? "santa_cruz"
+      : selectedRegional === "cochabamba" ? "cochabamba" : "la_paz";
+    const qs = new URLSearchParams({ regional: regionalKey, canal: canal || "Todos", anho: String(anho), mes: String(mes), modo: "ultimos6", dia_corte: "0" });
+    apiFetchRef.current<{ success: boolean; data: { anho: number; mes_numero: number; total: number; cantidad: number }[] }>(
+      `/dashboard/tendencia-estacional/?${qs}`
+    ).then(j => {
+      if (!j.success || !j.data?.length) { setEvoData([]); return; }
+      const rows = j.data;
+      const MESES_SHORT = ["","Ene","Feb","Mar","Abr","May","Jun","Jul","Ago","Sep","Oct","Nov","Dic"];
+      // Proyección del mes actual: regresión sobre los últimos 3 meses completos
+      const base   = rows.slice(0, -1); // meses completos (sin el mes actual)
+      const recent = base.slice(-3);    // últimos 3 meses completos
+      // Proyección = promedio simple de los 3 últimos meses completos
+      const valorProyectado = Math.round(recent.reduce((s, r) => s + r.total, 0) / recent.length);
+      setEvoData(rows.map((r, i) => {
+        const isCurrent = i === rows.length - 1;
+        const isBridge  = i === rows.length - 2; // último mes completo — punto de partida de la proyección
+        return {
+          _key:            `${MESES_SHORT[r.mes_numero]} ${r.anho}`,
+          valor:           r.total,
+          lineHistorica:   !isCurrent ? r.total : null,        // línea sólida: meses 1-5
+          lineProyectada:  isBridge ? r.total : (isCurrent ? valorProyectado : null), // punteada: mes5→mes6
+          esMesActual:     isCurrent,
+          valorProyectado: isCurrent ? valorProyectado : undefined,
+        };
+      }));
+    }).catch(() => setEvoData([]))
+      .finally(() => setLoadingEvo(false));
+  }, [tendenciaMode, selectedRegional, canal, anho, mes]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // ── Canales ───────────────────────────────────────────────────────────────────
   const fetchCanales = useCallback(async () => {
@@ -997,64 +1043,151 @@ export default function DashboardNewNacional() {
                 <div key={i} className="h-20 w-36 bg-slate-100 animate-pulse rounded-xl" />
               ))}
             </div>
-          ) : (
-            <>
-              {/* Toggle Bs / Uds */}
-              <div className="flex items-center gap-1 mb-2.5">
-                <button
-                  onClick={() => setCanalViewUds(false)}
-                  className={`px-3 py-1 text-[11px] font-semibold rounded-full border transition-all ${!canalViewUds ? "bg-blue-600 text-white border-blue-600" : "bg-white text-slate-500 border-slate-200 hover:border-blue-300"}`}
-                >
-                  Bs
-                </button>
-                <button
-                  onClick={() => setCanalViewUds(true)}
-                  className={`px-3 py-1 text-[11px] font-semibold rounded-full border transition-all ${canalViewUds ? "bg-blue-600 text-white border-blue-600" : "bg-white text-slate-500 border-slate-200 hover:border-blue-300"}`}
-                >
-                  Unidades
-                </button>
-              </div>
-              <div className="flex flex-wrap gap-2">
-                {canales.map((c) => {
-                  const pct = canalViewUds ? c.porcentaje_uds : c.porcentaje;
-                  const pctColor =
-                    pct == null ? "text-slate-400"  :
-                    pct >= 100  ? "text-emerald-600" :
-                    pct >= 80   ? "text-amber-500"   :
-                                  "text-red-500";
-                  const hasPpto = canalViewUds ? c.presupuesto_uds > 0 : c.presupuesto > 0;
+          ) : (() => {
+            const totalAvance = canales.reduce((s, c) => s + (canalViewUds ? c.cantidad : c.avance), 0);
+            const totalPpto   = canales.reduce((s, c) => s + (canalViewUds ? c.presupuesto_uds : c.presupuesto), 0);
+            const totalPct    = totalPpto > 0 ? (totalAvance / totalPpto * 100) : 0;
+            const totalPctColor = totalPct >= 100 ? "text-emerald-600" : totalPct >= 80 ? "text-amber-500" : "text-red-500";
+            // Donut: cada segmento = peso del canal sobre el presupuesto total
+            const pieData = canales.map(c => ({
+              name: c.canal,
+              value: canalViewUds ? c.presupuesto_uds : c.presupuesto,
+              avance: canalViewUds ? c.cantidad : c.avance,
+              pct: canalViewUds ? c.porcentaje_uds : c.porcentaje,
+              impactoPpto: totalPpto > 0 ? ((canalViewUds ? c.presupuesto_uds : c.presupuesto) / totalPpto * 100) : 0,
+            }));
 
-                  return (
-                    <div
-                      key={c.canal}
-                      className="flex flex-col gap-1 px-3 py-2.5 rounded-xl border border-slate-200 bg-white min-w-32.5"
-                    >
-                      <span className="text-[10px] font-bold uppercase tracking-widest truncate max-w-30 text-slate-500">
-                        {c.canal}
-                      </span>
-                      <span className={`text-xl font-black leading-none tabular-nums ${pctColor}`}>
-                        {pct != null ? `${pct.toFixed(1)}%` : "—"}
-                      </span>
-                      <div className="flex items-center justify-between gap-2 mt-0.5">
-                        <span className="text-[10px] text-slate-400 tabular-nums">
-                          {canalViewUds ? fmtN(c.cantidad) : fmt(c.avance)}
-                        </span>
-                        <span className="text-[10px] text-slate-400 tabular-nums">{fmtN(c.clientes)} cli.</span>
-                      </div>
-                      {hasPpto && (
-                        <div className="w-full bg-slate-100 rounded-full h-1 mt-0.5 overflow-hidden">
-                          <div
-                            className={`h-1 rounded-full ${pct != null && pct >= 100 ? "bg-emerald-500" : pct != null && pct >= 80 ? "bg-amber-400" : "bg-red-400"}`}
-                            style={{ width: `${Math.min(pct ?? 0, 100)}%` }}
-                          />
+            return (
+              <>
+                {/* Toggle Bs / Uds */}
+                <div className="flex items-center gap-1 mb-2.5">
+                  <button
+                    onClick={() => setCanalViewUds(false)}
+                    className={`px-3 py-1 text-[11px] font-semibold rounded-full border transition-all ${!canalViewUds ? "bg-blue-600 text-white border-blue-600" : "bg-white text-slate-500 border-slate-200 hover:border-blue-300"}`}
+                  >
+                    Bs
+                  </button>
+                  <button
+                    onClick={() => setCanalViewUds(true)}
+                    className={`px-3 py-1 text-[11px] font-semibold rounded-full border transition-all ${canalViewUds ? "bg-blue-600 text-white border-blue-600" : "bg-white text-slate-500 border-slate-200 hover:border-blue-300"}`}
+                  >
+                    Unidades
+                  </button>
+                </div>
+
+                {/* Cards (izq) + Donut (der) */}
+                <div className="flex gap-5 items-start">
+
+                  {/* Grid 4 columnas, 2 filas */}
+                  <div className="grid grid-cols-4 gap-2 shrink-0">
+                    {canales.map((c, i) => {
+                      const pct = canalViewUds ? c.porcentaje_uds : c.porcentaje;
+                      const pctColor =
+                        pct == null ? "text-slate-400"  :
+                        pct >= 100  ? "text-emerald-600" :
+                        pct >= 80   ? "text-amber-500"   :
+                                      "text-red-500";
+                      const hasPpto = canalViewUds ? c.presupuesto_uds > 0 : c.presupuesto > 0;
+                      const dotColor = CANAL_COLORS[i % CANAL_COLORS.length];
+
+                      return (
+                        <div
+                          key={c.canal}
+                          className="flex flex-col gap-1 px-3 py-2.5 rounded-xl border border-slate-200 bg-white w-36"
+                        >
+                          <div className="flex items-center gap-1.5">
+                            <span className="w-2 h-2 rounded-full shrink-0" style={{ background: dotColor }} />
+                            <span className="text-[10px] font-bold uppercase tracking-widest truncate text-slate-500">
+                              {c.canal}
+                            </span>
+                          </div>
+                          <span className={`text-xl font-black leading-none tabular-nums ${pctColor}`}>
+                            {pct != null ? `${pct.toFixed(1)}%` : "—"}
+                          </span>
+                          <div className="flex items-center justify-between gap-2 mt-0.5">
+                            <span className="text-[10px] text-slate-400 tabular-nums">
+                              {canalViewUds ? fmtN(c.cantidad) : fmt(c.avance)}
+                            </span>
+                            <span className="text-[10px] text-slate-400 tabular-nums">{fmtN(c.clientes)} cli.</span>
+                          </div>
+                          {hasPpto && (
+                            <div className="w-full bg-slate-100 rounded-full h-1 mt-0.5 overflow-hidden">
+                              <div
+                                className={`h-1 rounded-full ${pct != null && pct >= 100 ? "bg-emerald-500" : pct != null && pct >= 80 ? "bg-amber-400" : "bg-red-400"}`}
+                                style={{ width: `${Math.min(pct ?? 0, 100)}%` }}
+                              />
+                            </div>
+                          )}
                         </div>
-                      )}
+                      );
+                    })}
+                  </div>
+
+                  {/* Donut dinámico */}
+                  <div className="flex-1 min-w-0 flex flex-col items-center">
+                    <p className="text-[11px] font-semibold text-slate-500 mb-1 self-start">
+                      Impacto al presupuesto por canal · {REGIONALES.find(r => r.key === selectedRegional)?.label}
+                    </p>
+                    <div className="relative w-full" style={{ height: 190 }}>
+                      <ResponsiveContainer width="100%" height="100%">
+                        <PieChart>
+                          <Pie
+                            data={pieData}
+                            cx="50%"
+                            cy="50%"
+                            innerRadius={52}
+                            outerRadius={80}
+                            dataKey="value"
+                            paddingAngle={2}
+                          >
+                            {pieData.map((_, i) => (
+                              <Cell key={i} fill={CANAL_COLORS[i % CANAL_COLORS.length]} />
+                            ))}
+                          </Pie>
+                          <Tooltip
+                            wrapperStyle={{ zIndex: 50 }}
+                            content={({ active, payload }) => {
+                              if (!active || !payload?.length) return null;
+                              const d = payload[0].payload;
+                              return (
+                                <div style={{ fontSize: 11, borderRadius: 8, border: "1px solid #e2e8f0", background: "#fff", padding: "8px 12px", lineHeight: "1.6" }}>
+                                  <div style={{ fontWeight: 700, marginBottom: 2 }}>{d.name}</div>
+                                  <div style={{ color: "#64748b" }}>
+                                    Ppto: <b>{canalViewUds ? fmtN(d.value) : fmt(d.value)}</b>
+                                    {" · "}<b style={{ color: "#3b82f6" }}>{d.impactoPpto.toFixed(1)}% del total</b>
+                                  </div>
+                                  <div style={{ color: "#64748b" }}>
+                                    Avance: <b>{canalViewUds ? fmtN(d.avance) : fmt(d.avance)}</b>
+                                    {d.pct != null && (
+                                      <span style={{ color: d.pct >= 100 ? "#10b981" : d.pct >= 80 ? "#f59e0b" : "#ef4444", marginLeft: 4 }}>
+                                        ({d.pct.toFixed(1)}% cumpl.)
+                                      </span>
+                                    )}
+                                  </div>
+                                </div>
+                              );
+                            }}
+                          />
+                        </PieChart>
+                      </ResponsiveContainer>
+                      {/* Label central */}
+                      <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
+                        <div className="text-center">
+                          <div className={`text-lg font-black tabular-nums ${totalPctColor}`}>
+                            {totalPct.toFixed(1)}%
+                          </div>
+                          <div className="text-[9px] text-slate-400 leading-tight">
+                            cumpl.<br />{canalViewUds ? "uds." : "Bs."}
+                          </div>
+                        </div>
+                      </div>
                     </div>
-                  );
-                })}
-              </div>
-            </>
-          )}
+                  </div>
+
+                </div>
+              </>
+            );
+          })()}
         </div>
       )}
 
@@ -1462,11 +1595,31 @@ export default function DashboardNewNacional() {
                 )}
               </div>
             </div>
-            <div className="relative">
-              <Search size={13} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" />
-              <input type="text" value={cliSearch} onChange={(e) => setCliSearch(e.target.value)}
-                placeholder="Buscar cliente..."
-                className="pl-8 pr-3 py-2 text-xs border border-slate-200 rounded-lg focus:outline-none focus:border-brand-400 bg-white w-52" />
+            <div className="flex items-center gap-2 flex-wrap justify-end">
+              {/* Toggle Bs / Uds */}
+              <div className="flex rounded-lg border border-slate-200 overflow-hidden">
+                <button onClick={() => setCliViewUds(false)}
+                  className={`px-3 py-1.5 text-[11px] font-semibold transition-all ${!cliViewUds ? "bg-blue-600 text-white" : "bg-white text-slate-500 hover:bg-slate-50"}`}>
+                  Bs
+                </button>
+                <button onClick={() => setCliViewUds(true)}
+                  className={`px-3 py-1.5 text-[11px] font-semibold transition-all border-l border-slate-200 ${cliViewUds ? "bg-blue-600 text-white" : "bg-white text-slate-500 hover:bg-slate-50"}`}>
+                  Uds
+                </button>
+              </div>
+              {/* Toggle orden */}
+              <button onClick={() => setCliSortAsc(v => !v)}
+                className="flex items-center gap-1 px-3 py-1.5 text-[11px] font-semibold border border-slate-200 rounded-lg bg-white text-slate-500 hover:bg-slate-50 transition-all">
+                {cliSortAsc ? <ArrowUp size={11} /> : <ArrowDown size={11} />}
+                {cliSortAsc ? "Menor a mayor" : "Mayor a menor"}
+              </button>
+              {/* Buscador */}
+              <div className="relative">
+                <Search size={13} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" />
+                <input type="text" value={cliSearch} onChange={(e) => setCliSearch(e.target.value)}
+                  placeholder="Buscar cliente..."
+                  className="pl-8 pr-3 py-2 text-xs border border-slate-200 rounded-lg focus:outline-none focus:border-brand-400 bg-white w-44" />
+              </div>
             </div>
           </div>
 
@@ -1487,9 +1640,9 @@ export default function DashboardNewNacional() {
             const clientes = Array.from(clienteMap.entries())
               .filter(([, { nombre }]) => !q || nombre.toLowerCase().includes(q))
               .sort((a, b) => {
-                const totA = Array.from(a[1].fechas.values()).reduce((s, v) => s + v.venta_neta, 0);
-                const totB = Array.from(b[1].fechas.values()).reduce((s, v) => s + v.venta_neta, 0);
-                return totB - totA;
+                const totA = Array.from(a[1].fechas.values()).reduce((s, v) => s + (cliViewUds ? v.cantidad : v.venta_neta), 0);
+                const totB = Array.from(b[1].fechas.values()).reduce((s, v) => s + (cliViewUds ? v.cantidad : v.venta_neta), 0);
+                return cliSortAsc ? totA - totB : totB - totA;
               });
             return (
               <div className="overflow-x-auto overflow-y-auto" style={{ maxHeight: 420 }}>
@@ -1511,7 +1664,7 @@ export default function DashboardNewNacional() {
                   </thead>
                   <tbody>
                     {clientes.map(([codigo, { nombre, fechas: fechaMap }]) => {
-                      const totalMes     = Array.from(fechaMap.values()).reduce((s, v) => s + v.venta_neta, 0);
+                      const totalMes     = Array.from(fechaMap.values()).reduce((s, v) => s + (cliViewUds ? v.cantidad : v.venta_neta), 0);
                       const isSelCliente = selectedCli?.codigo === codigo;
                       return (
                         <tr key={codigo} className={`border-b border-slate-50 transition-colors ${isSelCliente ? "bg-brand-50" : "hover:bg-slate-50/60"}`}>
@@ -1554,7 +1707,7 @@ export default function DashboardNewNacional() {
                                   }
                                 }}
                               >
-                                {v ? fmtN(v.venta_neta) : "—"}
+                                {v ? fmtN(cliViewUds ? v.cantidad : v.venta_neta) : "—"}
                               </td>
                             );
                           })}
@@ -1571,7 +1724,7 @@ export default function DashboardNewNacional() {
                         Total
                       </td>
                       {fechas.map(f => {
-                        const colTotal = clientes.reduce((s, [, { fechas: fm }]) => s + (fm.get(f)?.venta_neta ?? 0), 0);
+                        const colTotal = clientes.reduce((s, [, { fechas: fm }]) => s + (cliViewUds ? (fm.get(f)?.cantidad ?? 0) : (fm.get(f)?.venta_neta ?? 0)), 0);
                         return (
                           <td key={f} className="py-2 px-2 text-center tabular-nums font-bold text-slate-700 bg-slate-50 text-[11px]">
                             {colTotal > 0 ? fmtN(colTotal) : "—"}
@@ -1579,7 +1732,7 @@ export default function DashboardNewNacional() {
                         );
                       })}
                       <td className="sticky right-0 z-30 py-2 pl-3 pr-3 text-right tabular-nums font-bold text-brand-700 bg-slate-50 shadow-[-1px_0_0_0_#e2e8f0]">
-                        {fmtN(clientes.reduce((s, [, { fechas: fm }]) => s + Array.from(fm.values()).reduce((ss, v) => ss + v.venta_neta, 0), 0))}
+                        {fmtN(clientes.reduce((s, [, { fechas: fm }]) => s + Array.from(fm.values()).reduce((ss, v) => ss + (cliViewUds ? v.cantidad : v.venta_neta), 0), 0))}
                       </td>
                     </tr>
                   </tfoot>
@@ -1664,34 +1817,121 @@ export default function DashboardNewNacional() {
         {/* Tendencia */}
         <div className="card col-span-10">
           <div className="flex items-center justify-between mb-4">
-            <h2 className="font-semibold text-slate-700 text-sm">Tendencia de Ventas</h2>
-            <span className="text-xs text-slate-400 bg-slate-50 px-2 py-1 rounded-lg">{REGIONALES.find(r => r.key === selectedRegional)?.label ?? "Nacional"} · {MESES[mes]} {anho}</span>
-          </div>
-          {loadingNac ? (
-            <div className="h-56 flex items-center justify-center text-slate-400 text-sm">Cargando...</div>
-          ) : tendencia.length === 0 ? (
-            <div className="h-56 flex items-center justify-center text-slate-400 text-sm">
-              <div className="text-center"><TrendingUp size={28} className="mx-auto mb-2 opacity-30" /><p>Sin datos</p></div>
+            <div>
+              <h2 className="font-semibold text-slate-700 text-sm">Tendencia de Ventas</h2>
+              <span className="text-xs text-slate-400">{REGIONALES.find(r => r.key === selectedRegional)?.label ?? "Nacional"} · {MESES[mes]} {anho}</span>
             </div>
-          ) : (
-            <>
-              <ResponsiveContainer width="100%" height={220}>
-                <LineChart data={tendencia} margin={{ top: 4, right: 12, left: 0, bottom: 4 }}>
-                  <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" />
-                  <XAxis dataKey="dia" tick={{ fontSize: 11 }} interval={3} />
-                  <YAxis tick={{ fontSize: 11 }} tickFormatter={(v) => `${(v/1_000_000).toFixed(1)}M`} width={48} />
-                  <Tooltip content={<TooltipTendencia />} />
-                  <Line dataKey="avance_acumulado" name="Avance" stroke="#3b82f6" strokeWidth={2.5} dot={false} connectNulls />
-                  {esPeriodoActual && <Line dataKey="proyeccion_acumulada" name="Proyección" stroke="#f97316" strokeWidth={2} strokeDasharray="6 3" dot={false} connectNulls />}
-                  <Line dataKey="presupuesto_acumulado" name="Presupuesto" stroke="#22c55e" strokeWidth={2} strokeDasharray="6 4" dot={false} connectNulls />
-                </LineChart>
-              </ResponsiveContainer>
-              <div className="flex flex-wrap gap-5 text-xs text-slate-400 pt-2 border-t border-slate-100 mt-2">
-                <span className="flex items-center gap-2"><svg width="24" height="8"><line x1="0" y1="4" x2="24" y2="4" stroke="#22c55e" strokeWidth="2" strokeDasharray="5 3" /></svg>Presupuesto</span>
-                <span className="flex items-center gap-2"><svg width="24" height="8"><line x1="0" y1="4" x2="24" y2="4" stroke="#3b82f6" strokeWidth="2.5" /></svg>Avance</span>
-                {esPeriodoActual && <span className="flex items-center gap-2"><svg width="24" height="8"><line x1="0" y1="4" x2="24" y2="4" stroke="#f97316" strokeWidth="2" strokeDasharray="6 3" /></svg>Proyección</span>}
+            {/* Toggle Proyectado / Evolutivo */}
+            <div className="flex items-center gap-0.5 bg-slate-100 p-0.5 rounded-lg">
+              {(["proyectado", "evolutivo"] as const).map(m => (
+                <button key={m} onClick={() => setTendenciaMode(m)}
+                  className={`px-3 py-1.5 rounded-md text-xs font-semibold transition-colors ${
+                    tendenciaMode === m ? "bg-white text-slate-800 shadow-sm" : "text-slate-500 hover:text-slate-700"
+                  }`}>
+                  {m === "proyectado" ? "Proyectado" : "Evolutivo"}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          {/* ── Vista Proyectado ── */}
+          {tendenciaMode === "proyectado" && (
+            loadingNac ? (
+              <div className="h-56 flex items-center justify-center text-slate-400 text-sm">Cargando...</div>
+            ) : tendencia.length === 0 ? (
+              <div className="h-56 flex items-center justify-center text-slate-400 text-sm">
+                <div className="text-center"><TrendingUp size={28} className="mx-auto mb-2 opacity-30" /><p>Sin datos</p></div>
               </div>
-            </>
+            ) : (
+              <>
+                <ResponsiveContainer width="100%" height={220}>
+                  <LineChart data={tendencia} margin={{ top: 4, right: 12, left: 0, bottom: 4 }}>
+                    <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" />
+                    <XAxis dataKey="dia" tick={{ fontSize: 11 }} interval={3} />
+                    <YAxis tick={{ fontSize: 11 }} tickFormatter={(v) => `${(v/1_000_000).toFixed(1)}M`} width={48} />
+                    <Tooltip content={<TooltipTendencia />} />
+                    <Line dataKey="avance_acumulado" name="Avance" stroke="#3b82f6" strokeWidth={2.5} dot={false} connectNulls />
+                    {esPeriodoActual && <Line dataKey="proyeccion_acumulada" name="Proyección" stroke="#f97316" strokeWidth={2} strokeDasharray="6 3" dot={false} connectNulls />}
+                    <Line dataKey="presupuesto_acumulado" name="Presupuesto" stroke="#22c55e" strokeWidth={2} strokeDasharray="6 4" dot={false} connectNulls />
+                  </LineChart>
+                </ResponsiveContainer>
+                <div className="flex flex-wrap gap-5 text-xs text-slate-400 pt-2 border-t border-slate-100 mt-2">
+                  <span className="flex items-center gap-2"><svg width="24" height="8"><line x1="0" y1="4" x2="24" y2="4" stroke="#22c55e" strokeWidth="2" strokeDasharray="5 3" /></svg>Presupuesto</span>
+                  <span className="flex items-center gap-2"><svg width="24" height="8"><line x1="0" y1="4" x2="24" y2="4" stroke="#3b82f6" strokeWidth="2.5" /></svg>Avance</span>
+                  {esPeriodoActual && <span className="flex items-center gap-2"><svg width="24" height="8"><line x1="0" y1="4" x2="24" y2="4" stroke="#f97316" strokeWidth="2" strokeDasharray="6 3" /></svg>Proyección</span>}
+                </div>
+              </>
+            )
+          )}
+
+          {/* ── Vista Evolutivo: barras 6 meses + tendencia ── */}
+          {tendenciaMode === "evolutivo" && (
+            loadingEvo ? (
+              <div className="h-56 flex items-center justify-center text-slate-400 text-sm">Cargando...</div>
+            ) : evoData.length === 0 ? (
+              <div className="h-56 flex items-center justify-center text-slate-400 text-sm">
+                <div className="text-center"><TrendingUp size={28} className="mx-auto mb-2 opacity-30" /><p>Sin datos</p></div>
+              </div>
+            ) : (
+              <>
+                <ResponsiveContainer width="100%" height={220}>
+                  <ComposedChart data={evoData} margin={{ top: 4, right: 12, left: 0, bottom: 4 }} barCategoryGap="30%">
+                    <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" />
+                    <XAxis dataKey="_key" tick={{ fontSize: 11, fontWeight: 600 }} />
+                    <YAxis tick={{ fontSize: 11 }} tickFormatter={(v) => `${(v/1_000_000).toFixed(1)}M`} width={48} />
+                    <Tooltip
+                      content={({ active, payload, label }) => {
+                        if (!active || !payload?.length) return null;
+                        const row = evoData.find(d => d._key === label);
+                        if (!row) return null;
+                        return (
+                          <div className="bg-white border border-slate-200 rounded-xl shadow-xl p-3 text-xs min-w-44">
+                            <p className="font-semibold text-slate-700 mb-2">{label}{row.esMesActual ? " · mes actual" : ""}</p>
+                            <div className="flex justify-between gap-4 mb-1">
+                              <span className="flex items-center gap-1.5 text-slate-500">
+                                <span className="w-2.5 h-2.5 rounded-sm" style={{ background: row.esMesActual ? "#93c5fd" : "#3b82f6" }} />
+                                {row.esMesActual ? "Avance parcial" : "Ventas"}
+                              </span>
+                              <span className="font-semibold text-slate-800">{fmt(row.valor)}</span>
+                            </div>
+                            {row.esMesActual && row.valorProyectado != null && (
+                              <>
+                                <div className="flex justify-between gap-4">
+                                  <span className="flex items-center gap-1.5 text-slate-500">
+                                    <span className="w-2.5 h-2.5 rounded-sm bg-amber-400" />Proyección cierre
+                                  </span>
+                                  <span className="font-semibold text-amber-600">{fmt(row.valorProyectado)}</span>
+                                </div>
+                                <p className="text-[10px] text-slate-400 mt-1.5 border-t border-slate-100 pt-1.5">
+                                  Promedio de los últimos 3 meses completos
+                                </p>
+                              </>
+                            )}
+                          </div>
+                        );
+                      }}
+                    />
+                    <Bar dataKey="valor" name="Ventas Bs" radius={[4, 4, 0, 0]}>
+                      {evoData.map((d, i) => <Cell key={i} fill={d.esMesActual ? "#93c5fd" : "#3b82f6"} />)}
+                    </Bar>
+                    {/* Línea histórica sólida — sigue las subidas y bajadas reales */}
+                    <Line dataKey="lineHistorica" name="Evolución" stroke="#1d4ed8" strokeWidth={2.5}
+                      dot={{ r: 4, fill: "#1d4ed8", strokeWidth: 0 }} activeDot={{ r: 6 }}
+                      connectNulls={false} legendType="none" />
+                    {/* Línea de proyección punteada — del último mes completo al proyectado */}
+                    <Line dataKey="lineProyectada" name="Proyección" stroke="#f59e0b" strokeWidth={2.5}
+                      dot={{ r: 4, fill: "#f59e0b", strokeWidth: 0 }} activeDot={{ r: 6 }}
+                      strokeDasharray="6 3" connectNulls={false} legendType="none" />
+                  </ComposedChart>
+                </ResponsiveContainer>
+                <div className="flex flex-wrap gap-5 text-xs text-slate-400 pt-2 border-t border-slate-100 mt-2">
+                  <span className="flex items-center gap-2"><span className="w-4 h-3 rounded-sm bg-blue-600 inline-block" />Ventas (mes completo)</span>
+                  <span className="flex items-center gap-2"><span className="w-4 h-3 rounded-sm bg-blue-300 inline-block" />Mes actual (parcial)</span>
+                  <span className="flex items-center gap-2"><svg width="24" height="8"><line x1="0" y1="4" x2="24" y2="4" stroke="#1d4ed8" strokeWidth="2.5" /></svg>Evolución real</span>
+                  <span className="flex items-center gap-2"><svg width="24" height="8"><line x1="0" y1="4" x2="24" y2="4" stroke="#f59e0b" strokeWidth="2" strokeDasharray="6 3" /></svg>Proyección cierre</span>
+                </div>
+              </>
+            )
           )}
         </div>
 
