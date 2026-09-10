@@ -1,4 +1,4 @@
-export const CURRENT_VERSION = "1.2.9.2";
+export const CURRENT_VERSION = "1.2.9.3";
 
 export interface ChangelogVersion {
   version: string;
@@ -12,6 +12,27 @@ export interface ChangelogVersion {
 // Descripciones simplificadas para usuarios finales.
 // El detalle técnico completo está en CHANGELOG.md en la raíz del proyecto.
 export const CHANGELOG: ChangelogVersion[] = [
+  {
+    version: "1.2.9.3",
+    date: "Septiembre 2026",
+    fixes: [
+      "Dashboard Softys — el porcentaje de cumplimiento ya no mostraba 'Infinity%' cuando el presupuesto era cero",
+      "Dashboard Softys — la línea roja de proyección en el gráfico de tendencia por SKU ya no aparece en meses anteriores (solo se muestra en el mes actual)",
+      "Dashboard Softys — en meses pasados, la leyenda 'Proyección' ya no aparece en los gráficos de tendencia",
+      "Dashboard Softys — al cambiar de mes o año, el filtro regional de la tabla 'Presupuesto por SKU' ahora vuelve automáticamente a 'NACIONAL'",
+      "Dashboard Proveedor — las cifras de ventas ahora muestran el monto neto facturado correcto (antes se usaba el precio bruto del producto)",
+      "General — correcciones internas de seguridad y estabilidad en varios endpoints",
+    ],
+    features: [
+      "Dashboard Softys — nueva tabla 'Presupuesto por SKU': muestra el presupuesto en Bs. y unidades por producto, filtrable por regional (Nacional, Santa Cruz, Cochabamba, La Paz)",
+      "Dashboard Softys — cards de canal ahora muestran el porcentaje real de cobertura (clientes visitados vs universo de clientes del territorio)",
+      "Dashboard Softys — exportación Excel: incluye una nueva hoja 'Presupuesto' con el detalle por producto, regional y canal",
+      "Dashboard Proveedor (Softys) — nuevas cards de KPI de presupuesto: Bs. presupuestados, unidades presupuestadas y % de cumplimiento",
+      "Dashboard Proveedor (Softys) — exportación Excel: nueva hoja 'Presupuesto' con detalle completo por SKU",
+    ],
+    newDashboardPerms: [],
+    newDashboardNames: {},
+  },
   {
     version: "1.2.9.2",
     date: "Septiembre 2026",
