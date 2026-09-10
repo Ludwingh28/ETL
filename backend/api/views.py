@@ -6198,13 +6198,15 @@ def dashboard_proveedor_tabla(request):
 
         response: dict = {'success': True, 'data': rows}
 
-        if proveedor == 'SOFTYS':
+        try:
             sql_ppto = """
                 SELECT
-                    dp.producto_codigo_erp  AS cod_producto,
-                    dp.producto_nombre,
-                    COALESCE(dv.canal_rrhh, '') AS canal,
-                    COALESCE(SUM(fp.venta_neta_presupuestada), 0) AS presupuesto
+                    COALESCE(dp.proveedor, '')                        AS proveedor,
+                    COALESCE(dp.cat_comercial, '')                    AS marca,
+                    COALESCE(dp.linea, 'SIN LINEA')                   AS linea,
+                    dp.producto_nombre                                AS producto,
+                    COALESCE(SUM(fp.venta_neta_presupuestada), 0)     AS presupuesto_bs,
+                    COALESCE(SUM(fp.cantidad_presupuestada), 0)       AS presupuesto_uds
                 FROM dw.dim_producto dp
                 LEFT JOIN dw.fact_presupuesto fp
                     ON fp.producto_sk = dp.producto_sk
@@ -6213,13 +6215,14 @@ def dashboard_proveedor_tabla(request):
                         SELECT MAX(version_sk) FROM dw.dim_presupuesto_version
                         WHERE anho = %s AND mes = %s
                     )
-                LEFT JOIN dw.dim_vendedor dv ON dv.vendedor_sk = fp.vendedor_sk
-                WHERE (UPPER(dp.proveedor) = 'SOFTYS' OR UPPER(dp.cat_comercial) = 'SOFTYS')
-                GROUP BY dp.producto_codigo_erp, dp.producto_nombre, dv.canal_rrhh
-                ORDER BY dp.producto_nombre, dv.canal_rrhh NULLS LAST
+                WHERE (UPPER(dp.proveedor) = %s OR UPPER(dp.cat_comercial) = %s)
+                GROUP BY dp.proveedor, dp.cat_comercial, dp.linea, dp.producto_nombre
+                ORDER BY dp.linea, dp.cat_comercial, dp.producto_nombre
             """
-            _, ppto_rows = _run_dw_query(sql_ppto, [anho, mes, anho, mes])
+            _, ppto_rows = _run_dw_query(sql_ppto, [anho, mes, anho, mes, proveedor, proveedor])
             response['presupuesto_por_sku'] = ppto_rows
+        except Exception:
+            response['presupuesto_por_sku'] = []
 
         return JsonResponse(response)
     except Exception:

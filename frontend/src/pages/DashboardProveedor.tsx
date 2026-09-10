@@ -1,6 +1,6 @@
 ﻿import { useEffect, useState, useMemo, type ChangeEvent } from 'react'
 import {
-  DollarSign, ShoppingCart, Users2, MapPin,
+  DollarSign, ShoppingCart, Users2, MapPin, Target, Package,
   Download, RefreshCw, AlertCircle, ChevronLeft, ChevronRight,
 } from 'lucide-react'
 import {
@@ -46,10 +46,12 @@ interface TablaRow {
 }
 
 interface PresupuestoSku {
-  cod_producto:   string | null
-  producto_nombre: string | null
-  canal:          string | null
-  presupuesto:    number | null
+  proveedor:       string | null
+  marca:           string | null
+  linea:           string | null
+  producto:        string | null
+  presupuesto_bs:  number | null
+  presupuesto_uds: number | null
 }
 
 interface Periodo {
@@ -226,16 +228,18 @@ export default function DashboardProveedor({ perm, nombre }: Props) {
     ws.addRow(cols.map(c => headers[c]))
     for (const r of tabla) ws.addRow(cols.map(c => r[c] ?? ''))
 
-    // Hoja 2 (solo Softys): presupuesto por SKU y canal
-    if (isSoftys && presupuestoSku.length > 0) {
-      const wsPpto = wb.addWorksheet('Presupuesto SKU')
-      wsPpto.addRow(['COD PRODUCTO', 'DESC ARTICULO', 'CANAL', 'PRESUPUESTO (Bs)'])
+    // Hoja 2: presupuesto por proveedor/marca/linea/producto
+    if (presupuestoSku.length > 0) {
+      const wsPpto = wb.addWorksheet('Presupuesto')
+      wsPpto.addRow(['PROVEEDOR', 'MARCA', 'LINEA', 'PRODUCTO', 'Bs.', 'Uds.'])
       for (const r of presupuestoSku) {
         wsPpto.addRow([
-          r.cod_producto   ?? '',
-          r.producto_nombre ?? '',
-          r.canal          ?? '',
-          r.presupuesto    ?? 0,
+          r.proveedor       ?? '',
+          r.marca           ?? '',
+          r.linea           ?? '',
+          r.producto        ?? '',
+          r.presupuesto_bs  ?? 0,
+          r.presupuesto_uds ?? 0,
         ])
       }
     }
@@ -328,7 +332,7 @@ export default function DashboardProveedor({ perm, nombre }: Props) {
       {!loading && (
         <>
           {/* ── KPI Cards ── */}
-          <div className="grid grid-cols-3 gap-4 mb-6">
+          <div className="grid grid-cols-3 gap-4 mb-4">
             <KpiCard
               title="Total Ventas"
               value={fmt(kpis?.total)}
@@ -351,6 +355,31 @@ export default function DashboardProveedor({ perm, nombre }: Props) {
               bg="bg-purple-50"
             />
           </div>
+
+          {/* ── KPI Presupuesto ── */}
+          {presupuestoSku.length > 0 && (() => {
+            const totalBs  = presupuestoSku.reduce((s, r) => s + (r.presupuesto_bs  ?? 0), 0)
+            const totalUds = presupuestoSku.reduce((s, r) => s + (r.presupuesto_uds ?? 0), 0)
+            return (
+              <div className="grid grid-cols-2 gap-4 mb-6">
+                <KpiCard
+                  title="Presupuesto Bs."
+                  value={fmt(totalBs)}
+                  sub={kpis?.total ? `${((kpis.total / totalBs) * 100).toFixed(1)}% de cumplimiento` : undefined}
+                  icon={Target}
+                  color="text-amber-600"
+                  bg="bg-amber-50"
+                />
+                <KpiCard
+                  title="Presupuesto Uds."
+                  value={fmtNum(Math.round(totalUds))}
+                  icon={Package}
+                  color="text-sky-600"
+                  bg="bg-sky-50"
+                />
+              </div>
+            )
+          })()}
 
           {/* ── Cards por Regional ── */}
           {(kpis?.regionales?.length ?? 0) > 0 && (
