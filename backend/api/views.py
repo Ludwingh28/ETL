@@ -367,7 +367,8 @@ def dashboard_ventas_kpis(request):
                 COUNT(DISTINCT fv.cliente_sk)            AS clientes_activos
             FROM dw.fact_ventas fv
             JOIN dw.dim_fecha df ON fv.fecha_sk = df.fecha_sk
-            WHERE df.mes_actual = TRUE
+            WHERE df.anho = EXTRACT(YEAR FROM CURRENT_DATE)::int
+              AND df.mes_numero = EXTRACT(MONTH FROM CURRENT_DATE)::int
         """
         _, rows = _run_dw_query(sql)
         return JsonResponse({'success': True, 'data': rows[0] if rows else {}})
@@ -412,16 +413,17 @@ def dashboard_ventas_por_canal(request):
     try:
         sql = """
             SELECT
-                dv.canal                                 AS canal,
+                dv.canal_rrhh                            AS canal,
                 COALESCE(SUM(fv.venta_neta), 0)          AS total_venta_neta,
                 COUNT(DISTINCT fv.numero_venta)          AS total_pedidos,
                 COUNT(DISTINCT fv.vendedor_sk)           AS vendedores
             FROM dw.fact_ventas fv
             JOIN dw.dim_vendedor dv ON fv.vendedor_sk = dv.vendedor_sk
             JOIN dw.dim_fecha df ON fv.fecha_sk = df.fecha_sk
-            WHERE df.mes_actual = TRUE
+            WHERE df.anho = EXTRACT(YEAR FROM CURRENT_DATE)::int
+              AND df.mes_numero = EXTRACT(MONTH FROM CURRENT_DATE)::int
               AND dv.es_vendedor_actual = TRUE
-            GROUP BY dv.canal
+            GROUP BY dv.canal_rrhh
             ORDER BY total_venta_neta DESC
         """
         _, rows = _run_dw_query(sql)
@@ -446,7 +448,7 @@ def dashboard_vendedores_ranking(request):
         sql = """
             SELECT
                 dv.vendedor_nombre                       AS vendedor,
-                dv.canal                                 AS canal,
+                dv.canal_rrhh                            AS canal,
                 dv.ciudad                                AS ciudad,
                 COALESCE(SUM(fv.venta_neta), 0)          AS total_venta_neta,
                 COUNT(DISTINCT fv.numero_venta)          AS total_pedidos,
@@ -454,9 +456,10 @@ def dashboard_vendedores_ranking(request):
             FROM dw.fact_ventas fv
             JOIN dw.dim_vendedor dv ON fv.vendedor_sk = dv.vendedor_sk
             JOIN dw.dim_fecha df ON fv.fecha_sk = df.fecha_sk
-            WHERE df.mes_actual = TRUE
+            WHERE df.anho = EXTRACT(YEAR FROM CURRENT_DATE)::int
+              AND df.mes_numero = EXTRACT(MONTH FROM CURRENT_DATE)::int
               AND dv.es_vendedor_actual = TRUE
-            GROUP BY dv.vendedor_nombre, dv.canal, dv.ciudad
+            GROUP BY dv.vendedor_nombre, dv.canal_rrhh, dv.ciudad
             ORDER BY total_venta_neta DESC
             LIMIT %s
         """
@@ -489,7 +492,8 @@ def dashboard_productos_top(request):
             FROM dw.fact_ventas fv
             JOIN dw.dim_producto dp ON fv.producto_sk = dp.producto_sk
             JOIN dw.dim_fecha df ON fv.fecha_sk = df.fecha_sk
-            WHERE df.mes_actual = TRUE
+            WHERE df.anho = EXTRACT(YEAR FROM CURRENT_DATE)::int
+              AND df.mes_numero = EXTRACT(MONTH FROM CURRENT_DATE)::int
               AND dp.es_producto_actual = TRUE
             GROUP BY dp.producto_nombre, dp.grupo_descripcion, dp.subgrupo_descripcion
             ORDER BY total_venta_neta DESC
@@ -518,7 +522,8 @@ def dashboard_productos_por_grupo(request):
             FROM dw.fact_ventas fv
             JOIN dw.dim_producto dp ON fv.producto_sk = dp.producto_sk
             JOIN dw.dim_fecha df ON fv.fecha_sk = df.fecha_sk
-            WHERE df.mes_actual = TRUE
+            WHERE df.anho = EXTRACT(YEAR FROM CURRENT_DATE)::int
+              AND df.mes_numero = EXTRACT(MONTH FROM CURRENT_DATE)::int
               AND dp.es_producto_actual = TRUE
             GROUP BY dp.grupo_descripcion
             ORDER BY total_venta_neta DESC
@@ -698,7 +703,7 @@ def dashboard_nacional_kpis(request):
             if ppto_rows:
                 presupuestos = {k: v or 0 for k, v in ppto_rows[0].items()}
         except Exception:
-            pass
+            logger.exception("Error al cargar presupuesto")
 
         data['presupuesto'] = presupuestos
 
@@ -886,7 +891,7 @@ def dashboard_nacional_tendencia(request):
             )
             presupuesto_mes = float(p[0]['total']) if p else 0.0
         except Exception:
-            pass
+            logger.exception("Error al cargar presupuesto")
 
         # Último día con ventas reales: maneja desfase de 1 día y ausencia de domingos
         # Nota: _run_dw_query convierte fechas a str ISO, por eso se parsea con fromisoformat
@@ -906,7 +911,7 @@ def dashboard_nacional_tendencia(request):
             if fc_rows and fc_rows[0].get('fc'):
                 fecha_corte = _date.fromisoformat(str(fc_rows[0]['fc'])[:10])
         except Exception:
-            pass
+            logger.exception("Error al cargar presupuesto")
 
         # Fallback: si el query de fecha_corte falla, derivar del último día con ventas reales
         if fecha_corte is None and avance_rows:
@@ -1031,7 +1036,7 @@ def dashboard_nacional_por_regional(request):
             _, ppto_rows = _run_dw_query(sql_ppto, [anho, mes, anho, mes])
             ppto_map = {r['regional']: r['presupuesto'] for r in ppto_rows}
         except Exception:
-            pass
+            logger.exception("Error al cargar presupuesto")
 
         for row in rows:
             ppto = ppto_map.get(row['regional'], 0)
@@ -1094,7 +1099,7 @@ def dashboard_nacional_por_canal(request):
             _, ppto_rows = _run_dw_query(sql_ppto, [anho, mes, anho, mes])
             ppto_map = {r["canal"]: r["presupuesto"] for r in ppto_rows}
         except Exception:
-            pass
+            logger.exception("Error al cargar presupuesto")
 
         # Consolidar canales DTS y WHS en ventas también
         canal_consolidado: dict = {}
@@ -1497,7 +1502,7 @@ def dashboard_nacional_por_categoria(request):
             _, ppto_rows = _run_dw_query(sql_ppto, [anho, mes, anho, mes])
             ppto_map = {r["categoria"]: r["presupuesto"] for r in ppto_rows}
         except Exception:
-            pass
+            logger.exception("Error al cargar presupuesto")
 
         # Consolidar resultados con presupuesto
         result = []
@@ -1678,7 +1683,7 @@ def dashboard_regionales_tendencia(request):
             _, p = _run_dw_query(sql_ppto, [anho, mes, anho, mes])
             presupuesto_mes = float(p[0]['total']) if p else 0.0
         except Exception:
-            pass
+            logger.exception("Error al cargar presupuesto")
 
         from datetime import date as _date
         dias_en_mes       = calendar.monthrange(anho, mes)[1]
@@ -1822,7 +1827,7 @@ def dashboard_regionales_por_categoria(request):
             _, ppto_rows = _run_dw_query(sql_ppto, [anho, mes, anho, mes])
             ppto_map = {r['categoria']: float(r['presupuesto'] or 0) for r in ppto_rows}
         except Exception:
-            pass
+            logger.exception("Error al cargar presupuesto")
 
         result = []
         for row in rows:
@@ -2070,7 +2075,7 @@ def dashboard_canales_por_categoria(request):
             _, ppto_rows = _run_dw_query(sql_ppto, params + [anho, mes])
             ppto_map = {r['categoria']: float(r['presupuesto'] or 0) for r in ppto_rows}
         except Exception:
-            pass
+            logger.exception("Error al cargar presupuesto")
 
         result = []
         for row in rows:
@@ -2179,7 +2184,7 @@ def dashboard_canales_por_sku(request):
             _, ppto_rows = _run_dw_query(sql_ppto, params + [anho, mes])
             ppto_map = {r['codigo']: r for r in ppto_rows}
         except Exception:
-            pass
+            logger.exception("Error al cargar presupuesto")
 
         result = []
         for row in rows:
@@ -2510,96 +2515,6 @@ def dashboard_softys_canales_tendencia(request):
         return JsonResponse({'success': False, 'error': 'Error interno del servidor'}, status=500)
 
 
-@api_view(['GET'])
-@authentication_classes([ExpiringTokenAuthentication])
-@permission_classes([IsAuthenticated])
-@_require_any_perm('softys', 'softys-nuevo')
-def dashboard_softys_canales_por_categoria(request):
-    """Ventas Softys por categoría para canal+regional. Params: regional, canal, anho, mes."""
-    try:
-        is_admin = _is_admin(request.user)
-        profile  = _get_or_create_profile(request.user)
-        cargo    = (profile.cargo or '').strip()
-        if is_admin:
-            regional = request.GET.get('regional', 'santa_cruz').lower().replace(' ', '_')
-            canal    = _safe_str(request.GET.get('canal', ''))
-        elif cargo == 'Gerente Regional':
-            regional = _REGIONAL_NAME_TO_KEY.get(profile.regional, 'santa_cruz')
-            canal    = _safe_str(request.GET.get('canal', ''))
-        elif cargo == 'Proveedor':
-            regional = request.GET.get('regional', 'nacional').lower().replace(' ', '_')
-            canal    = (profile.canal or '').strip()
-        else:
-            regional = _REGIONAL_NAME_TO_KEY.get(profile.regional, 'santa_cruz')
-            canal    = (profile.canal or '').strip()
-        anho = _safe_int(request.GET.get('anho'), datetime.now().year)
-        mes  = _safe_int(request.GET.get('mes'),  datetime.now().month)
-        if regional not in REGIONALES_VALID:
-            return JsonResponse({'success': False, 'error': 'Regional inválida'}, status=400)
-
-        ciudad_cond = _regional_filter(regional)
-        canal_cond  = "AND dv.canal_rrhh = %s" if canal else ""
-        params      = [anho, mes] + ([canal] if canal else [])
-
-        sql = f"""
-            SELECT
-                {_CATEGORIA_CASE}                                AS categoria,
-                COALESCE(SUM(fv.venta_neta), 0)                  AS avance,
-                COALESCE(SUM(fv.cantidad), 0)                    AS cantidad,
-                COUNT(DISTINCT fv.producto_sk)                   AS productos
-            FROM dw.fact_ventas fv
-            JOIN dw.dim_fecha    df   ON fv.fecha_sk    = df.fecha_sk
-            JOIN dw.dim_vendedor dv   ON fv.vendedor_sk = dv.vendedor_sk
-            JOIN dw.dim_producto dp   ON fv.producto_sk = dp.producto_sk
-            WHERE df.anho = %s AND df.mes_numero = %s
-              AND ({ciudad_cond}) {canal_cond}
-              AND dp.linea IS NOT NULL AND dp.linea != 'SIN LINEA'
-              AND {_SOFTYS_COND}
-            GROUP BY {_CATEGORIA_CASE}
-            ORDER BY avance DESC
-        """
-        _, rows = _run_dw_query(sql, params)
-
-        ppto_map = {}
-        try:
-            sql_ppto = f"""
-                SELECT
-                    {_CATEGORIA_CASE}                                        AS categoria,
-                    COALESCE(SUM(fp.venta_neta_presupuestada), 0)             AS presupuesto
-                FROM dw.fact_presupuesto fp
-                JOIN dw.dim_vendedor dv ON fp.vendedor_sk = dv.vendedor_sk
-                JOIN dw.dim_producto dp ON fp.producto_sk = dp.producto_sk
-                WHERE fp.anho = %s AND fp.mes = %s
-                  AND ({ciudad_cond}) {canal_cond}
-                  AND dp.grupo_descripcion != 'EXHIBIDORES'
-                  AND dp.grupo_descripcion IS NOT NULL
-                  AND {_SOFTYS_COND}
-                  AND fp.version_sk = (SELECT MAX(version_sk) FROM dw.dim_presupuesto_version WHERE anho = %s AND mes = %s)
-                GROUP BY {_CATEGORIA_CASE}
-            """
-            _, ppto_rows = _run_dw_query(sql_ppto, params + [anho, mes])
-            ppto_map = {r['categoria']: float(r['presupuesto'] or 0) for r in ppto_rows}
-        except Exception:
-            pass
-
-        result = []
-        for row in rows:
-            cat  = row['categoria']
-            av   = float(row['avance'] or 0)
-            ppto = ppto_map.get(cat, 0)
-            result.append({
-                'categoria':   cat,
-                'avance':      av,
-                'cantidad':    int(row['cantidad'] or 0),
-                'productos':   int(row['productos'] or 0),
-                'presupuesto': ppto,
-                'porcentaje':  round(av / ppto * 100, 1) if ppto > 0 else None,
-            })
-        return JsonResponse({'success': True, 'data': result})
-    except Exception:
-        logger.exception("Error interno")
-        return JsonResponse({'success': False, 'error': 'Error interno del servidor'}, status=500)
-
 
 @api_view(['GET'])
 @authentication_classes([ExpiringTokenAuthentication])
@@ -2693,7 +2608,7 @@ def dashboard_softys_canales_por_sku(request):
             _, ppto_rows = _run_dw_query(sql_ppto, sub_params + cat_params + [anho, mes])
             ppto_map = {r['codigo']: r for r in ppto_rows}
         except Exception:
-            pass
+            logger.exception("Error al cargar presupuesto")
 
         result = []
         for row in rows:
@@ -2896,7 +2811,7 @@ def dashboard_softys_canales_por_grupo(request):
             _, ppto_rows = _run_dw_query(sql_ppto, [anho, mes] + ([canal] if canal else []) + [anho, mes])
             ppto_map = {r['grupo']: float(r['presupuesto'] or 0) for r in ppto_rows}
         except Exception:
-            pass
+            logger.exception("Error al cargar presupuesto")
 
         _ORDEN_G = ["Pañales", "Pañales para Adultos", "Papel Higiénico", "Toallas Femeninas", "Pañuelos", "Toallas de Papel", "Otros"]
         result = []
@@ -2993,7 +2908,7 @@ def dashboard_softys_sku_tendencia(request):
                 ppto_total = float(info_rows[0]['presupuesto'] or 0)
                 producto_nombre = info_rows[0]['nombre'] or ''
         except Exception:
-            pass
+            logger.exception("Error al cargar presupuesto")
 
         if not producto_nombre:
             try:
@@ -3002,7 +2917,7 @@ def dashboard_softys_sku_tendencia(request):
                 if nombre_rows:
                     producto_nombre = nombre_rows[0]['producto_nombre'] or ''
             except Exception:
-                pass
+                logger.exception("Error al cargar presupuesto")
 
         hoy = datetime.now().date()
         from datetime import date as _date
@@ -3658,7 +3573,13 @@ def dashboard_softys_export(request):
         """
         _, ppto_rows = _run_dw_query(sql_ppto, ppto_params)
 
-        return JsonResponse({'success': True, 'data': rows, 'total': len(rows), 'presupuesto_por_sku': ppto_rows})
+        try:
+            ppto_nacional = _get_softys_presupuesto(anho, mes)
+        except Exception:
+            logger.exception("Error en _get_softys_presupuesto")
+            ppto_nacional = []
+
+        return JsonResponse({'success': True, 'data': rows, 'total': len(rows), 'presupuesto_por_sku': ppto_rows, 'presupuesto_ppto': ppto_nacional})
     except Exception:
         logger.exception("Error interno")
         return JsonResponse({'success': False, 'error': 'Error interno del servidor'}, status=500)
@@ -3794,7 +3715,7 @@ def dashboard_supervisores_vendedores(request):
             _, ppto_rows = _run_dw_query(sql_ppto, params_base + [anho, mes])
             ppto_map = {r['vendedor_sk']: r for r in ppto_rows}
         except Exception:
-            pass
+            logger.exception("Error al cargar presupuesto")
 
         def _pct(avance, ppto):
             a, p = float(avance or 0), float(ppto or 0)
@@ -4507,7 +4428,7 @@ def dashboard_unidades_kpis(request):
         try:
             _, p_rows = _run_dw_query(sql_p, params_pp + extra + [anho, mes])
         except Exception:
-            pass
+            logger.exception("Error al cargar presupuesto")
 
         sql_fc = f"""
             SELECT MAX(df.fecha_completa) AS fc
@@ -4610,7 +4531,7 @@ def dashboard_unidades_por_subgrupo(request):
                 for r in p_rows
             }
         except Exception:
-            pass
+            logger.exception("Error al cargar presupuesto")
 
         result = []
         for row in v_rows:
@@ -4748,7 +4669,7 @@ def dashboard_unidades_por_sku(request):
             _, p_rows = _run_dw_query(sql_p, params_ppto + [anho, mes])
             ppto_map = {r['codigo']: r for r in p_rows}
         except Exception:
-            pass
+            logger.exception("Error al cargar presupuesto")
 
         result = []
         for row in v_rows:
@@ -5043,7 +4964,7 @@ def dashboard_new_nacional_comparacion(request):
             _, ant_rows = _run_dw_query(sql_ant, [prev_anho, prev_mes] + canal_param + vend_param + ruta_params + all_params)
             ant_map = {r['name']: r for r in ant_rows}
         except Exception:
-            pass
+            logger.exception("Error al cargar presupuesto")
 
         # Presupuesto mes actual
         ppto_map = {}
@@ -5063,7 +4984,7 @@ def dashboard_new_nacional_comparacion(request):
             _, p_rows = _run_dw_query(sql_p, [anho, mes] + canal_param + vend_param + all_params + [anho, mes])
             ppto_map = {r['name']: r for r in p_rows}
         except Exception:
-            pass
+            logger.exception("Error al cargar presupuesto")
 
         result = []
         for row in v_rows:
@@ -5188,7 +5109,7 @@ def dashboard_new_nacional_skus(request):
             _, ant_rows = _run_dw_query(sql_ant, [prev_anho, prev_mes] + canal_param + vend_param + ruta_params + filter_params)
             ant_map = {r['codigo']: r for r in ant_rows}
         except Exception:
-            pass
+            logger.exception("Error al cargar presupuesto")
 
         # Presupuesto
         ppto_map = {}
@@ -5208,7 +5129,7 @@ def dashboard_new_nacional_skus(request):
             _, p_rows = _run_dw_query(sql_p, [anho, mes] + canal_param + vend_param + filter_params + [anho, mes])
             ppto_map = {r['codigo']: r for r in p_rows}
         except Exception:
-            pass
+            logger.exception("Error al cargar presupuesto")
 
         result = []
         for row in v_rows:
@@ -5373,7 +5294,7 @@ def dashboard_new_nacional_vendedores(request):
             _, p_rows = _run_dw_query(sql_p, ppto_params)
             ppto_map = {r['vendedor']: r for r in p_rows}
         except Exception:
-            pass
+            logger.exception("Error al cargar presupuesto")
 
         result = []
         for row in v_rows:
@@ -5543,7 +5464,7 @@ def dashboard_new_nacional_vendedores_cat(request):
             _, p_rows = _run_dw_query(sql_p, ppto_params)
             ppto_map = {r['vendedor']: r for r in p_rows}
         except Exception:
-            pass
+            logger.exception("Error al cargar presupuesto")
 
         def _pct(v, p):
             return round(v / p * 100, 1) if p and p > 0 else None
@@ -5943,7 +5864,7 @@ def dashboard_unidades_vendedor_sku(request):
                 for r in p_rows
             }
         except Exception:
-            pass
+            logger.exception("Error al cargar presupuesto")
 
         result = []
         for row in v_rows:
@@ -6067,7 +5988,7 @@ def dashboard_proveedor_kpis(request):
         prov_filter = "(UPPER(dp.proveedor) = %s OR UPPER(dp.cat_comercial) = %s)"
 
         sql_total = f"""
-            SELECT COALESCE(SUM(fv.total), 0)              AS total,
+            SELECT COALESCE(SUM(fv.venta_neta), 0)         AS total,
                    COUNT(DISTINCT fv.numero_venta)         AS pedidos,
                    COUNT(DISTINCT fv.cliente_sk)           AS clientes
             FROM dw.fact_ventas fv
@@ -6088,7 +6009,7 @@ def dashboard_proveedor_kpis(request):
                     WHEN {lpz}  THEN 'La Paz'
                     ELSE 'Otras'
                 END                              AS regional,
-                COALESCE(SUM(fv.total), 0)       AS total
+                COALESCE(SUM(fv.venta_neta), 0)  AS total
             FROM dw.fact_ventas fv
             JOIN dw.dim_producto dp ON dp.producto_sk = fv.producto_sk
             JOIN dw.dim_fecha    df ON df.fecha_sk    = fv.fecha_sk
@@ -6128,9 +6049,9 @@ def dashboard_proveedor_por_marca(request):
             return JsonResponse({'success': False, 'error': 'Sin acceso a este dashboard'}, status=403)
 
         sql = """
-            SELECT cd.canal                            AS marca,
-                   COALESCE(SUM(fv.total), 0)          AS total,
-                   COALESCE(SUM(fv.cantidad), 0)       AS cantidad
+            SELECT cd.canal                                AS marca,
+                   COALESCE(SUM(fv.venta_neta), 0)      AS total,
+                   COALESCE(SUM(fv.cantidad), 0)         AS cantidad
             FROM dw.fact_ventas fv
             JOIN dw.dim_producto      dp ON dp.producto_sk    = fv.producto_sk
             JOIN dw.dim_fecha         df ON df.fecha_sk       = fv.fecha_sk
@@ -6147,6 +6068,68 @@ def dashboard_proveedor_por_marca(request):
     except Exception:
         logger.exception("Error interno")
         return JsonResponse({'success': False, 'error': 'Error interno del servidor'}, status=500)
+
+
+def _get_softys_presupuesto(anho: int, mes: int) -> list:
+    """Presupuesto Softys por producto × regional × canal, incluyendo totales NACIONAL."""
+    sql = """
+        SELECT
+            COALESCE(dp.proveedor, '')                            AS proveedor,
+            COALESCE(dp.cat_comercial, '')                        AS marca,
+            COALESCE(dp.linea, 'SIN LINEA')                       AS linea,
+            dp.producto_nombre                                    AS producto,
+            COALESCE(dv.canal_rrhh, 'SIN CANAL')                  AS canal,
+            CASE
+                WHEN dv.ciudad = 'SCZ'                THEN 'SANTA CRUZ'
+                WHEN dv.ciudad = 'CBA'                THEN 'COCHABAMBA'
+                WHEN dv.ciudad IN ('LPZ', 'EAL')      THEN 'LA PAZ'
+                ELSE                                       'OTRAS'
+            END                                                   AS regional,
+            COALESCE(SUM(fp.venta_neta_presupuestada), 0)         AS presupuesto_bs,
+            COALESCE(SUM(fp.cantidad_presupuestada), 0)           AS presupuesto_uds
+        FROM dw.dim_producto dp
+        LEFT JOIN dw.fact_presupuesto fp
+            ON fp.producto_sk = dp.producto_sk
+            AND fp.anho = %s AND fp.mes = %s
+            AND fp.version_sk = (
+                SELECT MAX(version_sk) FROM dw.dim_presupuesto_version
+                WHERE anho = %s AND mes = %s
+            )
+        LEFT JOIN dw.dim_vendedor dv ON dv.vendedor_sk = fp.vendedor_sk
+        WHERE (UPPER(dp.proveedor) = 'SOFTYS' OR UPPER(dp.cat_comercial) = 'SOFTYS')
+        GROUP BY dp.proveedor, dp.cat_comercial, dp.linea, dp.producto_nombre,
+                 dv.canal_rrhh,
+                 CASE
+                     WHEN dv.ciudad = 'SCZ'           THEN 'SANTA CRUZ'
+                     WHEN dv.ciudad = 'CBA'           THEN 'COCHABAMBA'
+                     WHEN dv.ciudad IN ('LPZ', 'EAL') THEN 'LA PAZ'
+                     ELSE                                  'OTRAS'
+                 END
+        HAVING COALESCE(SUM(fp.venta_neta_presupuestada), 0) + COALESCE(SUM(fp.cantidad_presupuestada), 0) > 0
+        ORDER BY dp.linea, dp.cat_comercial, dp.producto_nombre, dv.canal_rrhh
+    """
+    _, rows = _run_dw_query(sql, [anho, mes, anho, mes])
+
+    # Sumar NACIONAL = total por (producto, canal) sin distinguir regional
+    nac: dict = {}
+    for r in rows:
+        key = (r['producto'], r['canal'])
+        if key not in nac:
+            nac[key] = {
+                'proveedor':       r['proveedor'],
+                'marca':           r['marca'],
+                'linea':           r['linea'],
+                'producto':        r['producto'],
+                'canal':           r['canal'],
+                'regional':        'NACIONAL',
+                'presupuesto_bs':  float(r['presupuesto_bs']),
+                'presupuesto_uds': float(r['presupuesto_uds']),
+            }
+        else:
+            nac[key]['presupuesto_bs']  += float(r['presupuesto_bs'])
+            nac[key]['presupuesto_uds'] += float(r['presupuesto_uds'])
+
+    return list(nac.values()) + [dict(r) for r in rows]
 
 
 @api_view(['GET'])
@@ -6181,7 +6164,7 @@ def dashboard_proveedor_tabla(request):
                 dp.producto_nombre,
                 dp.unidad_medida,
                 fv.cantidad,
-                fv.total,
+                fv.venta_neta AS total,
                 dv.vendedor_nombre,
                 INITCAP(dv.supervisor) AS supervisor_nombre
             FROM dw.fact_ventas fv
@@ -6198,31 +6181,11 @@ def dashboard_proveedor_tabla(request):
 
         response: dict = {'success': True, 'data': rows}
 
-        try:
-            sql_ppto = """
-                SELECT
-                    COALESCE(dp.proveedor, '')                        AS proveedor,
-                    COALESCE(dp.cat_comercial, '')                    AS marca,
-                    COALESCE(dp.linea, 'SIN LINEA')                   AS linea,
-                    dp.producto_nombre                                AS producto,
-                    COALESCE(SUM(fp.venta_neta_presupuestada), 0)     AS presupuesto_bs,
-                    COALESCE(SUM(fp.cantidad_presupuestada), 0)       AS presupuesto_uds
-                FROM dw.dim_producto dp
-                LEFT JOIN dw.fact_presupuesto fp
-                    ON fp.producto_sk = dp.producto_sk
-                    AND fp.anho = %s AND fp.mes = %s
-                    AND fp.version_sk = (
-                        SELECT MAX(version_sk) FROM dw.dim_presupuesto_version
-                        WHERE anho = %s AND mes = %s
-                    )
-                WHERE (UPPER(dp.proveedor) = %s OR UPPER(dp.cat_comercial) = %s)
-                GROUP BY dp.proveedor, dp.cat_comercial, dp.linea, dp.producto_nombre
-                ORDER BY dp.linea, dp.cat_comercial, dp.producto_nombre
-            """
-            _, ppto_rows = _run_dw_query(sql_ppto, [anho, mes, anho, mes, proveedor, proveedor])
-            response['presupuesto_por_sku'] = ppto_rows
-        except Exception:
-            response['presupuesto_por_sku'] = []
+        if proveedor == 'SOFTYS':
+            try:
+                response['presupuesto_por_sku'] = _get_softys_presupuesto(anho, mes)
+            except Exception:
+                response['presupuesto_por_sku'] = []
 
         return JsonResponse(response)
     except Exception:
@@ -6330,6 +6293,7 @@ def exportar_ventas_combo_armado(request):
             fv.venta_neta,
             fv.pago
         FROM dw.fact_ventas                  fv
+        JOIN      dw.dim_fecha           df  ON fv.fecha_sk        = df.fecha_sk
         JOIN      dw.dim_producto        dp  ON fv.producto_sk     = dp.producto_sk
         JOIN      dw.dim_cliente         dc  ON fv.cliente_sk      = dc.cliente_sk
         LEFT JOIN dw.dim_vendedor        dv  ON fv.vendedor_sk     = dv.vendedor_sk
@@ -6337,10 +6301,8 @@ def exportar_ventas_combo_armado(request):
         LEFT JOIN dw.dim_almacen         da  ON fv.almacen_sk      = da.almacen_sk
         LEFT JOIN dw.dim_distribuidor   ddi  ON fv.distribuidor_sk = ddi.distribuidor_sk
         LEFT JOIN dw.dim_zona            dz  ON fv.zona_sk         = dz.zona_sk
-        WHERE SUBSTR(fv.fecha_venta, 7, 4) || '-' || SUBSTR(fv.fecha_venta, 4, 2) || '-' || SUBSTR(fv.fecha_venta, 1, 2)
-              BETWEEN %s AND %s
-        ORDER BY SUBSTR(fv.fecha_venta, 7, 4) || '-' || SUBSTR(fv.fecha_venta, 4, 2) || '-' || SUBSTR(fv.fecha_venta, 1, 2),
-                 fv.numero_venta
+        WHERE df.fecha_completa BETWEEN %s::date AND %s::date
+        ORDER BY df.fecha_completa, fv.numero_venta
     """
 
     wb = openpyxl.Workbook(write_only=True)
@@ -8761,12 +8723,15 @@ def reporte_unread_count(request):
     return JsonResponse({'count': count})
 
 
+@api_view(['GET'])
+@authentication_classes([ExpiringTokenAuthentication])
+@permission_classes([IsAuthenticated])
 def dashboard_new_nacional_rutas_mapa(request):
     """Devuelve rutas con centroide lat/lng y venta acumulada del mes para el mapa."""
     regional = request.GET.get("regional", "")
     canal    = request.GET.get("canal", "")
-    anho     = int(request.GET.get("anho", 0) or 0)
-    mes      = int(request.GET.get("mes",  0) or 0)
+    anho     = _safe_int(request.GET.get("anho"), 0)
+    mes      = _safe_int(request.GET.get("mes"),  0)
 
     SUCURSAL_MAP = {
         "santa_cruz": "SCZ",
@@ -8820,8 +8785,9 @@ def dashboard_new_nacional_rutas_mapa(request):
             r["lat"] = float(r["lat"]) if r["lat"] is not None else None
             r["lng"] = float(r["lng"]) if r["lng"] is not None else None
         return JsonResponse({"success": True, "rutas": rutas})
-    except Exception as e:
-        return JsonResponse({"success": False, "rutas": [], "error": str(e)})
+    except Exception:
+        logger.exception("Error en dashboard_new_nacional_rutas_mapa")
+        return JsonResponse({"success": False, "rutas": [], "error": "Error interno del servidor"})
 
 
 @api_view(['GET'])
@@ -8893,7 +8859,7 @@ def dashboard_new_nacional_canales_mini(request):
             _, ppto_rows = _run_dw_query(sql_ppto, [anho, mes] + prod_params + [anho, mes])
             ppto_map = {r['canal']: (float(r['presupuesto'] or 0), float(r['presupuesto_uds'] or 0)) for r in ppto_rows}
         except Exception:
-            pass
+            logger.exception("Error al cargar presupuesto")
 
         result = []
         for row in ventas_rows:
