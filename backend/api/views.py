@@ -368,7 +368,7 @@ def dashboard_ventas_kpis(request):
             FROM dw.fact_ventas fv
             JOIN dw.dim_fecha df ON fv.fecha_sk = df.fecha_sk
             WHERE df.mes_actual = TRUE
-              AND fv.es_anulado = FALSE
+              AND fv.es_anulado = FALSE AND fv.venta_neta > 0
         """
         _, rows = _run_dw_query(sql)
         return JsonResponse({'success': True, 'data': rows[0] if rows else {}})
@@ -394,7 +394,7 @@ def dashboard_ventas_por_mes(request):
             FROM dw.fact_ventas fv
             JOIN dw.dim_fecha df ON fv.fecha_sk = df.fecha_sk
             WHERE df.fecha_completa >= CURRENT_DATE - INTERVAL '12 months'
-              AND fv.es_anulado = FALSE
+              AND fv.es_anulado = FALSE AND fv.venta_neta > 0
             GROUP BY df.anho_mes, df.mes_nombre, df.anho
             ORDER BY df.anho_mes
         """
@@ -423,7 +423,7 @@ def dashboard_ventas_por_canal(request):
             JOIN dual.dim_clientes dc2 ON dc2.codigo_cliente   = dc.cliente_codigo_erp
             JOIN dw.dim_fecha      df  ON df.fecha_sk          = fv.fecha_sk
             WHERE df.mes_actual = TRUE
-              AND fv.es_anulado = FALSE
+              AND fv.es_anulado = FALSE AND fv.venta_neta > 0
             GROUP BY dc2.canal
             ORDER BY total_venta_neta DESC
         """
@@ -452,7 +452,7 @@ def dashboard_vendedores_ranking(request):
                 FROM dw.fact_ventas fv
                 JOIN dw.dim_fecha df ON df.fecha_sk = fv.fecha_sk
                 WHERE df.mes_actual = TRUE
-                  AND fv.es_anulado = FALSE
+                  AND fv.es_anulado = FALSE AND fv.venta_neta > 0
             ),
             canal_vend AS (
                 SELECT vm.vendedor_sk, dc2.canal,
@@ -516,7 +516,7 @@ def dashboard_productos_top(request):
             JOIN dw.dim_producto dp ON fv.producto_sk = dp.producto_sk
             JOIN dw.dim_fecha df ON fv.fecha_sk = df.fecha_sk
             WHERE df.mes_actual = TRUE
-              AND fv.es_anulado = FALSE
+              AND fv.es_anulado = FALSE AND fv.venta_neta > 0
               AND dp.es_producto_actual = TRUE
             GROUP BY dp.producto_nombre, dp.grupo_descripcion, dp.subgrupo_descripcion
             ORDER BY total_venta_neta DESC
@@ -546,7 +546,7 @@ def dashboard_productos_por_grupo(request):
             JOIN dw.dim_producto dp ON fv.producto_sk = dp.producto_sk
             JOIN dw.dim_fecha df ON fv.fecha_sk = df.fecha_sk
             WHERE df.mes_actual = TRUE
-              AND fv.es_anulado = FALSE
+              AND fv.es_anulado = FALSE AND fv.venta_neta > 0
               AND dp.es_producto_actual = TRUE
             GROUP BY dp.grupo_descripcion
             ORDER BY total_venta_neta DESC
@@ -611,7 +611,7 @@ def dashboard_nacional_periodos(request):
             SELECT DISTINCT df.anho, df.mes_numero, df.mes_nombre
             FROM dw.fact_ventas fv
             JOIN dw.dim_fecha df ON fv.fecha_sk = df.fecha_sk
-            WHERE fv.es_anulado = FALSE
+            WHERE fv.es_anulado = FALSE AND fv.venta_neta > 0
             ORDER BY df.anho DESC, df.mes_numero DESC
             LIMIT 36
         """
@@ -683,7 +683,7 @@ def dashboard_nacional_kpis(request):
             JOIN dw.dim_vendedor dv ON fv.vendedor_sk = dv.vendedor_sk
             {prod_join}
             WHERE df.anho = %s AND df.mes_numero = %s
-              AND fv.es_anulado = FALSE
+              AND fv.es_anulado = FALSE AND fv.venta_neta > 0
               {canal_cond} {vend_cond} {ruta_cond} {prod_cond}
         """
         _, rows = _run_dw_query(sql_ventas, [anho, mes] + canal_param + vend_param + ruta_params + prod_params)
@@ -696,7 +696,7 @@ def dashboard_nacional_kpis(request):
             JOIN dw.dim_fecha    df ON fv.fecha_sk    = df.fecha_sk
             JOIN dw.dim_vendedor dv ON fv.vendedor_sk = dv.vendedor_sk
             WHERE df.anho = %s AND df.mes_numero = %s
-              AND fv.es_anulado = FALSE
+              AND fv.es_anulado = FALSE AND fv.venta_neta > 0
               {canal_cond} {vend_cond} {ruta_cond}
         """
         _, fc_rows = _run_dw_query(sql_fc, [anho, mes] + canal_param + vend_param + ruta_params)
@@ -763,7 +763,7 @@ def dashboard_nacional_kpis(request):
                         JOIN dw.dim_fecha    df ON fv.fecha_sk    = df.fecha_sk
                         JOIN dw.dim_vendedor dv ON fv.vendedor_sk = dv.vendedor_sk
                         WHERE df.anho = %s AND dv.vendedor_nombre = %s
-                          AND fv.es_anulado = FALSE
+                          AND fv.es_anulado = FALSE AND fv.venta_neta > 0
                     """
                     _, cart_rows = _run_dw_query(sql_cartera, [anho, vendedor])
                 data['cartera_anho'] = int(cart_rows[0].get('cartera', 0) or 0) if cart_rows else 0
@@ -782,7 +782,7 @@ def dashboard_nacional_kpis(request):
                     JOIN dw.dim_vendedor dv ON fv.vendedor_sk = dv.vendedor_sk
                     {prod_join}
                     WHERE df.anho = %s AND df.mes_numero = %s
-                      AND fv.es_anulado = FALSE
+                      AND fv.es_anulado = FALSE AND fv.venta_neta > 0
                       {canal_cond} {vend_cond} {prod_cond}
                 """
                 _, tv_rows = _run_dw_query(sql_total_vend,
@@ -804,7 +804,7 @@ def dashboard_nacional_kpis(request):
                 JOIN dw.dim_vendedor dv ON fv.vendedor_sk = dv.vendedor_sk
                 {prod_join}
                 WHERE df.anho = %s AND df.mes_numero = %s
-                  AND fv.es_anulado = FALSE
+                  AND fv.es_anulado = FALSE AND fv.venta_neta > 0
                   {canal_cond} {vend_cond} {ruta_cond} {prod_cond}
             """
             _, ant_rows = _run_dw_query(sql_anterior,
@@ -874,7 +874,7 @@ def dashboard_nacional_tendencia(request):
                         JOIN dw.dim_vendedor dv ON fv.vendedor_sk = dv.vendedor_sk
                         JOIN dw.dim_producto dp ON fv.producto_sk = dp.producto_sk
                         WHERE ({ciudad_cond}) {canal_cond} {vend_cond} {ruta_cond} {prod_cond}
-                          AND fv.es_anulado = FALSE
+                          AND fv.es_anulado = FALSE AND fv.venta_neta > 0
                     ) fv_f ON fv_f.fecha_sk = df.fecha_sk
                     WHERE df.anho = %s AND df.mes_numero = %s
                       AND df.fecha_completa <= CURRENT_DATE
@@ -892,7 +892,7 @@ def dashboard_nacional_tendencia(request):
                     SELECT df.dia_numero,
                            COALESCE(SUM(fv.venta_neta), 0) AS venta_dia
                     FROM dw.dim_fecha df
-                    LEFT JOIN dw.fact_ventas fv ON fv.fecha_sk = df.fecha_sk AND fv.es_anulado = FALSE
+                    LEFT JOIN dw.fact_ventas fv ON fv.fecha_sk = df.fecha_sk AND fv.es_anulado = FALSE AND fv.venta_neta > 0
                     WHERE df.anho = %s AND df.mes_numero = %s
                       AND df.fecha_completa <= CURRENT_DATE
                     GROUP BY df.dia_numero
@@ -935,7 +935,7 @@ def dashboard_nacional_tendencia(request):
                    JOIN dw.dim_vendedor dv ON fv.vendedor_sk = dv.vendedor_sk
                    {fc_prod_join}
                    WHERE df.anho = %s AND df.mes_numero = %s
-                     AND fv.es_anulado = FALSE
+                     AND fv.es_anulado = FALSE AND fv.venta_neta > 0
                      AND ({ciudad_cond}) {canal_cond} {vend_cond} {ruta_cond} {prod_cond}""",
                 [anho, mes] + canal_param + vend_param + ruta_params + prod_params
             )
@@ -1043,7 +1043,7 @@ def dashboard_nacional_por_regional(request):
             JOIN dw.dim_fecha    df ON fv.fecha_sk    = df.fecha_sk
             JOIN dw.dim_vendedor dv ON fv.vendedor_sk = dv.vendedor_sk
             WHERE df.anho = %s AND df.mes_numero = %s
-              AND fv.es_anulado = FALSE
+              AND fv.es_anulado = FALSE AND fv.venta_neta > 0
             GROUP BY regional ORDER BY avance DESC
         """
         _, rows = _run_dw_query(sql, [anho, mes])
@@ -1100,7 +1100,7 @@ def dashboard_nacional_por_canal(request):
             JOIN dw.dim_fecha    df ON fv.fecha_sk    = df.fecha_sk
             JOIN dw.dim_vendedor dv ON fv.vendedor_sk = dv.vendedor_sk
             WHERE df.anho = %s AND df.mes_numero = %s
-              AND fv.es_anulado = FALSE
+              AND fv.es_anulado = FALSE AND fv.venta_neta > 0
               AND dv.canal_rrhh IS NOT NULL
               AND dv.es_vendedor_actual = TRUE
             GROUP BY dv.canal_rrhh
@@ -1500,7 +1500,7 @@ def dashboard_nacional_por_categoria(request):
             JOIN dw.dim_fecha    df ON fv.fecha_sk    = df.fecha_sk
             JOIN dw.dim_producto dp ON fv.producto_sk = dp.producto_sk
             WHERE df.anho = %s AND df.mes_numero = %s
-              AND fv.es_anulado = FALSE
+              AND fv.es_anulado = FALSE AND fv.venta_neta > 0
               AND dp.grupo_descripcion IS NOT NULL
             GROUP BY {_CATEGORIA_CASE}
             ORDER BY venta_neta DESC
@@ -1619,7 +1619,7 @@ def dashboard_regionales_kpis(request):
             JOIN dw.dim_fecha    df ON fv.fecha_sk    = df.fecha_sk
             JOIN dw.dim_vendedor dv ON fv.vendedor_sk = dv.vendedor_sk
             WHERE df.anho = %s AND df.mes_numero = %s
-              AND fv.es_anulado = FALSE
+              AND fv.es_anulado = FALSE AND fv.venta_neta > 0
               AND dv.canal_rrhh IS NOT NULL
               AND ({ciudad_cond})
             GROUP BY dv.canal_rrhh
@@ -1678,7 +1678,7 @@ def dashboard_regionales_tendencia(request):
                 SELECT df.dia_numero,
                        COALESCE(SUM(fv.venta_neta), 0) AS venta_dia
                 FROM dw.dim_fecha df
-                LEFT JOIN dw.fact_ventas fv ON fv.fecha_sk = df.fecha_sk AND fv.es_anulado = FALSE
+                LEFT JOIN dw.fact_ventas fv ON fv.fecha_sk = df.fecha_sk AND fv.es_anulado = FALSE AND fv.venta_neta > 0
                     AND EXISTS (
                         SELECT 1 FROM dw.dim_vendedor dv2
                         WHERE dv2.vendedor_sk = fv.vendedor_sk AND ({ciudad_cond2})
@@ -1767,7 +1767,7 @@ def dashboard_regionales_por_canal(request):
             JOIN dw.dim_fecha    df ON fv.fecha_sk    = df.fecha_sk
             JOIN dw.dim_vendedor dv ON fv.vendedor_sk = dv.vendedor_sk
             WHERE df.anho = %s AND df.mes_numero = %s
-              AND fv.es_anulado = FALSE
+              AND fv.es_anulado = FALSE AND fv.venta_neta > 0
               AND dv.canal_rrhh IS NOT NULL AND ({ciudad_cond})
             GROUP BY dv.canal_rrhh ORDER BY avance DESC
         """
@@ -1826,7 +1826,7 @@ def dashboard_regionales_por_categoria(request):
             JOIN dw.dim_vendedor dv   ON fv.vendedor_sk = dv.vendedor_sk
             JOIN dw.dim_producto dp   ON fv.producto_sk = dp.producto_sk
             WHERE df.anho = %s AND df.mes_numero = %s AND ({ciudad_cond})
-              AND fv.es_anulado = FALSE
+              AND fv.es_anulado = FALSE AND fv.venta_neta > 0
               AND dp.grupo_descripcion IS NOT NULL
             GROUP BY {_CATEGORIA_CASE}
             ORDER BY avance DESC
@@ -1920,7 +1920,7 @@ def dashboard_canales_kpis(request):
             JOIN dw.dim_fecha    df ON fv.fecha_sk    = df.fecha_sk
             JOIN dw.dim_vendedor dv ON fv.vendedor_sk = dv.vendedor_sk
             WHERE df.anho = %s AND df.mes_numero = %s
-              AND fv.es_anulado = FALSE
+              AND fv.es_anulado = FALSE AND fv.venta_neta > 0
               AND dv.canal_rrhh IS NOT NULL AND ({ciudad_cond})
               {canal_cond}
             GROUP BY dv.canal_rrhh ORDER BY avance DESC
@@ -1978,7 +1978,7 @@ def dashboard_canales_tendencia(request):
                 SELECT df.dia_numero,
                        COALESCE(SUM(fv.venta_neta), 0) AS venta_dia
                 FROM dw.dim_fecha df
-                LEFT JOIN dw.fact_ventas fv ON fv.fecha_sk = df.fecha_sk AND fv.es_anulado = FALSE
+                LEFT JOIN dw.fact_ventas fv ON fv.fecha_sk = df.fecha_sk AND fv.es_anulado = FALSE AND fv.venta_neta > 0
                     AND EXISTS (
                         SELECT 1 FROM dw.dim_vendedor dv2
                         WHERE dv2.vendedor_sk = fv.vendedor_sk
@@ -2076,7 +2076,7 @@ def dashboard_canales_por_categoria(request):
             JOIN dw.dim_vendedor dv   ON fv.vendedor_sk = dv.vendedor_sk
             JOIN dw.dim_producto dp   ON fv.producto_sk = dp.producto_sk
             WHERE df.anho = %s AND df.mes_numero = %s
-              AND fv.es_anulado = FALSE
+              AND fv.es_anulado = FALSE AND fv.venta_neta > 0
               AND ({ciudad_cond}) {canal_cond}
               AND dp.grupo_descripcion IS NOT NULL
             GROUP BY {_CATEGORIA_CASE}
@@ -2188,7 +2188,7 @@ def dashboard_canales_por_sku(request):
             JOIN dw.dim_vendedor dv   ON fv.vendedor_sk = dv.vendedor_sk
             JOIN dw.dim_producto dp   ON fv.producto_sk = dp.producto_sk
             WHERE df.anho = %s AND df.mes_numero = %s
-              AND fv.es_anulado = FALSE
+              AND fv.es_anulado = FALSE AND fv.venta_neta > 0
               AND ({ciudad_cond}) {canal_cond} {cat_cond}
             GROUP BY dp.producto_codigo_erp, dp.producto_nombre,
                      {_CATEGORIA_CASE}, dp.subgrupo_descripcion
@@ -2374,7 +2374,7 @@ def dashboard_softys_canales_kpis(request):
             JOIN dw.dim_vendedor dv ON fv.vendedor_sk = dv.vendedor_sk
             JOIN dw.dim_producto dp ON fv.producto_sk = dp.producto_sk
             WHERE df.anho = %s AND df.mes_numero = %s
-              AND fv.es_anulado = FALSE
+              AND fv.es_anulado = FALSE AND fv.venta_neta > 0
               AND dv.canal_rrhh IS NOT NULL AND ({ciudad_cond})
               {canal_cond} {dia_cond}
               AND {_SOFTYS_COND}
@@ -2389,7 +2389,7 @@ def dashboard_softys_canales_kpis(request):
             JOIN dw.dim_vendedor dv ON fv.vendedor_sk = dv.vendedor_sk
             JOIN dw.dim_producto dp ON fv.producto_sk = dp.producto_sk
             WHERE df.anho = %s AND df.mes_numero = %s
-              AND fv.es_anulado = FALSE
+              AND fv.es_anulado = FALSE AND fv.venta_neta > 0
               AND dv.canal_rrhh IS NOT NULL AND ({ciudad_cond})
               AND {_SOFTYS_COND}
         """
@@ -2400,29 +2400,31 @@ def dashboard_softys_canales_kpis(request):
 
         # Universe: active clients from dim_cliente_dual per canal (real client portfolio)
         # Uses ruta prefix to filter by regional â€" no join to dim_planificacion so no clients excluded
-        # canal_rrhh (dim_vendedor) â†’ cd.canal (dim_cliente_dual) mapping:
-        #   WHS, WHS-LIC, WHS-* â†’ WHS  |  DTS, DTS-* â†’ DTS  |  others: exact match
+        # canal_rrhh (dim_vendedor) â†' cd.canal (dim_cliente_dual) mapping:
+        #   WHS, WHS-LIC, WHS-* â†' WHS  |  DTS, DTS-* â†' DTS  |  others: exact match
         def _rrhh_to_dual(rrhh: str) -> str:
             if rrhh.startswith('WHS'): return 'WHS'
             if rrhh.startswith('DTS'): return 'DTS'
             return rrhh
 
         ruta_cond = _ruta_regional_cond(regional)
-        # When filtering by a specific canal, translate canal_rrhh â†’ cd.canal
         dual_canal_val = _rrhh_to_dual(canal) if canal else None
         canal_dual     = "AND cd.canal = %s" if dual_canal_val else ""
-        sql_universo = f"""
-            SELECT cd.canal, COUNT(DISTINCT cd.id_cliente) AS universo
-            FROM dual.dim_cliente_dual cd
-            WHERE cd.es_actual = true
-              AND ({ruta_cond})
-              {canal_dual}
-            GROUP BY cd.canal
-        """
-        _, universo_rows = _run_dw_query(sql_universo, ([dual_canal_val] if dual_canal_val else []))
-        universo_raw = {r['canal']: int(r['universo'] or 0) for r in universo_rows}
+        try:
+            sql_universo = f"""
+                SELECT cd.canal, COUNT(DISTINCT cd.id_cliente) AS universo
+                FROM dual.dim_cliente_dual cd
+                WHERE cd.es_actual = true
+                  AND ({ruta_cond})
+                  {canal_dual}
+                GROUP BY cd.canal
+            """
+            _, universo_rows = _run_dw_query(sql_universo, ([dual_canal_val] if dual_canal_val else []))
+            universo_raw = {r["canal"]: int(r["universo"] or 0) for r in universo_rows}
+        except Exception:
+            universo_raw = {}
 
-        # Build lookup: canal_rrhh â†’ universe size (using the rrhhâ†’dual mapping)
+        # Build lookup: canal_rrhh â†' universe size (using the rrhhâ†'dual mapping)
         def _universo_for(rrhh: str) -> int:
             return universo_raw.get(_rrhh_to_dual(rrhh), 0)
 
@@ -2489,7 +2491,7 @@ def dashboard_softys_canales_tendencia(request):
                 SELECT df.dia_numero,
                        COALESCE(SUM(fv.venta_neta), 0) AS venta_dia
                 FROM dw.dim_fecha df
-                LEFT JOIN dw.fact_ventas fv ON fv.fecha_sk = df.fecha_sk AND fv.es_anulado = FALSE
+                LEFT JOIN dw.fact_ventas fv ON fv.fecha_sk = df.fecha_sk AND fv.es_anulado = FALSE AND fv.venta_neta > 0
                     AND EXISTS (
                         SELECT 1 FROM dw.dim_vendedor dv2
                         WHERE dv2.vendedor_sk = fv.vendedor_sk
@@ -2592,7 +2594,7 @@ def dashboard_softys_canales_por_categoria(request):
             JOIN dw.dim_vendedor dv   ON fv.vendedor_sk = dv.vendedor_sk
             JOIN dw.dim_producto dp   ON fv.producto_sk = dp.producto_sk
             WHERE df.anho = %s AND df.mes_numero = %s
-              AND fv.es_anulado = FALSE
+              AND fv.es_anulado = FALSE AND fv.venta_neta > 0
               AND ({ciudad_cond}) {canal_cond}
               AND dp.grupo_descripcion IS NOT NULL
               AND {_SOFTYS_COND}
@@ -2705,7 +2707,7 @@ def dashboard_softys_canales_por_sku(request):
                 JOIN dw.dim_fecha    df ON fv.fecha_sk    = df.fecha_sk
                 JOIN dw.dim_vendedor dv ON fv.vendedor_sk = dv.vendedor_sk
                 WHERE df.anho = %s AND df.mes_numero = %s
-                  AND fv.es_anulado = FALSE
+                  AND fv.es_anulado = FALSE AND fv.venta_neta > 0
                   AND ({ciudad_cond}) {canal_cond} {dia_cond}
             ) v ON v.producto_sk = dp.producto_sk
             WHERE dp.es_producto_actual = true
@@ -2802,7 +2804,7 @@ def dashboard_softys_canales_por_regional(request):
             JOIN dw.dim_vendedor dv ON fv.vendedor_sk = dv.vendedor_sk
             JOIN dw.dim_producto dp ON fv.producto_sk = dp.producto_sk
             WHERE df.anho = %s AND df.mes_numero = %s
-              AND fv.es_anulado = FALSE
+              AND fv.es_anulado = FALSE AND fv.venta_neta > 0
               {canal_cond} {dia_cond}
               AND {_SOFTYS_COND}
             GROUP BY regional ORDER BY avance DESC
@@ -2914,7 +2916,7 @@ def dashboard_softys_canales_por_grupo(request):
             JOIN dw.dim_vendedor dv ON fv.vendedor_sk = dv.vendedor_sk
             JOIN dw.dim_producto dp ON fv.producto_sk = dp.producto_sk
             WHERE df.anho = %s AND df.mes_numero = %s
-              AND fv.es_anulado = FALSE
+              AND fv.es_anulado = FALSE AND fv.venta_neta > 0
               AND ({ciudad_cond}) {canal_cond} {dia_cond}
               AND {_SOFTYS_COND}
             GROUP BY {_SOFTYS_GRUPO_CASE}
@@ -2994,7 +2996,7 @@ def dashboard_softys_sku_tendencia(request):
                 SELECT df.dia_numero,
                        COALESCE(SUM(fv.venta_neta), 0) AS venta_dia
                 FROM dw.dim_fecha df
-                LEFT JOIN dw.fact_ventas fv ON fv.fecha_sk = df.fecha_sk AND fv.es_anulado = FALSE
+                LEFT JOIN dw.fact_ventas fv ON fv.fecha_sk = df.fecha_sk AND fv.es_anulado = FALSE AND fv.venta_neta > 0
                     AND EXISTS (
                         SELECT 1 FROM dw.dim_vendedor dv2
                         WHERE dv2.vendedor_sk = fv.vendedor_sk
@@ -3118,7 +3120,7 @@ def dashboard_softys_historico_canales(request):
             JOIN dw.dim_vendedor dv ON fv.vendedor_sk = dv.vendedor_sk
             JOIN dw.dim_producto dp ON fv.producto_sk = dp.producto_sk
             WHERE (df.anho * 100 + df.mes_numero) IN ({placeholders})
-              AND fv.es_anulado = FALSE
+              AND fv.es_anulado = FALSE AND fv.venta_neta > 0
               AND ({ciudad_cond}) {canal_cond}
               AND dv.canal_rrhh IS NOT NULL
               {dia_hist_cond}
@@ -3175,7 +3177,7 @@ def dashboard_softys_historico_grupos(request):
             JOIN dw.dim_vendedor dv ON fv.vendedor_sk = dv.vendedor_sk
             JOIN dw.dim_producto dp ON fv.producto_sk = dp.producto_sk
             WHERE (df.anho * 100 + df.mes_numero) IN ({placeholders})
-              AND fv.es_anulado = FALSE
+              AND fv.es_anulado = FALSE AND fv.venta_neta > 0
               AND ({ciudad_cond}) {canal_cond}
               {dia_hist_cond}
               AND {_SOFTYS_COND}
@@ -3258,7 +3260,7 @@ def dashboard_softys_historico_skus(request):
             JOIN dw.dim_vendedor dv ON fv.vendedor_sk = dv.vendedor_sk
             JOIN dw.dim_producto dp ON fv.producto_sk = dp.producto_sk
             WHERE (df.anho * 100 + df.mes_numero) IN ({placeholders})
-              AND fv.es_anulado = FALSE
+              AND fv.es_anulado = FALSE AND fv.venta_neta > 0
               AND ({ciudad_cond}) {canal_cond} {grupo_cond} {sku_cond}
               {dia_hist_cond}
               AND {_SOFTYS_COND}
@@ -3329,7 +3331,7 @@ def dashboard_softys_vendedores(request):
             JOIN dw.dim_vendedor dv ON fv.vendedor_sk = dv.vendedor_sk
             JOIN dw.dim_producto dp ON fv.producto_sk = dp.producto_sk
             WHERE df.anho = %s AND df.mes_numero = %s
-              AND fv.es_anulado = FALSE
+              AND fv.es_anulado = FALSE AND fv.venta_neta > 0
               AND ({ciudad_cond}) {canal_cond}
               {dia_cond} {grupo_cond}
               AND {_SOFTYS_COND}
@@ -3389,7 +3391,7 @@ def dashboard_softys_clientes_semana(request):
             JOIN dw.dim_producto dp ON fv.producto_sk = dp.producto_sk
             JOIN dw.dim_cliente  dc ON fv.cliente_sk  = dc.cliente_sk
             WHERE df.anho = %s AND df.mes_numero = %s
-              AND fv.es_anulado = FALSE
+              AND fv.es_anulado = FALSE AND fv.venta_neta > 0
               AND ({ciudad_cond}) {canal_cond} {vendedor_cond}
               {dia_cond} {grupo_cond}
               AND {_SOFTYS_COND}
@@ -3480,7 +3482,7 @@ def dashboard_softys_sku_por_cliente(request):
             JOIN dw.dim_producto dp ON fv.producto_sk = dp.producto_sk
             JOIN dw.dim_cliente  dc ON fv.cliente_sk  = dc.cliente_sk
             WHERE {date_cond}
-              AND fv.es_anulado = FALSE
+              AND fv.es_anulado = FALSE AND fv.venta_neta > 0
               AND dc.cliente_codigo_erp = %s
               AND ({ciudad_cond}) {canal_cond} {vendedor_cond}
               {dia_cond} {semana_cond} {grupo_cond}
@@ -3551,7 +3553,7 @@ def dashboard_softys_clientes_mes(request):
             JOIN dw.dim_producto dp ON fv.producto_sk = dp.producto_sk
             JOIN dw.dim_cliente  dc ON fv.cliente_sk  = dc.cliente_sk
             WHERE (df.anho * 100 + df.mes_numero) IN ({placeholders})
-              AND fv.es_anulado = FALSE
+              AND fv.es_anulado = FALSE AND fv.venta_neta > 0
               AND ({ciudad_cond}) {canal_cond} {vendedor_cond}
               {dia_hist_cond} {grupo_cond}
               AND {_SOFTYS_COND}
@@ -3664,7 +3666,7 @@ def dashboard_softys_export(request):
             JOIN dw.dim_producto dp ON fv.producto_sk = dp.producto_sk
             JOIN dw.dim_cliente  dc ON fv.cliente_sk  = dc.cliente_sk
             WHERE df.anho = %s AND df.mes_numero = %s
-              AND fv.es_anulado = FALSE
+              AND fv.es_anulado = FALSE AND fv.venta_neta > 0
               AND ({ciudad_cond}) {canal_cond} {cat_cond} {dia_cond}
               AND {_SOFTYS_COND}
             ORDER BY fecha, nro_pedido
@@ -3728,10 +3730,10 @@ _REGIONAL_NAME_TO_KEY = {
 }
 
 # Condiciones SQL por categoría en el nuevo DW (grupo_descripcion / clase_descripcion)
-_LINEA_ALIMENTOS = "dp.grupo_descripcion IN (‘ALIMENTOS’,’BEBIDAS CARBONATADAS’,’BEBIDAS REFRESCANTES’,’MEZCLADOR’,’NO PERECIBLES’) AND dp.clase_descripcion != ‘APEGO’"
-_LINEA_APEGO     = "dp.clase_descripcion = ‘APEGO’"
-_LINEA_LICORES   = "dp.grupo_descripcion = ‘BEBIDAS ALCOHOLICAS’"
-_LINEA_HPC       = "dp.grupo_descripcion IN (‘CUIDADO PERSONAL’,’LIMPIEZA’)"
+_LINEA_ALIMENTOS = "dp.grupo_descripcion IN ('ALIMENTOS','BEBIDAS CARBONATADAS','BEBIDAS REFRESCANTES','MEZCLADOR','NO PERECIBLES') AND dp.clase_descripcion != 'APEGO'"
+_LINEA_APEGO     = "dp.clase_descripcion = 'APEGO'"
+_LINEA_LICORES   = "dp.grupo_descripcion = 'BEBIDAS ALCOHOLICAS'"
+_LINEA_HPC       = "dp.grupo_descripcion IN ('CUIDADO PERSONAL','LIMPIEZA')"
 
 
 @api_view(['GET'])
@@ -3807,7 +3809,7 @@ def dashboard_supervisores_vendedores(request):
             JOIN dw.dim_vendedor dv ON fv.vendedor_sk = dv.vendedor_sk
             JOIN dw.dim_producto dp ON fv.producto_sk = dp.producto_sk
             WHERE df.anho = %s AND df.mes_numero = %s
-              AND fv.es_anulado = FALSE
+              AND fv.es_anulado = FALSE AND fv.venta_neta > 0
               AND ({ciudad_cond}) {canal_cond} {supervisor_cond}
             GROUP BY dv.vendedor_nombre
             ORDER BY total DESC
@@ -3894,7 +3896,7 @@ def dashboard_supervisores_vendedores(request):
             JOIN dw.dim_fecha    df ON fv.fecha_sk    = df.fecha_sk
             JOIN dw.dim_vendedor dv ON fv.vendedor_sk = dv.vendedor_sk
             WHERE df.anho = %s AND df.mes_numero = %s
-              AND fv.es_anulado = FALSE
+              AND fv.es_anulado = FALSE AND fv.venta_neta > 0
               AND ({ciudad_cond}) {canal_cond} {supervisor_cond}
         """
         _, fc_rows  = _run_dw_query(sql_fc, params_base)
@@ -3969,7 +3971,7 @@ def dashboard_supervisores_liquidaciones(request):
             JOIN dw.dim_fecha    df ON fv.fecha_sk    = df.fecha_sk
             JOIN dw.dim_vendedor dv ON fv.vendedor_sk = dv.vendedor_sk
             WHERE df.anho = %s AND df.mes_numero = %s
-              AND fv.es_anulado = FALSE
+              AND fv.es_anulado = FALSE AND fv.venta_neta > 0
               AND EXTRACT(DOW FROM df.fecha_completa) != 0
               AND ({ciudad_cond}) {canal_cond} {supervisor_cond}
             GROUP BY dv.vendedor_sk, dv.vendedor_nombre, df.fecha_completa::date
@@ -4034,7 +4036,7 @@ def dashboard_supervisores_supervisor_lista(request):
             JOIN dw.dim_fecha    df ON fv.fecha_sk    = df.fecha_sk
             JOIN dw.dim_vendedor dv ON fv.vendedor_sk = dv.vendedor_sk
             WHERE df.anho = %s AND df.mes_numero = %s
-              AND fv.es_anulado = FALSE
+              AND fv.es_anulado = FALSE AND fv.venta_neta > 0
               AND ({ciudad_cond}) {canal_cond}
               AND dv.supervisor IS NOT NULL AND dv.supervisor != ''
             ORDER BY supervisor
@@ -4164,7 +4166,7 @@ def dashboard_preventas_por_canal(request):
         ciudad_cond     = _regional_filter(regional_key, campo='dv.ciudad')
         canal_cond      = "AND dv.canal_rrhh = %s" if canal else ""
         supervisor_cond = "AND UPPER(dv.supervisor) = UPPER(%s)" if supervisor else ""
-        # supervisor activo â†’ agrupa por vendedor; canal activo â†’ por supervisor; sin filtros â†’ por canal
+        # supervisor activo â†' agrupa por vendedor; canal activo â†' por supervisor; sin filtros â†' por canal
         if supervisor:
             grupo_col        = "dp.nombre_usuario"
             agrupado_por_val = "vendedor"
@@ -4544,7 +4546,7 @@ def dashboard_unidades_kpis(request):
             JOIN dw.dim_vendedor dv ON fv.vendedor_sk = dv.vendedor_sk
             JOIN dw.dim_producto dp ON fv.producto_sk = dp.producto_sk
             WHERE df.anho = %s AND df.mes_numero = %s
-              AND fv.es_anulado = FALSE
+              AND fv.es_anulado = FALSE AND fv.venta_neta > 0
               AND ({ciudad_cond}) {canal_cond} {cat_cond} {proveedor_cond} {marca_cond}
         """
         _, v_rows = _run_dw_query(sql_v, params_v)
@@ -4571,7 +4573,7 @@ def dashboard_unidades_kpis(request):
             JOIN dw.dim_fecha    df ON fv.fecha_sk    = df.fecha_sk
             JOIN dw.dim_vendedor dv ON fv.vendedor_sk = dv.vendedor_sk
             WHERE df.anho = %s AND df.mes_numero = %s
-              AND fv.es_anulado = FALSE
+              AND fv.es_anulado = FALSE AND fv.venta_neta > 0
               AND ({ciudad_cond}) {canal_cond}
         """
         _, fc_rows = _run_dw_query(sql_fc, [anho, mes] + ([canal] if canal else []))
@@ -4635,7 +4637,7 @@ def dashboard_unidades_por_subgrupo(request):
             JOIN dw.dim_vendedor dv   ON fv.vendedor_sk = dv.vendedor_sk
             JOIN dw.dim_producto dp   ON fv.producto_sk = dp.producto_sk
             WHERE df.anho = %s AND df.mes_numero = %s
-              AND fv.es_anulado = FALSE
+              AND fv.es_anulado = FALSE AND fv.venta_neta > 0
               AND ({ciudad_cond}) {canal_cond} {cat_cond} {proveedor_cond} {marca_cond}
             GROUP BY dp.subgrupo_descripcion
             ORDER BY venta_neta DESC
@@ -4721,7 +4723,7 @@ def dashboard_unidades_proveedores(request):
             JOIN dw.dim_vendedor dv ON fv.vendedor_sk = dv.vendedor_sk
             JOIN dw.dim_producto dp ON fv.producto_sk = dp.producto_sk
             WHERE df.anho = %s AND df.mes_numero = %s
-              AND fv.es_anulado = FALSE
+              AND fv.es_anulado = FALSE AND fv.venta_neta > 0
               AND ({ciudad_cond}) {canal_cond} {cat_cond}
               AND dp.subgrupo_descripcion IS NOT NULL AND dp.subgrupo_descripcion <> ''
             ORDER BY proveedor
@@ -4782,7 +4784,7 @@ def dashboard_unidades_por_sku(request):
             JOIN dw.dim_vendedor dv   ON fv.vendedor_sk = dv.vendedor_sk
             JOIN dw.dim_producto dp   ON fv.producto_sk = dp.producto_sk
             WHERE df.anho = %s AND df.mes_numero = %s
-              AND fv.es_anulado = FALSE
+              AND fv.es_anulado = FALSE AND fv.venta_neta > 0
               AND ({ciudad_cond}) {canal_cond} {cat_cond} {sub_cond} {proveedor_cond} {marca_cond}
             GROUP BY dp.producto_codigo_erp, dp.producto_nombre
             ORDER BY venta_neta DESC
@@ -4874,7 +4876,7 @@ def dashboard_new_nacional_opciones(request):
             JOIN dw.dim_vendedor dv ON fv.vendedor_sk = dv.vendedor_sk
             JOIN dw.dim_producto dp ON fv.producto_sk = dp.producto_sk
             WHERE df.anho = %s AND df.mes_numero = %s
-              AND fv.es_anulado = FALSE
+              AND fv.es_anulado = FALSE AND fv.venta_neta > 0
               AND ({ciudad_cond}) {vend_cond} {cat_cond}
               AND dp.subgrupo_descripcion IS NOT NULL AND dp.subgrupo_descripcion <> ''
             ORDER BY subgrupo
@@ -4889,7 +4891,7 @@ def dashboard_new_nacional_opciones(request):
             JOIN dw.dim_vendedor dv ON fv.vendedor_sk = dv.vendedor_sk
             JOIN dw.dim_producto dp ON fv.producto_sk = dp.producto_sk
             WHERE df.anho = %s AND df.mes_numero = %s
-              AND fv.es_anulado = FALSE
+              AND fv.es_anulado = FALSE AND fv.venta_neta > 0
               AND ({ciudad_cond}) {vend_cond} {cat_cond} {sub_cond}
               AND dp.subgrupo_descripcion IS NOT NULL AND dp.subgrupo_descripcion <> ''
             ORDER BY proveedor
@@ -4904,7 +4906,7 @@ def dashboard_new_nacional_opciones(request):
             JOIN dw.dim_vendedor dv ON fv.vendedor_sk = dv.vendedor_sk
             JOIN dw.dim_producto dp ON fv.producto_sk = dp.producto_sk
             WHERE df.anho = %s AND df.mes_numero = %s
-              AND fv.es_anulado = FALSE
+              AND fv.es_anulado = FALSE AND fv.venta_neta > 0
               AND ({ciudad_cond}) {vend_cond} {cat_cond} {sub_cond} {prov_cond}
               AND dp.clase_descripcion IS NOT NULL AND dp.clase_descripcion <> ''
             ORDER BY marca
@@ -4919,7 +4921,7 @@ def dashboard_new_nacional_opciones(request):
             JOIN dw.dim_vendedor dv ON fv.vendedor_sk = dv.vendedor_sk
             JOIN dw.dim_producto dp ON fv.producto_sk = dp.producto_sk
             WHERE df.anho = %s AND df.mes_numero = %s
-              AND fv.es_anulado = FALSE
+              AND fv.es_anulado = FALSE AND fv.venta_neta > 0
               AND ({ciudad_cond}) {vend_cond} {cat_cond} {sub_cond} {prov_cond} {marc_cond}
               AND dp.producto_nombre IS NOT NULL AND dp.producto_nombre <> ''
             ORDER BY producto
@@ -5077,7 +5079,7 @@ def dashboard_new_nacional_comparacion(request):
             JOIN dw.dim_vendedor dv ON fv.vendedor_sk = dv.vendedor_sk
             JOIN dw.dim_producto dp ON fv.producto_sk = dp.producto_sk
             WHERE df.anho = %s AND df.mes_numero = %s
-              AND fv.es_anulado = FALSE
+              AND fv.es_anulado = FALSE AND fv.venta_neta > 0
               AND ({ciudad_cond}) {canal_cond} {vend_cond} {ruta_cond} {all_cond}
             {grp_by_clause}
             {order_clause}
@@ -5096,7 +5098,7 @@ def dashboard_new_nacional_comparacion(request):
                 JOIN dw.dim_vendedor dv ON fv.vendedor_sk = dv.vendedor_sk
                 JOIN dw.dim_producto dp ON fv.producto_sk = dp.producto_sk
                 WHERE df.anho = %s AND df.mes_numero = %s
-                  AND fv.es_anulado = FALSE
+                  AND fv.es_anulado = FALSE AND fv.venta_neta > 0
                   AND ({ciudad_cond}) {canal_cond} {vend_cond} {ruta_cond} {all_cond}
                 {grp_by_clause}
             """
@@ -5215,7 +5217,7 @@ def dashboard_new_nacional_skus(request):
         sql_v = f"""
             SELECT dp.producto_codigo_erp                                       AS codigo,
                    dp.producto_nombre                                           AS producto,
-                   COALESCE(dp.linea, 'SIN LINEA')                             AS linea,
+                   ({_CATEGORIA_CASE})                                          AS linea,
                    COALESCE(SUM(fv.cantidad), 0)                               AS cantidad,
                    COALESCE(SUM(fv.venta_neta), 0)                             AS venta_neta
             FROM dw.fact_ventas fv
@@ -5223,9 +5225,9 @@ def dashboard_new_nacional_skus(request):
             JOIN dw.dim_vendedor dv ON fv.vendedor_sk = dv.vendedor_sk
             JOIN dw.dim_producto dp ON fv.producto_sk = dp.producto_sk
             WHERE df.anho = %s AND df.mes_numero = %s
-              AND fv.es_anulado = FALSE
+              AND fv.es_anulado = FALSE AND fv.venta_neta > 0
               AND ({ciudad_cond}) {canal_cond} {vend_cond} {ruta_cond} {filter_cond}
-            GROUP BY dp.producto_codigo_erp, dp.producto_nombre, dp.linea
+            GROUP BY dp.producto_codigo_erp, dp.producto_nombre, ({_CATEGORIA_CASE})
             ORDER BY venta_neta DESC
             LIMIT %s
         """
@@ -5243,7 +5245,7 @@ def dashboard_new_nacional_skus(request):
                 JOIN dw.dim_vendedor dv ON fv.vendedor_sk = dv.vendedor_sk
                 JOIN dw.dim_producto dp ON fv.producto_sk = dp.producto_sk
                 WHERE df.anho = %s AND df.mes_numero = %s
-                  AND fv.es_anulado = FALSE
+                  AND fv.es_anulado = FALSE AND fv.venta_neta > 0
                   AND ({ciudad_cond}) {canal_cond} {vend_cond} {ruta_cond} {filter_cond}
                 GROUP BY dp.producto_codigo_erp
             """
@@ -5368,7 +5370,7 @@ def dashboard_new_nacional_vendedores(request):
                     JOIN dw.dim_vendedor dv ON fv.vendedor_sk = dv.vendedor_sk
                     {prod_join}
                     WHERE df.anho = %s AND df.mes_numero = %s
-                      AND fv.es_anulado = FALSE
+                      AND fv.es_anulado = FALSE AND fv.venta_neta > 0
                       AND ({ciudad_cond}) {canal_cond} {filter_cond}
                       AND dv.vendedor_nombre IS NOT NULL
                 ),
@@ -5381,7 +5383,7 @@ def dashboard_new_nacional_vendedores(request):
                     JOIN dw.dim_vendedor dv ON fv.vendedor_sk = dv.vendedor_sk
                     JOIN dw.dim_producto dp ON fv.producto_sk = dp.producto_sk
                     WHERE df.anho = %s AND df.mes_numero = %s
-                      AND fv.es_anulado = FALSE
+                      AND fv.es_anulado = FALSE AND fv.venta_neta > 0
                       AND ({ciudad_cond}) {canal_cond} {filter_cond}
                       AND dv.vendedor_nombre IS NOT NULL
                       {sku_in_cond}
@@ -5408,7 +5410,7 @@ def dashboard_new_nacional_vendedores(request):
                 JOIN dw.dim_vendedor dv ON fv.vendedor_sk = dv.vendedor_sk
                 {prod_join}
                 WHERE df.anho = %s AND df.mes_numero = %s
-                  AND fv.es_anulado = FALSE
+                  AND fv.es_anulado = FALSE AND fv.venta_neta > 0
                   AND ({ciudad_cond}) {canal_cond} {filter_cond}
                   AND dv.vendedor_nombre IS NOT NULL
                 GROUP BY dv.vendedor_nombre
@@ -5506,12 +5508,12 @@ def dashboard_new_nacional_vendedores_cat(request):
         else:
             sku_in_cond = ""
 
-        CAT_PIVOT = """
-            COALESCE(SUM(CASE WHEN dp.linea = 'ALIMENTOS'            THEN {col} ELSE 0 END), 0) AS alimentos{suf},
-            COALESCE(SUM(CASE WHEN dp.linea = 'APEGO'                THEN {col} ELSE 0 END), 0) AS apego{suf},
-            COALESCE(SUM(CASE WHEN dp.linea = 'BEBIDAS ALC'          THEN {col} ELSE 0 END), 0) AS licores{suf},
-            COALESCE(SUM(CASE WHEN dp.linea = 'HOME Y PERSONAL CARE' THEN {col} ELSE 0 END), 0) AS hpc{suf},
-            COALESCE(SUM(CASE WHEN dp.linea NOT IN ('ALIMENTOS','APEGO','BEBIDAS ALC','HOME Y PERSONAL CARE') OR dp.linea IS NULL THEN {col} ELSE 0 END), 0) AS sin_clasificar{suf}
+        CAT_PIVOT = f"""
+            COALESCE(SUM(CASE WHEN ({_CATEGORIA_CASE}) = 'Alimentos'          THEN {{col}} ELSE 0 END), 0) AS alimentos{{suf}},
+            COALESCE(SUM(CASE WHEN ({_CATEGORIA_CASE}) = 'Apego'              THEN {{col}} ELSE 0 END), 0) AS apego{{suf}},
+            COALESCE(SUM(CASE WHEN ({_CATEGORIA_CASE}) = 'Licores'            THEN {{col}} ELSE 0 END), 0) AS licores{{suf}},
+            COALESCE(SUM(CASE WHEN ({_CATEGORIA_CASE}) = 'Home & Personal Care' THEN {{col}} ELSE 0 END), 0) AS hpc{{suf}},
+            COALESCE(SUM(CASE WHEN ({_CATEGORIA_CASE}) = 'Sin clasificar'     THEN {{col}} ELSE 0 END), 0) AS sin_clasificar{{suf}}
         """
 
         if sku_drills:
@@ -5523,7 +5525,7 @@ def dashboard_new_nacional_vendedores_cat(request):
                     JOIN dw.dim_vendedor dv ON fv.vendedor_sk = dv.vendedor_sk
                     {prod_join if has_prod else ""}
                     WHERE df.anho = %s AND df.mes_numero = %s
-                      AND fv.es_anulado = FALSE
+                      AND fv.es_anulado = FALSE AND fv.venta_neta > 0
                       AND ({ciudad_cond}) {canal_cond} {filter_cond}
                       AND dv.vendedor_nombre IS NOT NULL
                 ),
@@ -5539,7 +5541,7 @@ def dashboard_new_nacional_vendedores_cat(request):
                     JOIN dw.dim_vendedor dv ON fv.vendedor_sk = dv.vendedor_sk
                     {prod_join}
                     WHERE df.anho = %s AND df.mes_numero = %s
-                      AND fv.es_anulado = FALSE
+                      AND fv.es_anulado = FALSE AND fv.venta_neta > 0
                       AND ({ciudad_cond}) {canal_cond} {filter_cond}
                       AND dv.vendedor_nombre IS NOT NULL
                       {sku_in_cond}
@@ -5578,7 +5580,7 @@ def dashboard_new_nacional_vendedores_cat(request):
                 JOIN dw.dim_vendedor dv ON fv.vendedor_sk = dv.vendedor_sk
                 {prod_join}
                 WHERE df.anho = %s AND df.mes_numero = %s
-                  AND fv.es_anulado = FALSE
+                  AND fv.es_anulado = FALSE AND fv.venta_neta > 0
                   AND ({ciudad_cond}) {canal_cond} {filter_cond}
                   AND dv.vendedor_nombre IS NOT NULL
                 GROUP BY dv.vendedor_nombre
@@ -5704,7 +5706,7 @@ def dashboard_new_nacional_clientes(request):
                     JOIN dw.dim_cliente  dc ON fv.cliente_sk  = dc.cliente_sk
                     {prod_join}
                     WHERE df.anho = %s AND df.mes_numero = %s
-                      AND fv.es_anulado = FALSE
+                      AND fv.es_anulado = FALSE AND fv.venta_neta > 0
                       AND ({ciudad_cond}) {canal_cond} {vend_cond} {ruta_cond} {filter_cond}
                       AND dc.cliente_codigo_erp IS NOT NULL
                 ),
@@ -5718,7 +5720,7 @@ def dashboard_new_nacional_clientes(request):
                     JOIN dw.dim_cliente  dc ON fv.cliente_sk  = dc.cliente_sk
                     JOIN dw.dim_producto dp ON fv.producto_sk = dp.producto_sk
                     WHERE df.anho = %s AND df.mes_numero = %s
-                      AND fv.es_anulado = FALSE
+                      AND fv.es_anulado = FALSE AND fv.venta_neta > 0
                       AND ({ciudad_cond}) {canal_cond} {vend_cond} {ruta_cond} {filter_cond}
                       AND dc.cliente_codigo_erp IS NOT NULL
                       AND dp.producto_nombre = %s
@@ -5747,7 +5749,7 @@ def dashboard_new_nacional_clientes(request):
                 JOIN dw.dim_cliente  dc ON fv.cliente_sk  = dc.cliente_sk
                 {prod_join}
                 WHERE df.anho = %s AND df.mes_numero = %s
-                  AND fv.es_anulado = FALSE
+                  AND fv.es_anulado = FALSE AND fv.venta_neta > 0
                   AND ({ciudad_cond}) {canal_cond} {vend_cond} {ruta_cond} {filter_cond}
                   AND dc.cliente_codigo_erp IS NOT NULL
                 GROUP BY dc.cliente_codigo_erp, dc.cliente_nombre
@@ -5821,7 +5823,7 @@ def dashboard_new_nacional_cliente_fechas(request):
                 JOIN dw.dim_cliente  dc ON fv.cliente_sk  = dc.cliente_sk
                 {prod_join}
                 WHERE df.anho = %s AND df.mes_numero = %s
-                  AND fv.es_anulado = FALSE
+                  AND fv.es_anulado = FALSE AND fv.venta_neta > 0
                   AND ({ciudad_cond}) {canal_cond} {vend_cond}
                   AND dc.cliente_codigo_erp IS NOT NULL
                   {filter_cond} {sku_drill_cond}
@@ -5841,7 +5843,7 @@ def dashboard_new_nacional_cliente_fechas(request):
             JOIN dw.dim_cliente  dc ON fv.cliente_sk  = dc.cliente_sk
             {prod_join}
             WHERE dc.cliente_codigo_erp IN (SELECT codigo FROM top_cli)
-              AND fv.es_anulado = FALSE
+              AND fv.es_anulado = FALSE AND fv.venta_neta > 0
               AND df.anho = %s AND df.mes_numero = %s
               AND ({ciudad_cond}) {canal_cond} {vend_cond}
               {filter_cond} {sku_drill_cond}
@@ -5915,7 +5917,7 @@ def dashboard_new_nacional_cliente_skus(request):
             JOIN dw.dim_cliente  dc ON fv.cliente_sk  = dc.cliente_sk
             JOIN dw.dim_producto dp ON fv.producto_sk = dp.producto_sk
             WHERE df.anho = %s AND df.mes_numero = %s
-              AND fv.es_anulado = FALSE
+              AND fv.es_anulado = FALSE AND fv.venta_neta > 0
               AND ({ciudad_cond}) {canal_cond} {fecha_cond}
               AND dc.cliente_codigo_erp = %s
               {filter_cond}
@@ -5988,7 +5990,7 @@ def dashboard_unidades_vendedor_sku(request):
             JOIN dw.dim_vendedor dv   ON fv.vendedor_sk = dv.vendedor_sk
             JOIN dw.dim_producto dp   ON fv.producto_sk = dp.producto_sk
             WHERE df.anho = %s AND df.mes_numero = %s
-              AND fv.es_anulado = FALSE
+              AND fv.es_anulado = FALSE AND fv.venta_neta > 0
               AND ({ciudad_cond}) {canal_cond} {cat_cond} {sub_cond} {proveedor_cond}
               AND dv.vendedor_sk = %s
             GROUP BY dp.producto_codigo_erp, dp.producto_nombre
@@ -6081,7 +6083,7 @@ def dashboard_unidades_por_vendedor(request):
             JOIN dw.dim_vendedor dv   ON fv.vendedor_sk = dv.vendedor_sk
             JOIN dw.dim_producto dp   ON fv.producto_sk = dp.producto_sk
             WHERE df.anho = %s AND df.mes_numero = %s
-              AND fv.es_anulado = FALSE
+              AND fv.es_anulado = FALSE AND fv.venta_neta > 0
               AND ({ciudad_cond}) {canal_cond} {cat_cond} {sub_cond}
             GROUP BY dv.vendedor_sk, dv.vendedor_nombre
             ORDER BY cantidad DESC
@@ -6143,14 +6145,14 @@ def dashboard_proveedor_kpis(request):
         prov_filter = "UPPER(dp.subgrupo_descripcion) = UPPER(%s)"
 
         sql_total = f"""
-            SELECT COALESCE(SUM(fv.total), 0)              AS total,
+            SELECT COALESCE(SUM(fv.venta_neta), 0)         AS total,
                    COUNT(DISTINCT fv.numero_venta)         AS pedidos,
                    COUNT(DISTINCT fv.cliente_sk)           AS clientes
             FROM dw.fact_ventas fv
             JOIN dw.dim_producto dp ON dp.producto_sk = fv.producto_sk
             JOIN dw.dim_fecha    df ON df.fecha_sk    = fv.fecha_sk
             WHERE df.anho = %s AND df.mes_numero = %s AND {prov_filter}
-              AND fv.es_anulado = FALSE
+              AND fv.es_anulado = FALSE AND fv.venta_neta > 0
         """
         _, rows_total = _run_dw_query(sql_total, [anho, mes, proveedor])
 
@@ -6164,14 +6166,14 @@ def dashboard_proveedor_kpis(request):
                     WHEN {cbba} THEN 'Cochabamba'
                     WHEN {lpz}  THEN 'La Paz'
                     ELSE 'Otras'
-                END                              AS regional,
-                COALESCE(SUM(fv.total), 0)       AS total
+                END                                  AS regional,
+                COALESCE(SUM(fv.venta_neta), 0)      AS total
             FROM dw.fact_ventas fv
             JOIN dw.dim_producto dp ON dp.producto_sk = fv.producto_sk
             JOIN dw.dim_fecha    df ON df.fecha_sk    = fv.fecha_sk
             JOIN dw.dim_vendedor dv ON dv.vendedor_sk = fv.vendedor_sk
             WHERE df.anho = %s AND df.mes_numero = %s AND {prov_filter}
-              AND fv.es_anulado = FALSE
+              AND fv.es_anulado = FALSE AND fv.venta_neta > 0
             GROUP BY regional ORDER BY total DESC
         """
         _, rows_reg = _run_dw_query(sql_reg, [anho, mes, proveedor])
@@ -6206,19 +6208,18 @@ def dashboard_proveedor_por_marca(request):
             return JsonResponse({'success': False, 'error': 'Sin acceso a este dashboard'}, status=403)
 
         sql = """
-            SELECT cd.canal                            AS marca,
-                   COALESCE(SUM(fv.total), 0)          AS total,
+            SELECT dv.canal_rrhh                       AS marca,
+                   COALESCE(SUM(fv.venta_neta), 0)     AS total,
                    COALESCE(SUM(fv.cantidad), 0)       AS cantidad
             FROM dw.fact_ventas fv
-            JOIN dw.dim_producto      dp ON dp.producto_sk    = fv.producto_sk
-            JOIN dw.dim_fecha         df ON df.fecha_sk       = fv.fecha_sk
-            JOIN dw.dim_cliente       dc ON dc.cliente_sk     = fv.cliente_sk
-            JOIN dual.dim_cliente_dual cd ON cd.codigo_cliente = dc.cliente_codigo_erp
-                                         AND cd.es_actual = TRUE
+            JOIN dw.dim_producto dp ON dp.producto_sk = fv.producto_sk
+            JOIN dw.dim_fecha    df ON df.fecha_sk    = fv.fecha_sk
+            JOIN dw.dim_vendedor dv ON dv.vendedor_sk = fv.vendedor_sk
             WHERE df.anho = %s AND df.mes_numero = %s
-              AND fv.es_anulado = FALSE
+              AND fv.es_anulado = FALSE AND fv.venta_neta > 0
               AND UPPER(dp.subgrupo_descripcion) = UPPER(%s)
-            GROUP BY cd.canal
+              AND dv.canal_rrhh IS NOT NULL
+            GROUP BY dv.canal_rrhh
             ORDER BY total DESC
         """
         _, rows = _run_dw_query(sql, [anho, mes, proveedor])
@@ -6260,7 +6261,7 @@ def dashboard_proveedor_tabla(request):
                 dp.producto_nombre,
                 dp.unidad_medida,
                 fv.cantidad,
-                fv.total,
+                fv.venta_neta AS total,
                 dv.vendedor_nombre,
                 INITCAP(dv.supervisor) AS supervisor_nombre
             FROM dw.fact_ventas fv
@@ -6270,7 +6271,7 @@ def dashboard_proveedor_tabla(request):
             JOIN dw.dim_cliente  dc ON dc.cliente_sk  = fv.cliente_sk
             JOIN dw.dim_fecha    df ON df.fecha_sk    = fv.fecha_sk
             WHERE df.anho = %s AND df.mes_numero = %s
-              AND fv.es_anulado = FALSE
+              AND fv.es_anulado = FALSE AND fv.venta_neta > 0
               AND UPPER(dp.subgrupo_descripcion) = UPPER(%s)
             ORDER BY fv.numero_venta, dp.producto_nombre
         """
@@ -7057,7 +7058,7 @@ def dashboard_matriz_datos(request):
                                         ON dcd.codigo_cliente  = dck.cliente_codigo_erp
                                        AND dcd.es_actual       = true
             WHERE df.anho = %s AND df.mes_numero = %s
-              AND fv.es_anulado = FALSE
+              AND fv.es_anulado = FALSE AND fv.venta_neta > 0
               AND ({ciudad_cond})
               {canal_cond}
               {sup_cond}
@@ -7191,7 +7192,7 @@ def exportar_clientes_sin_compra(request):
             SELECT fv.cliente_sk, MAX(df.fecha_completa) AS ultima_fecha
             FROM dw.fact_ventas fv
             JOIN dw.dim_fecha   df ON df.fecha_sk = fv.fecha_sk
-            WHERE fv.es_anulado = FALSE
+            WHERE fv.es_anulado = FALSE AND fv.venta_neta > 0
             GROUP BY fv.cliente_sk
         )
         SELECT
@@ -7324,11 +7325,10 @@ def dashboard_tendencia_estacional(request):
         JOIN dw.dim_fecha        df ON df.fecha_sk    = fv.fecha_sk
         JOIN dw.dim_vendedor     dv ON dv.vendedor_sk = fv.vendedor_sk
         LEFT JOIN dw.dim_producto dp ON dp.producto_sk = fv.producto_sk
-    WHERE fv.es_anulado = FALSE
     """
 
     ciudad_cond = _regional_filter(regional)
-    extra_conds  = [f"({ciudad_cond})"]
+    extra_conds  = [f"({ciudad_cond})", "fv.es_anulado = FALSE", "fv.venta_neta > 0"]
     extra_params = []
     if canal and canal != 'Todos':
         extra_conds.append("dv.canal_rrhh = %s")
@@ -8478,7 +8478,7 @@ def dashboard_comportamiento_grafico1(request):
         JOIN dw.dim_vendedor dv ON dv.vendedor_sk = fv.vendedor_sk
         JOIN dw.dim_producto dp ON dp.producto_sk = fv.producto_sk
         WHERE {where}
-          AND fv.es_anulado = FALSE
+          AND fv.es_anulado = FALSE AND fv.venta_neta > 0
         GROUP BY {dim_field}
         ORDER BY bs DESC
         LIMIT 30
@@ -8576,7 +8576,7 @@ def dashboard_comportamiento_grafico2(request):
         JOIN dw.dim_vendedor dv ON dv.vendedor_sk = fv.vendedor_sk
         JOIN dw.dim_producto dp ON dp.producto_sk = fv.producto_sk
         WHERE {where}
-          AND fv.es_anulado = FALSE
+          AND fv.es_anulado = FALSE AND fv.venta_neta > 0
         GROUP BY dp.producto_codigo_erp, dp.producto_nombre, dp.clase_descripcion
         ORDER BY bs DESC
         LIMIT 50
@@ -8646,7 +8646,7 @@ def dashboard_comportamiento_tabla(request):
         JOIN dw.dim_vendedor dv ON dv.vendedor_sk = fv.vendedor_sk
         JOIN dw.dim_producto dp ON dp.producto_sk = fv.producto_sk
         WHERE {base_where}
-          AND fv.es_anulado = FALSE
+          AND fv.es_anulado = FALSE AND fv.venta_neta > 0
         GROUP BY df.anho, df.mes_numero
         ORDER BY df.anho, df.mes_numero
     """
@@ -8667,7 +8667,7 @@ def dashboard_comportamiento_tabla(request):
         JOIN dw.dim_vendedor dv ON dv.vendedor_sk = fv.vendedor_sk
         JOIN dw.dim_producto dp ON dp.producto_sk = fv.producto_sk
         WHERE {base_where}
-          AND fv.es_anulado = FALSE
+          AND fv.es_anulado = FALSE AND fv.venta_neta > 0
         GROUP BY dv.canal_rrhh, df.anho, df.mes_numero
         ORDER BY dv.canal_rrhh, df.anho, df.mes_numero
     """
@@ -8864,7 +8864,7 @@ def dashboard_new_nacional_rutas_mapa(request):
             JOIN dw.dim_cliente dc ON dc.cliente_sk = fv.cliente_sk
             JOIN dw.dim_fecha df   ON df.fecha_sk   = fv.fecha_sk
             WHERE df.anho = %s AND df.mes_numero = %s
-              AND fv.es_anulado = FALSE
+              AND fv.es_anulado = FALSE AND fv.venta_neta > 0
             GROUP BY dc.cliente_codigo_erp
         )
         SELECT
@@ -8946,7 +8946,7 @@ def dashboard_new_nacional_canales_mini(request):
             JOIN dw.dim_vendedor dv ON fv.vendedor_sk = dv.vendedor_sk
             {prod_join}
             WHERE df.anho = %s AND df.mes_numero = %s
-              AND fv.es_anulado = FALSE
+              AND fv.es_anulado = FALSE AND fv.venta_neta > 0
               AND dv.canal_rrhh IS NOT NULL AND ({ciudad_cond})
               {prod_cond}
             GROUP BY dv.canal_rrhh ORDER BY avance DESC
