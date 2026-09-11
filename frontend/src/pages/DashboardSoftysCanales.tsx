@@ -1413,7 +1413,7 @@ export default function DashboardSoftysCanales() {
                   : [1, 2, 3, 4] as const;
                 const semKey = (n: number) => `sem${n}` as keyof ClienteSemana;
                 return (
-                  <div className="overflow-x-auto">
+                  <div className="overflow-x-auto overflow-y-auto max-h-[460px] scrollbar-thin scrollbar-thumb-slate-200 scrollbar-track-transparent">
                     <table className="w-full text-xs min-w-[540px]">
                       <thead className="sticky top-0 bg-white z-10 shadow-[0_1px_0_0_#f1f5f9]">
                         <tr className="text-slate-400">
@@ -1461,7 +1461,7 @@ export default function DashboardSoftysCanales() {
                           );
                         })}
                       </tbody>
-                      <tfoot className="border-t-2 border-slate-200 bg-slate-50">
+                      <tfoot className="sticky bottom-0 z-10 border-t-2 border-slate-200 bg-slate-50">
                         <tr className="text-slate-700 font-bold text-xs">
                           <td className="py-2 pr-2">TOTAL</td>
                           {sems.map(s => (

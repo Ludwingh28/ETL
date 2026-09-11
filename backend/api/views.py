@@ -4793,19 +4793,23 @@ def dashboard_new_nacional_opciones(request):
         except Exception:
             can_rows = []
 
-        # Rutas — desde dim_planificacion vinculado por vendedor (planificación actual)
+        # Rutas — desde dim_planificacion vinculado por vendedor, con conteo de clientes asignados
         try:
             if vendedor:
                 sql_rutas = """
-                    SELECT DISTINCT dp.ruta AS ruta
+                    SELECT dp.ruta AS ruta,
+                           COUNT(DISTINCT dc.codigo_cliente) AS num_clientes
                     FROM dual.dim_planificacion dp
                     JOIN dw.dim_vendedor dv
                         ON  dv.vendedor_codigo_erp = SPLIT_PART(dp.codigo_erp, '.', 1)
                         AND dv.es_vendedor_actual  = true
+                    LEFT JOIN dual.dim_cliente_dual dc
+                        ON  dc.ruta = dp.ruta AND dc.es_actual = true
                     WHERE dp.es_actual = true
                       AND dv.vendedor_nombre = %s
                       AND dp.ruta IS NOT NULL AND dp.ruta <> ''
-                    ORDER BY ruta
+                    GROUP BY dp.ruta
+                    ORDER BY dp.ruta
                 """
                 _, ruta_rows = _run_dw_query(sql_rutas, [vendedor])
             else:
@@ -4820,7 +4824,7 @@ def dashboard_new_nacional_opciones(request):
             'marcas':      [r['marca']     for r in marc_rows],
             'productos':   [r['producto']  for r in prod_rows],
             'canales':     [r['canal']     for r in can_rows],
-            'rutas':       [r['ruta']      for r in ruta_rows],
+            'rutas':       [{'ruta': r['ruta'], 'clientes': int(r['num_clientes'] or 0)} for r in ruta_rows],
         })
     except Exception:
         logger.exception("Error interno - opciones")
@@ -5638,6 +5642,7 @@ def dashboard_new_nacional_cliente_fechas(request):
         anho        = _safe_int(request.GET.get('anho'), datetime.now().year)
         mes         = _safe_int(request.GET.get('mes'),  datetime.now().month)
         sku_drill   = _safe_str(request.GET.get('sku_drill', ''))
+        rutas       = [s for s in request.GET.getlist('ruta') if s]
         if regional not in REGIONALES_VALID:
             regional = 'nacional'
 
@@ -5646,6 +5651,7 @@ def dashboard_new_nacional_cliente_fechas(request):
         canal_param = [canal] if canal else []
         vend_cond   = "AND dv.vendedor_nombre = %s" if vendedor else ""
         vend_param  = [vendedor] if vendedor else []
+        ruta_cond, ruta_params = _multi_ruta_cond(rutas)
 
         cat_cond,  cat_params  = _multi_cat_cond(categorias)
         prov_cond, prov_params = _multi_prov_cond(proveedores)
@@ -5660,7 +5666,7 @@ def dashboard_new_nacional_cliente_fechas(request):
         sku_drill_param = [sku_drill] if sku_drill else []
         prod_join = "JOIN dw.dim_producto dp ON fv.producto_sk = dp.producto_sk" if (has_prod or sku_drill) else ""
 
-        base_params = [anho, mes] + canal_param + vend_param + filter_params + sku_drill_param
+        base_params = [anho, mes] + canal_param + vend_param + ruta_params + filter_params + sku_drill_param
 
         sql = f"""
             WITH top_cli AS (
@@ -5671,7 +5677,7 @@ def dashboard_new_nacional_cliente_fechas(request):
                 JOIN dw.dim_cliente  dc ON fv.cliente_sk  = dc.cliente_sk
                 {prod_join}
                 WHERE df.anho = %s AND df.mes_numero = %s
-                  AND ({ciudad_cond}) {canal_cond} {vend_cond}
+                  AND ({ciudad_cond}) {canal_cond} {vend_cond} {ruta_cond}
                   AND dc.cliente_codigo_erp IS NOT NULL
                   {filter_cond} {sku_drill_cond}
                 GROUP BY dc.cliente_codigo_erp
@@ -5691,7 +5697,7 @@ def dashboard_new_nacional_cliente_fechas(request):
             {prod_join}
             WHERE dc.cliente_codigo_erp IN (SELECT codigo FROM top_cli)
               AND df.anho = %s AND df.mes_numero = %s
-              AND ({ciudad_cond}) {canal_cond} {vend_cond}
+              AND ({ciudad_cond}) {canal_cond} {vend_cond} {ruta_cond}
               {filter_cond} {sku_drill_cond}
             GROUP BY dc.cliente_codigo_erp, dc.cliente_nombre, df.fecha_completa
             ORDER BY dc.cliente_nombre, df.fecha_completa
@@ -5737,11 +5743,13 @@ def dashboard_new_nacional_cliente_skus(request):
         if regional not in REGIONALES_VALID:
             regional = 'nacional'
 
+        rutas       = [s for s in request.GET.getlist('ruta') if s]
         ciudad_cond = _regional_filter(regional)
         canal_cond  = "AND dv.canal_rrhh = %s" if canal else ""
         canal_param = [canal] if canal else []
         fecha_cond  = "AND df.fecha_completa = %s::date" if fecha else ""
         fecha_param = [fecha] if fecha else []
+        ruta_cond, ruta_params = _multi_ruta_cond(rutas)
 
         cat_cond,  cat_params  = _multi_cat_cond(categorias)
         prov_cond, prov_params = _multi_prov_cond(proveedores)
@@ -5763,13 +5771,13 @@ def dashboard_new_nacional_cliente_skus(request):
             JOIN dw.dim_cliente  dc ON fv.cliente_sk  = dc.cliente_sk
             JOIN dw.dim_producto dp ON fv.producto_sk = dp.producto_sk
             WHERE df.anho = %s AND df.mes_numero = %s
-              AND ({ciudad_cond}) {canal_cond} {fecha_cond}
+              AND ({ciudad_cond}) {canal_cond} {fecha_cond} {ruta_cond}
               AND dc.cliente_codigo_erp = %s
               {filter_cond}
             GROUP BY dp.producto_codigo_erp, dp.producto_nombre
             ORDER BY venta_neta DESC
         """
-        _, rows = _run_dw_query(sql, [anho, mes] + canal_param + fecha_param + [cliente_codigo] + filter_params)
+        _, rows = _run_dw_query(sql, [anho, mes] + canal_param + fecha_param + ruta_params + [cliente_codigo] + filter_params)
 
         result = [
             {

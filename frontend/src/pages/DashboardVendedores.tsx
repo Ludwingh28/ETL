@@ -53,9 +53,10 @@ const REGIONAL_MAP: Record<string, string> = {
 
 // ─── MultiSelect ──────────────────────────────────────────────────────────────
 
-function MultiSelect({ label, value, options, onChange, placeholder = "Todos", searchable = false, loading = false }: {
+function MultiSelect({ label, value, options, onChange, placeholder = "Todos", searchable = false, loading = false, labelMap }: {
   label: string; value: string[]; options: string[]; onChange: (v: string[]) => void;
   placeholder?: string; searchable?: boolean; loading?: boolean;
+  labelMap?: Record<string, string>;
 }) {
   const [open,   setOpen]   = useState(false);
   const [search, setSearch] = useState("");
@@ -85,11 +86,13 @@ function MultiSelect({ label, value, options, onChange, placeholder = "Todos", s
     };
   }, [open, searchable]); // eslint-disable-line react-hooks/exhaustive-deps
 
+  const getLabel = (opt: string) => labelMap?.[opt] ?? opt;
+
   const filtered = searchable && search.trim()
-    ? options.filter(o => o.toLowerCase().includes(search.trim().toLowerCase()))
+    ? options.filter(o => getLabel(o).toLowerCase().includes(search.trim().toLowerCase()))
     : options;
 
-  const btnLabel = value.length === 0 ? placeholder : value.length === 1 ? value[0] : `${value.length} seleccionados`;
+  const btnLabel = value.length === 0 ? placeholder : value.length === 1 ? getLabel(value[0]) : `${value.length} seleccionados`;
   const hasValue = value.length > 0;
 
   const toggle = (opt: string) => onChange(value.includes(opt) ? value.filter(v => v !== opt) : [...value, opt]);
@@ -140,7 +143,7 @@ function MultiSelect({ label, value, options, onChange, placeholder = "Todos", s
                 <label key={opt} className="flex items-center gap-2.5 px-3 py-2 hover:bg-slate-50 cursor-pointer select-none">
                   <input type="checkbox" checked={value.includes(opt)} onChange={() => toggle(opt)}
                     className="w-3.5 h-3.5 rounded border-slate-300 accent-brand-600 cursor-pointer" />
-                  <span className="text-xs text-slate-700">{opt}</span>
+                  <span className="text-xs text-slate-700">{getLabel(opt)}</span>
                 </label>
               ))}
           </div>
@@ -313,7 +316,8 @@ export default function DashboardVendedores() {
   const [opMarcs, setOpMarcs] = useState<string[]>([]);
   const [opProds, setOpProds] = useState<string[]>([]);
   const [opCats,  setOpCats]  = useState<string[]>([]);
-  const [opRutas, setOpRutas] = useState<string[]>([]);
+  const [opRutas,     setOpRutas]     = useState<string[]>([]);
+  const [opRutasInfo, setOpRutasInfo] = useState<{ ruta: string; clientes: number }[]>([]);
   const [loadingOpts, setLoadingOpts] = useState(false);
   const [fechaCorte, setFechaCorte] = useState<string | null>(null);
 
@@ -371,11 +375,21 @@ export default function DashboardVendedores() {
     try {
       const qs = `regional=${regionalKey}&anho=${anho}&mes=${mes}&vendedor=${encodeURIComponent(vendedorNombre)}${fCats.map(c => `&categoria=${encodeURIComponent(c)}`).join("")}${fSubs.map(s => `&subgrupo=${encodeURIComponent(s)}`).join("")}${fProvs.map(p => `&proveedor=${encodeURIComponent(p)}`).join("")}${fMarcs.map(m => `&marca=${encodeURIComponent(m)}`).join("")}`;
       const j = await apiFetchRef.current<{
-        success: boolean; subgrupos: string[]; proveedores: string[]; marcas: string[]; productos: string[]; canales: string[]; rutas?: string[];
+        success: boolean; subgrupos: string[]; proveedores: string[]; marcas: string[]; productos: string[]; canales: string[];
+        rutas?: ({ ruta: string; clientes: number } | string)[];
       }>(`/dashboard/new-nacional/opciones/?${qs}`);
       if (j.success) {
         setOpSubs(j.subgrupos); setOpProvs(j.proveedores); setOpMarcs(j.marcas); setOpProds(j.productos);
-        setOpRutas(j.rutas ?? []);
+        const rutasRaw = j.rutas ?? [];
+        if (rutasRaw.length > 0 && typeof rutasRaw[0] === 'object') {
+          const info = rutasRaw as { ruta: string; clientes: number }[];
+          setOpRutasInfo(info);
+          setOpRutas(info.map(r => r.ruta));
+        } else {
+          const names = rutasRaw as string[];
+          setOpRutasInfo(names.map(r => ({ ruta: r, clientes: 0 })));
+          setOpRutas(names);
+        }
         setOpCats(["Alimentos", "Apego", "Licores", "Home & Personal Care", "Sin Clasificar"]);
       }
     } catch { /* silencioso */ }
@@ -599,7 +613,11 @@ export default function DashboardVendedores() {
     ...fProvs.map(v => ({ label: v, color: "bg-blue-50 text-blue-700",       clear: () => onProvs(fProvs.filter(x => x !== v)) })),
     ...fMarcs.map(v => ({ label: v, color: "bg-emerald-50 text-emerald-700", clear: () => onMarcs(fMarcs.filter(x => x !== v)) })),
     ...fProductos.map(v => ({ label: v, color: "bg-teal-50 text-teal-700",   clear: () => onProductos(fProductos.filter(x => x !== v)) })),
-    ...fRutas.map(v => ({ label: v, color: "bg-orange-50 text-orange-700",   clear: () => onRutas(fRutas.filter(x => x !== v)) })),
+    ...fRutas.map(v => {
+      const info = opRutasInfo.find(r => r.ruta === v);
+      const label = info && info.clientes > 0 ? `${v} (${info.clientes} cli.)` : v;
+      return { label, color: "bg-orange-50 text-orange-700", clear: () => onRutas(fRutas.filter(x => x !== v)) };
+    }),
   ];
   const hasFilters = activeFilterChips.length > 0;
 
@@ -726,7 +744,8 @@ export default function DashboardVendedores() {
           <MultiSelect label="Proveedor"     value={fProvs}     options={opProvs} onChange={onProvs}     searchable loading={loadingOpts} />
           <MultiSelect label="Marca"         value={fMarcs}     options={opMarcs} onChange={onMarcs}     searchable loading={loadingOpts} />
           <MultiSelect label="Productos"     value={fProductos} options={opProds} onChange={onProductos} searchable loading={loadingOpts} />
-          <MultiSelect label="Rutas"         value={fRutas}     options={opRutas} onChange={onRutas}     searchable loading={loadingOpts} />
+          <MultiSelect label="Rutas"         value={fRutas}     options={opRutas} onChange={onRutas}     searchable loading={loadingOpts}
+            labelMap={Object.fromEntries(opRutasInfo.map(r => [r.ruta, r.clientes > 0 ? `${r.ruta} (${r.clientes} cli.)` : r.ruta]))} />
         </div>
         {activeFilterChips.length > 0 && (
           <div className="flex flex-wrap gap-1.5 mt-3 pt-3 border-t border-slate-100">
