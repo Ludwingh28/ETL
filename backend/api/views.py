@@ -447,30 +447,6 @@ def dashboard_vendedores_ranking(request):
     try:
         limit = min(_safe_int(request.GET.get('limit'), 20), 100)
         sql = """
-            WITH vm AS (
-                SELECT fv.vendedor_sk, fv.cliente_sk, fv.numero_venta, fv.venta_neta
-                FROM dw.fact_ventas fv
-                JOIN dw.dim_fecha df ON df.fecha_sk = fv.fecha_sk
-                WHERE df.mes_actual = TRUE
-                  AND fv.es_anulado = FALSE AND fv.venta_neta > 0
-            ),
-            canal_vend AS (
-                SELECT vm.vendedor_sk, dc2.canal,
-                       ROW_NUMBER() OVER (PARTITION BY vm.vendedor_sk ORDER BY COUNT(*) DESC) AS rn
-                FROM vm
-                JOIN dw.dim_cliente    dc  ON dc.cliente_sk       = vm.cliente_sk
-                JOIN dual.dim_clientes dc2 ON dc2.codigo_cliente  = dc.cliente_codigo_erp
-                GROUP BY vm.vendedor_sk, dc2.canal
-            ),
-            regional_vend AS (
-                SELECT vm.vendedor_sk, r.nombre_regional AS ciudad,
-                       ROW_NUMBER() OVER (PARTITION BY vm.vendedor_sk ORDER BY COUNT(*) DESC) AS rn
-                FROM vm
-                JOIN dw.dim_cliente    dc  ON dc.cliente_sk       = vm.cliente_sk
-                JOIN dual.dim_clientes dc2 ON dc2.codigo_cliente  = dc.cliente_codigo_erp
-                JOIN dual.dim_regionales r  ON r.regional_sk      = dc2.regional_sk
-                GROUP BY vm.vendedor_sk, r.nombre_regional
-            )
             SELECT
                 dv.vendedor_nombre                       AS vendedor,
                 dv.canal_rrhh                            AS canal,
@@ -480,7 +456,7 @@ def dashboard_vendedores_ranking(request):
                 COUNT(DISTINCT fv.cliente_sk)            AS clientes_atendidos
             FROM dw.fact_ventas fv
             JOIN dw.dim_vendedor dv ON fv.vendedor_sk = dv.vendedor_sk
-            JOIN dw.dim_fecha df ON fv.fecha_sk = df.fecha_sk
+            JOIN dw.dim_fecha    df ON fv.fecha_sk    = df.fecha_sk
             WHERE df.mes_actual = TRUE
               AND fv.es_anulado = FALSE AND fv.venta_neta > 0
               AND dv.es_vendedor_actual = TRUE
