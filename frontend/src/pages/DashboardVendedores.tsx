@@ -7,6 +7,7 @@ import {
 import {
   ResponsiveContainer, LineChart, Line,
   XAxis, YAxis, CartesianGrid, Tooltip,
+  PieChart, Pie, Cell,
 } from "recharts";
 import { useAuth } from "../context/AuthContext";
 import DashboardLayout from "../components/DashboardLayout";
@@ -44,6 +45,12 @@ const fmtPct = (n: number | null | undefined) => n != null ? `${n.toFixed(1)}%` 
 const cumplColor = (p: number | null | undefined) =>
   p == null ? "text-slate-400" : p >= 100 ? "text-emerald-600" : p >= 80 ? "text-yellow-600" : "text-red-500";
 
+const RUTA_COLORS = [
+  "#3b82f6","#10b981","#f59e0b","#ef4444","#8b5cf6",
+  "#06b6d4","#f97316","#84cc16","#ec4899","#6366f1",
+  "#14b8a6","#eab308","#64748b","#a855f7","#22d3ee",
+];
+
 const REGIONAL_MAP: Record<string, string> = {
   "Santa Cruz": "santa_cruz",
   "Cochabamba": "cochabamba",
@@ -53,9 +60,10 @@ const REGIONAL_MAP: Record<string, string> = {
 
 // ─── MultiSelect ──────────────────────────────────────────────────────────────
 
-function MultiSelect({ label, value, options, onChange, placeholder = "Todos", searchable = false, loading = false }: {
+function MultiSelect({ label, value, options, onChange, placeholder = "Todos", searchable = false, loading = false, labelMap }: {
   label: string; value: string[]; options: string[]; onChange: (v: string[]) => void;
   placeholder?: string; searchable?: boolean; loading?: boolean;
+  labelMap?: Record<string, string>;
 }) {
   const [open,   setOpen]   = useState(false);
   const [search, setSearch] = useState("");
@@ -85,11 +93,13 @@ function MultiSelect({ label, value, options, onChange, placeholder = "Todos", s
     };
   }, [open, searchable]); // eslint-disable-line react-hooks/exhaustive-deps
 
+  const getLabel = (opt: string) => labelMap?.[opt] ?? opt;
+
   const filtered = searchable && search.trim()
-    ? options.filter(o => o.toLowerCase().includes(search.trim().toLowerCase()))
+    ? options.filter(o => getLabel(o).toLowerCase().includes(search.trim().toLowerCase()))
     : options;
 
-  const btnLabel = value.length === 0 ? placeholder : value.length === 1 ? value[0] : `${value.length} seleccionados`;
+  const btnLabel = value.length === 0 ? placeholder : value.length === 1 ? getLabel(value[0]) : `${value.length} seleccionados`;
   const hasValue = value.length > 0;
 
   const toggle = (opt: string) => onChange(value.includes(opt) ? value.filter(v => v !== opt) : [...value, opt]);
@@ -140,7 +150,7 @@ function MultiSelect({ label, value, options, onChange, placeholder = "Todos", s
                 <label key={opt} className="flex items-center gap-2.5 px-3 py-2 hover:bg-slate-50 cursor-pointer select-none">
                   <input type="checkbox" checked={value.includes(opt)} onChange={() => toggle(opt)}
                     className="w-3.5 h-3.5 rounded border-slate-300 accent-brand-600 cursor-pointer" />
-                  <span className="text-xs text-slate-700">{opt}</span>
+                  <span className="text-xs text-slate-700">{getLabel(opt)}</span>
                 </label>
               ))}
           </div>
@@ -313,12 +323,13 @@ export default function DashboardVendedores() {
   const [opMarcs, setOpMarcs] = useState<string[]>([]);
   const [opProds, setOpProds] = useState<string[]>([]);
   const [opCats,  setOpCats]  = useState<string[]>([]);
-  const [opRutas, setOpRutas] = useState<string[]>([]);
+  const [opRutas,     setOpRutas]     = useState<string[]>([]);
+  const [opRutasInfo, setOpRutasInfo] = useState<{ ruta: string; clientes: number }[]>([]);
   const [loadingOpts, setLoadingOpts] = useState(false);
   const [fechaCorte, setFechaCorte] = useState<string | null>(null);
 
   // ── Estados ───────────────────────────────────────────────────────────────────
-  const [kpisData,    setKpisData]    = useState<Record<string, number>>({});
+  const [kpisData,    setKpisData]    = useState<Record<string, unknown>>({});
   const [tendencia,   setTendencia]   = useState<TendenciaDia[]>([]);
   const [esPeriodoAct, setEsPeriodoAct] = useState(true);
   const [comparacion, setComparacion] = useState<ComparacionRow[]>([]);
@@ -371,11 +382,21 @@ export default function DashboardVendedores() {
     try {
       const qs = `regional=${regionalKey}&anho=${anho}&mes=${mes}&vendedor=${encodeURIComponent(vendedorNombre)}${fCats.map(c => `&categoria=${encodeURIComponent(c)}`).join("")}${fSubs.map(s => `&subgrupo=${encodeURIComponent(s)}`).join("")}${fProvs.map(p => `&proveedor=${encodeURIComponent(p)}`).join("")}${fMarcs.map(m => `&marca=${encodeURIComponent(m)}`).join("")}`;
       const j = await apiFetchRef.current<{
-        success: boolean; subgrupos: string[]; proveedores: string[]; marcas: string[]; productos: string[]; canales: string[]; rutas?: string[];
+        success: boolean; subgrupos: string[]; proveedores: string[]; marcas: string[]; productos: string[]; canales: string[];
+        rutas?: ({ ruta: string; clientes: number } | string)[];
       }>(`/dashboard/new-nacional/opciones/?${qs}`);
       if (j.success) {
         setOpSubs(j.subgrupos); setOpProvs(j.proveedores); setOpMarcs(j.marcas); setOpProds(j.productos);
-        setOpRutas(j.rutas ?? []);
+        const rutasRaw = j.rutas ?? [];
+        if (rutasRaw.length > 0 && typeof rutasRaw[0] === 'object') {
+          const info = rutasRaw as { ruta: string; clientes: number }[];
+          setOpRutasInfo(info);
+          setOpRutas(info.map(r => r.ruta));
+        } else {
+          const names = rutasRaw as string[];
+          setOpRutasInfo(names.map(r => ({ ruta: r, clientes: 0 })));
+          setOpRutas(names);
+        }
         setOpCats(["Alimentos", "Apego", "Licores", "Home & Personal Care", "Sin Clasificar"]);
       }
     } catch { /* silencioso */ }
@@ -398,10 +419,10 @@ export default function DashboardVendedores() {
           `/dashboard/nacional/tendencia/?${qs}`),
       ]);
       if (kRes.success) {
-        const d = kRes.data as Record<string, number | string | Record<string, number>>;
+        const d = kRes.data as Record<string, unknown>;
         const p = (d.presupuesto as Record<string, number>) ?? {};
         const fc = d.fecha_corte as string | undefined;
-        setKpisData({ ...(d as Record<string, number>), ppto_total: p.total ?? 0, ppto_uds_total: p.total_uds ?? 0 });
+        setKpisData({ ...d, ppto_total: p.total ?? 0, ppto_uds_total: p.total_uds ?? 0 });
         if (fc) setFechaCorte(fc);
       }
       if (tRes.success) { setTendencia(tRes.data); setEsPeriodoAct(tRes.es_periodo_actual); }
@@ -494,8 +515,12 @@ export default function DashboardVendedores() {
   const cobertura      = (kpisData.cobertura_total as number) ?? 0;
   const carteraAnho    = kpisData.cartera_anho   != null ? (kpisData.cartera_anho   as number) : null;
   const totalAnterior  = kpisData.total_anterior != null ? (kpisData.total_anterior  as number) : null;
-  const totalVendedor  = kpisData.total_vendedor != null ? (kpisData.total_vendedor  as number) : null;
+  const totalVendedor  = kpisData.total_vendedor   != null ? (kpisData.total_vendedor   as number) : null;
+  const cantVendedor   = kpisData.cantidad_vendedor != null ? (kpisData.cantidad_vendedor as number) : null;
+  const ventasPorRuta  = (kpisData.ventas_por_ruta as { ruta: string; venta_neta: number }[] | undefined) ?? [];
   const rutaActiva     = fRutas.length > 0;
+  const pctPartUds     = rutaActiva && cantVendedor != null && cantVendedor > 0
+    ? cantTotal / cantVendedor * 100 : null;
   const pctCumpl       = pptoTotal > 0 ? ventaTotal / pptoTotal * 100 : null;
   const pctCumplUds    = pptoUdsTotal > 0 ? cantTotal / pptoUdsTotal * 100 : null;
   const gapUds         = cantTotal - pptoUdsTotal;
@@ -599,7 +624,11 @@ export default function DashboardVendedores() {
     ...fProvs.map(v => ({ label: v, color: "bg-blue-50 text-blue-700",       clear: () => onProvs(fProvs.filter(x => x !== v)) })),
     ...fMarcs.map(v => ({ label: v, color: "bg-emerald-50 text-emerald-700", clear: () => onMarcs(fMarcs.filter(x => x !== v)) })),
     ...fProductos.map(v => ({ label: v, color: "bg-teal-50 text-teal-700",   clear: () => onProductos(fProductos.filter(x => x !== v)) })),
-    ...fRutas.map(v => ({ label: v, color: "bg-orange-50 text-orange-700",   clear: () => onRutas(fRutas.filter(x => x !== v)) })),
+    ...fRutas.map(v => {
+      const info = opRutasInfo.find(r => r.ruta === v);
+      const label = info && info.clientes > 0 ? `${v} (${info.clientes} cli.)` : v;
+      return { label, color: "bg-orange-50 text-orange-700", clear: () => onRutas(fRutas.filter(x => x !== v)) };
+    }),
   ];
   const hasFilters = activeFilterChips.length > 0;
 
@@ -726,7 +755,8 @@ export default function DashboardVendedores() {
           <MultiSelect label="Proveedor"     value={fProvs}     options={opProvs} onChange={onProvs}     searchable loading={loadingOpts} />
           <MultiSelect label="Marca"         value={fMarcs}     options={opMarcs} onChange={onMarcs}     searchable loading={loadingOpts} />
           <MultiSelect label="Productos"     value={fProductos} options={opProds} onChange={onProductos} searchable loading={loadingOpts} />
-          <MultiSelect label="Rutas"         value={fRutas}     options={opRutas} onChange={onRutas}     searchable loading={loadingOpts} />
+          <MultiSelect label="Rutas"         value={fRutas}     options={opRutas} onChange={onRutas}     searchable loading={loadingOpts}
+            labelMap={Object.fromEntries(opRutasInfo.map(r => [r.ruta, r.clientes > 0 ? `${r.ruta} (${r.clientes} cli.)` : r.ruta]))} />
         </div>
         {activeFilterChips.length > 0 && (
           <div className="flex flex-wrap gap-1.5 mt-3 pt-3 border-t border-slate-100">
@@ -770,17 +800,31 @@ export default function DashboardVendedores() {
           <div className="card flex-1 min-w-44">
             <p className="text-[11px] font-semibold text-slate-400 uppercase tracking-wider mb-1">Unidades Vendidas</p>
             <p className="text-xl font-bold text-slate-800 leading-tight tabular-nums">{fmtN(cantTotal)}</p>
-            {pptoUdsTotal > 0 && (
-              <p className="text-[11px] text-slate-400 mt-0.5">/ {fmtN(pptoUdsTotal)} ppto.</p>
+            {rutaActiva ? (
+              cantVendedor != null && cantVendedor > 0 && (
+                <p className="text-[11px] text-slate-400 mt-0.5">/ {fmtN(cantVendedor)} total vendedor</p>
+              )
+            ) : (
+              pptoUdsTotal > 0 && (
+                <p className="text-[11px] text-slate-400 mt-0.5">/ {fmtN(pptoUdsTotal)} ppto.</p>
+              )
             )}
             <div className="flex items-center gap-2 mt-1.5">
-              {pctCumplUds != null && (
-                <span className={`text-sm font-bold ${cumplColor(pctCumplUds)}`}>{fmtPct(pctCumplUds)}</span>
-              )}
-              {pptoUdsTotal > 0 && (
-                <span className={`text-[10px] font-semibold ${gapUds >= 0 ? "text-emerald-600" : "text-red-500"}`}>
-                  {gapUds >= 0 ? "+" : ""}{fmtN(gapUds)}
-                </span>
+              {rutaActiva ? (
+                pctPartUds != null && (
+                  <span className="text-sm font-bold text-slate-600">{fmtPct(pctPartUds)}</span>
+                )
+              ) : (
+                <>
+                  {pctCumplUds != null && (
+                    <span className={`text-sm font-bold ${cumplColor(pctCumplUds)}`}>{fmtPct(pctCumplUds)}</span>
+                  )}
+                  {pptoUdsTotal > 0 && (
+                    <span className={`text-[10px] font-semibold ${gapUds >= 0 ? "text-emerald-600" : "text-red-500"}`}>
+                      {gapUds >= 0 ? "+" : ""}{fmtN(gapUds)}
+                    </span>
+                  )}
+                </>
               )}
             </div>
           </div>
@@ -808,6 +852,67 @@ export default function DashboardVendedores() {
               {totalAnterior != null && totalAnterior > 0 ? `Ant: ${fmt(totalAnterior)}` : MESES[mes > 1 ? mes - 1 : 12]}
             </p>
           </div>
+
+          {/* ── Donut rutas ── */}
+          {ventasPorRuta.length > 0 && (() => {
+            const totalVR = ventasPorRuta.reduce((s, r) => s + r.venta_neta, 0);
+            return (
+              <div className="card flex-2 min-w-64">
+                <p className="text-[11px] font-semibold text-slate-400 uppercase tracking-wider mb-2">Participación por Ruta</p>
+                <div className="flex items-start gap-3">
+                  <div className="shrink-0">
+                    <PieChart width={130} height={130}>
+                      <Pie
+                        data={ventasPorRuta}
+                        dataKey="venta_neta"
+                        nameKey="ruta"
+                        cx="50%"
+                        cy="50%"
+                        innerRadius={38}
+                        outerRadius={60}
+                        labelLine={false}
+                        label={(props: any) => { // eslint-disable-line @typescript-eslint/no-explicit-any
+                          const { cx, cy, midAngle, innerRadius: ir, outerRadius: or, index } = props as { cx: number; cy: number; midAngle: number; innerRadius: number; outerRadius: number; index: number };
+                          const pct = totalVR > 0 ? ventasPorRuta[index].venta_neta / totalVR * 100 : 0;
+                          if (pct < 10) return null;
+                          const R = Math.PI / 180;
+                          const mid = (ir + or) / 2;
+                          const x = cx + mid * Math.cos(-midAngle * R);
+                          const y = cy + mid * Math.sin(-midAngle * R);
+                          return (
+                            <text x={x} y={y} textAnchor="middle" dominantBaseline="central" fontSize={8} fontWeight={700} fill="#fff">
+                              {pct.toFixed(0)}%
+                            </text>
+                          );
+                        }}
+                      >
+                        {ventasPorRuta.map((_, i) => (
+                          <Cell key={i} fill={RUTA_COLORS[i % RUTA_COLORS.length]} />
+                        ))}
+                      </Pie>
+                      <Tooltip
+                        formatter={(value: unknown) => [fmt(value as number), "Ventas"]}
+                        labelFormatter={(_: unknown, payload: readonly any[]) => (payload?.[0]?.name ?? "") as string} // eslint-disable-line @typescript-eslint/no-explicit-any
+                      />
+                    </PieChart>
+                  </div>
+                  <div className="flex flex-col gap-1 flex-1 min-w-0 text-[10px] overflow-y-auto max-h-30">
+                    {ventasPorRuta.map((r, i) => {
+                      const pct = totalVR > 0 ? r.venta_neta / totalVR * 100 : 0;
+                      const isActive = rutaActiva && fRutas.includes(r.ruta);
+                      return (
+                        <div key={r.ruta} className={`flex items-center gap-1.5 py-0.5 px-1 rounded ${isActive ? "bg-orange-50" : ""}`}>
+                          <span className="w-2 h-2 rounded-full shrink-0" style={{ background: RUTA_COLORS[i % RUTA_COLORS.length] }} />
+                          <span className={`flex-1 leading-tight truncate ${isActive ? "font-semibold text-orange-700" : "text-slate-600"}`} title={r.ruta}>{r.ruta}</span>
+                          <span className="font-bold text-blue-500 shrink-0">{pct.toFixed(0)}%</span>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              </div>
+            );
+          })()}
         </div>
       )}
 

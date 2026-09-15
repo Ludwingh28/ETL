@@ -1,6 +1,6 @@
 ﻿import { useEffect, useState, useMemo, type ChangeEvent } from 'react'
 import {
-  DollarSign, ShoppingCart, Users2, MapPin,
+  DollarSign, ShoppingCart, Users2, MapPin, Target, Package,
   Download, RefreshCw, AlertCircle, ChevronLeft, ChevronRight,
 } from 'lucide-react'
 import {
@@ -46,10 +46,14 @@ interface TablaRow {
 }
 
 interface PresupuestoSku {
-  cod_producto:   string | null
-  producto_nombre: string | null
-  canal:          string | null
-  presupuesto:    number | null
+  proveedor:       string | null
+  marca:           string | null
+  linea:           string | null
+  producto:        string | null
+  canal:           string | null
+  regional:        string | null
+  presupuesto_bs:  number | null
+  presupuesto_uds: number | null
 }
 
 interface Periodo {
@@ -130,6 +134,7 @@ export default function DashboardProveedor({ perm, nombre }: Props) {
   const [tabla,          setTabla]          = useState<TablaRow[]>([])
   const [tablaPage,      setTablaPage]      = useState(1)
   const [presupuestoSku, setPresupuestoSku] = useState<PresupuestoSku[]>([])
+  const [pptoRegional,   setPptoRegional]   = useState('NACIONAL')
 
   const PAGE_SIZE   = 200
   const totalPages  = Math.max(1, Math.ceil(tabla.length / PAGE_SIZE))
@@ -183,6 +188,7 @@ export default function DashboardProveedor({ perm, nombre }: Props) {
   }
 
   useEffect(() => { void loadData() }, [anho, mes, provDB]) // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => { setPptoRegional('NACIONAL') }, [anho, mes]) // eslint-disable-line react-hooks/exhaustive-deps
 
   const anhos           = [...new Set(periodos.map(p => p.anho))].sort((a, b) => b - a)
   const mesesDisponibles = periodos.filter(p => p.anho === anho)
@@ -190,7 +196,7 @@ export default function DashboardProveedor({ perm, nombre }: Props) {
   // ─── Exportar a Excel ────────────────────────────────────────────────────
 
   const exportExcel = async () => {
-    const isSoftys = perm === 'softys'
+    const isSoftys = perm?.toLowerCase() === 'softys'
 
     const cols: (keyof TablaRow)[] = [
       'canal', 'ciudad', 'mes_nombre', 'proveedor', 'marca',
@@ -226,16 +232,29 @@ export default function DashboardProveedor({ perm, nombre }: Props) {
     ws.addRow(cols.map(c => headers[c]))
     for (const r of tabla) ws.addRow(cols.map(c => r[c] ?? ''))
 
-    // Hoja 2 (solo Softys): presupuesto por SKU y canal
+    // Hoja 2: presupuesto Softys por proveedor/marca/linea/producto/regional/canal
     if (isSoftys && presupuestoSku.length > 0) {
-      const wsPpto = wb.addWorksheet('Presupuesto SKU')
-      wsPpto.addRow(['COD PRODUCTO', 'DESC ARTICULO', 'CANAL', 'PRESUPUESTO (Bs)'])
-      for (const r of presupuestoSku) {
+      const wsPpto = wb.addWorksheet('Presupuesto')
+      wsPpto.addRow(['PROVEEDOR', 'MARCA', 'LINEA', 'PRODUCTO', 'Bs.', 'Uds.', 'REGIONAL', 'CANAL'])
+      const regionalOrder = ['NACIONAL', 'SANTA CRUZ', 'COCHABAMBA', 'LA PAZ', 'OTRAS']
+      const sorted = [...presupuestoSku].sort((a, b) => {
+        const raRaw = regionalOrder.indexOf(a.regional ?? ''); const ra = raRaw === -1 ? 99 : raRaw
+        const rbRaw = regionalOrder.indexOf(b.regional ?? ''); const rb = rbRaw === -1 ? 99 : rbRaw
+        if (ra !== rb) return ra - rb
+        return (a.linea ?? '').localeCompare(b.linea ?? '') ||
+               (a.producto ?? '').localeCompare(b.producto ?? '') ||
+               (a.canal ?? '').localeCompare(b.canal ?? '')
+      })
+      for (const r of sorted) {
         wsPpto.addRow([
-          r.cod_producto   ?? '',
-          r.producto_nombre ?? '',
-          r.canal          ?? '',
-          r.presupuesto    ?? 0,
+          r.proveedor       ?? '',
+          r.marca           ?? '',
+          r.linea           ?? '',
+          r.producto        ?? '',
+          r.presupuesto_bs  ?? 0,
+          r.presupuesto_uds ?? 0,
+          r.regional        ?? '',
+          r.canal           ?? '',
         ])
       }
     }
@@ -328,7 +347,7 @@ export default function DashboardProveedor({ perm, nombre }: Props) {
       {!loading && (
         <>
           {/* ── KPI Cards ── */}
-          <div className="grid grid-cols-3 gap-4 mb-6">
+          <div className="grid grid-cols-3 gap-4 mb-4">
             <KpiCard
               title="Total Ventas"
               value={fmt(kpis?.total)}
@@ -351,6 +370,94 @@ export default function DashboardProveedor({ perm, nombre }: Props) {
               bg="bg-purple-50"
             />
           </div>
+
+          {/* ── KPI Presupuesto (solo Softys) ── */}
+          {perm?.toLowerCase() === 'softys' && presupuestoSku.length > 0 && (() => {
+            const nac      = presupuestoSku.filter(r => r.regional === 'NACIONAL')
+            const totalBs  = nac.reduce((s, r) => s + (r.presupuesto_bs  ?? 0), 0)
+            const totalUds = nac.reduce((s, r) => s + (r.presupuesto_uds ?? 0), 0)
+            return (
+              <div className="grid grid-cols-2 gap-4 mb-6">
+                <KpiCard
+                  title="Presupuesto Bs."
+                  value={fmt(totalBs)}
+                  sub={kpis?.total && totalBs > 0 ? `${((kpis.total / totalBs) * 100).toFixed(1)}% de cumplimiento` : undefined}
+                  icon={Target}
+                  color="text-amber-600"
+                  bg="bg-amber-50"
+                />
+                <KpiCard
+                  title="Presupuesto Uds."
+                  value={fmtNum(Math.round(totalUds))}
+                  icon={Package}
+                  color="text-sky-600"
+                  bg="bg-sky-50"
+                />
+              </div>
+            )
+          })()}
+
+          {/* ── Tabla SKU Presupuesto (solo Softys) ── */}
+          {perm?.toLowerCase() === 'softys' && presupuestoSku.length > 0 && (() => {
+            const REGIONALES = ['NACIONAL', 'SANTA CRUZ', 'COCHABAMBA', 'LA PAZ', 'OTRAS']
+            const filtradas = presupuestoSku
+              .filter(r => r.regional === pptoRegional)
+              .sort((a, b) =>
+                (a.linea ?? '').localeCompare(b.linea ?? '') ||
+                (a.producto ?? '').localeCompare(b.producto ?? '') ||
+                (a.canal ?? '').localeCompare(b.canal ?? '')
+              )
+            return (
+              <div className="card p-0 overflow-hidden mb-6">
+                <div className="flex flex-wrap items-center justify-between gap-3 px-5 py-4 border-b border-slate-100">
+                  <div>
+                    <h2 className="text-base font-semibold text-slate-700">Presupuesto por SKU</h2>
+                    <p className="text-xs text-slate-400 mt-0.5">{filtradas.length} productos · {pptoRegional}</p>
+                  </div>
+                  <div className="flex flex-wrap gap-1.5">
+                    {REGIONALES.map(r => (
+                      <button
+                        key={r}
+                        onClick={() => setPptoRegional(r)}
+                        className={`text-xs px-3 py-1.5 rounded-lg border transition-colors ${
+                          pptoRegional === r
+                            ? 'bg-amber-500 text-white border-amber-500'
+                            : 'bg-white text-slate-600 border-slate-200 hover:bg-slate-50'
+                        }`}
+                      >{r}</button>
+                    ))}
+                  </div>
+                </div>
+                <div className="overflow-auto max-h-80">
+                  <table className="w-full text-sm">
+                    <thead className="sticky top-0 bg-slate-50 z-10">
+                      <tr>
+                        <th className="text-left px-4 py-2.5 text-xs font-semibold text-slate-500 uppercase tracking-wide whitespace-nowrap">Linea</th>
+                        <th className="text-left px-4 py-2.5 text-xs font-semibold text-slate-500 uppercase tracking-wide">Producto</th>
+                        <th className="text-left px-4 py-2.5 text-xs font-semibold text-slate-500 uppercase tracking-wide whitespace-nowrap">Canal</th>
+                        <th className="text-right px-4 py-2.5 text-xs font-semibold text-slate-500 uppercase tracking-wide whitespace-nowrap">Ppto. Bs.</th>
+                        <th className="text-right px-4 py-2.5 text-xs font-semibold text-slate-500 uppercase tracking-wide whitespace-nowrap">Ppto. Uds.</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-50">
+                      {filtradas.map((r, i) => (
+                        <tr key={i} className="hover:bg-slate-50 transition-colors">
+                          <td className="px-4 py-2 text-xs text-slate-400 whitespace-nowrap">{r.linea ?? '—'}</td>
+                          <td className="px-4 py-2 text-slate-700 font-medium">{r.producto ?? '—'}</td>
+                          <td className="px-4 py-2 text-slate-500 whitespace-nowrap">{r.canal ?? '—'}</td>
+                          <td className="px-4 py-2 text-right font-mono text-slate-700 whitespace-nowrap">{fmt(r.presupuesto_bs)}</td>
+                          <td className="px-4 py-2 text-right font-mono text-slate-500 whitespace-nowrap">{fmtNum(r.presupuesto_uds != null ? Math.round(r.presupuesto_uds) : null)}</td>
+                        </tr>
+                      ))}
+                      {filtradas.length === 0 && (
+                        <tr><td colSpan={5} className="px-4 py-8 text-center text-slate-400 text-sm">Sin datos para {pptoRegional}</td></tr>
+                      )}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            )
+          })()}
 
           {/* ── Cards por Regional ── */}
           {(kpis?.regionales?.length ?? 0) > 0 && (

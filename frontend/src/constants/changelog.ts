@@ -1,4 +1,4 @@
-export const CURRENT_VERSION = "1.2.9.2";
+export const CURRENT_VERSION = "1.2.9.4";
 
 export interface ChangelogVersion {
   version: string;
@@ -12,6 +12,44 @@ export interface ChangelogVersion {
 // Descripciones simplificadas para usuarios finales.
 // El detalle técnico completo está en CHANGELOG.md en la raíz del proyecto.
 export const CHANGELOG: ChangelogVersion[] = [
+  {
+    version: "1.2.9.4",
+    date: "Septiembre 2026",
+    fixes: [
+      "Dashboard Vendedor — la card de Unidades Vendidas ya no mostraba el presupuesto total del vendedor al filtrar por ruta; ahora muestra las unidades de la ruta vs el total vendido por el vendedor y su % de participación, igual que la card de Ventas Bs.",
+      "Ventas Nacional — el gráfico Evolutivo ahora respeta los filtros de categoría, proveedor, sub-categoría, marca y producto al calcular las barras de ventas",
+      "Ventas Nacional — el presupuesto mensual en el eje X del Evolutivo ya no sumaba versiones históricas; ahora usa solo la versión vigente de cada mes",
+      "Ventas Nacional — las etiquetas del gráfico de dona de canales ya no se superponen en segmentos pequeños; los segmentos menores al 5% se muestran en una leyenda compacta debajo",
+      "Dashboard Vendedor — los dropdowns de filtros ya no quedaban tapados por las filas fijas de la tabla al anclar el panel de filtros",
+      "Dashboard Vendedor — la cantidad de clientes en cartera al filtrar por ruta ahora coincide con el número mostrado en el listbox de rutas",
+    ],
+    features: [
+      "Dashboard Vendedor — nuevo gráfico de dona 'Participación por Ruta' en las cards de KPI: muestra qué rutas concentran más ventas del vendedor, con leyenda de nombres y porcentajes; las rutas actualmente filtradas se resaltan",
+    ],
+    newDashboardPerms: [],
+    newDashboardNames: {},
+  },
+  {
+    version: "1.2.9.3",
+    date: "Septiembre 2026",
+    fixes: [
+      "Dashboard Softys — el porcentaje de cumplimiento ya no mostraba 'Infinity%' cuando el presupuesto era cero",
+      "Dashboard Softys — la línea roja de proyección en el gráfico de tendencia por SKU ya no aparece en meses anteriores (solo se muestra en el mes actual)",
+      "Dashboard Softys — en meses pasados, la leyenda 'Proyección' ya no aparece en los gráficos de tendencia",
+      "Dashboard Softys — al cambiar de mes o año, el filtro regional de la tabla 'Presupuesto por SKU' ahora vuelve automáticamente a 'NACIONAL'",
+      "Dashboard Proveedor — las cifras de ventas ahora muestran el monto neto facturado correcto (antes se usaba el precio bruto del producto)",
+      "General — correcciones internas de seguridad y estabilidad en varios endpoints",
+    ],
+    features: [
+      "Dashboard Softys — nueva tabla 'Presupuesto por SKU': muestra el presupuesto en Bs. y unidades por producto, filtrable por regional (Nacional, Santa Cruz, Cochabamba, La Paz)",
+      "Dashboard Softys — cards de canal ahora muestran el porcentaje real de cobertura (clientes visitados vs universo de clientes del territorio)",
+      "Dashboard Softys — exportación Excel: incluye una nueva hoja 'Presupuesto' con el detalle por producto, regional y canal",
+      "Dashboard Proveedor (Softys) — nuevas cards de KPI de presupuesto: Bs. presupuestados, unidades presupuestadas y % de cumplimiento",
+      "Dashboard Proveedor (Softys) — exportación Excel: nueva hoja 'Presupuesto' con detalle completo por SKU",
+    ],
+    newDashboardPerms: [],
+    newDashboardNames: {},
+  },
   {
     version: "1.2.9.2",
     date: "Septiembre 2026",

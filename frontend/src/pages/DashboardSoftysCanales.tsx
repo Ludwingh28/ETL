@@ -225,7 +225,7 @@ function GrupoBotones({ value, onChange, size = "sm" }: {
 
 // ─── Métricas secundarias (shared between CanalCard and TotalCard) ─────────────
 
-function MetricasSecundarias({ ticketPromedio, clientes }: {
+function MetricasSecundarias({ ticketPromedio, cobertura, universo, clientes }: {
   ticketPromedio: number | null;
   cobertura: number | null;
   universo: number;
@@ -241,15 +241,17 @@ function MetricasSecundarias({ ticketPromedio, clientes }: {
         <p className="text-[9px] text-slate-400 leading-none mt-0.5">Bs / cliente</p>
       </div>
       <div className="border-t border-slate-100 pt-2">
-        <p className="text-[9px] text-slate-400 font-semibold uppercase tracking-wider leading-none mb-1">Drop Size</p>
-        <p className="text-sm font-bold leading-none text-slate-300">—</p>
+        <p className="text-[9px] text-slate-400 font-semibold uppercase tracking-wider leading-none mb-1">Cobertura</p>
+        <p className={`text-sm font-bold leading-none ${cobertura != null ? "text-slate-800" : "text-slate-300"}`}>
+          {cobertura != null ? `${cobertura}%` : "—"}
+        </p>
+        {universo > 0 && <p className="text-[9px] text-slate-400 leading-none mt-0.5">de {fmtN(universo)}</p>}
       </div>
       <div className="border-t border-slate-100 pt-2">
-        <p className="text-[9px] text-slate-400 font-semibold uppercase tracking-wider leading-none mb-1">Cobertura</p>
+        <p className="text-[9px] text-slate-400 font-semibold uppercase tracking-wider leading-none mb-1">Clientes</p>
         <p className={`text-sm font-bold leading-none ${clientes > 0 ? "text-slate-800" : "text-slate-300"}`}>
           {clientes > 0 ? fmtN(clientes) : "—"}
         </p>
-        <p className="text-[9px] text-slate-400 leading-none mt-0.5">clientes</p>
       </div>
     </div>
   );
@@ -698,7 +700,7 @@ export default function DashboardSoftysCanales() {
       const canalParam = canal ? `&canal=${encodeURIComponent(canal)}` : "";
       const grupoParam = grupo !== "Todos" ? `&grupo=${encodeURIComponent(grupo)}` : "";
       const diaParam   = dia > 0 ? `&dia=${dia}` : "";
-      const j = await apiFetch<{ success: boolean; error?: string; data: Record<string, unknown>[]; total: number; presupuesto_por_sku?: Record<string, unknown>[] }>(
+      const j = await apiFetch<{ success: boolean; error?: string; data: Record<string, unknown>[]; total: number; presupuesto_por_sku?: Record<string, unknown>[]; presupuesto_ppto?: { proveedor: string; marca: string; linea: string; producto: string; presupuesto_bs: number; presupuesto_uds: number; regional: string; canal: string }[] }>(
         `/dashboard/softys-canales/export/?regional=${rKey}&anho=${anho}&mes=${mes}${canalParam}${grupoParam}${diaParam}`
       );
       if (!j.success) throw new Error(j.error ?? "Error al exportar");
@@ -756,6 +758,51 @@ export default function DashboardSoftysCanales() {
           cell.font = { size: 9 };
         });
       });
+
+      // ── Hoja 2: Presupuesto PROVEEDOR|MARCA|LINEA|PRODUCTO|Bs.|Uds.|REGIONAL|CANAL ──
+      if (j.presupuesto_ppto && j.presupuesto_ppto.length > 0) {
+        const wsPpto = wb.addWorksheet("Presupuesto");
+        wsPpto.columns = [
+          { header: "PROVEEDOR", key: "proveedor", width: 14 },
+          { header: "MARCA",     key: "marca",     width: 22 },
+          { header: "LINEA",     key: "linea",     width: 22 },
+          { header: "PRODUCTO",  key: "producto",  width: 46 },
+          { header: "Bs.",       key: "presupuesto_bs",  width: 16 },
+          { header: "Uds.",      key: "presupuesto_uds", width: 14 },
+          { header: "REGIONAL",  key: "regional",  width: 16 },
+          { header: "CANAL",     key: "canal",     width: 14 },
+        ];
+        const pptoHeader = wsPpto.getRow(1);
+        pptoHeader.eachCell(cell => {
+          cell.fill      = { type: "pattern", pattern: "solid", fgColor: { argb: "FF065F46" } };
+          cell.font      = { bold: true, color: { argb: "FFFFFFFF" }, size: 10 };
+          cell.alignment = { vertical: "middle", horizontal: "center" };
+        });
+        pptoHeader.height = 22;
+        wsPpto.views = [{ state: "frozen", ySplit: 1 }];
+        const regionalOrder = ['NACIONAL', 'SANTA CRUZ', 'COCHABAMBA', 'LA PAZ', 'OTRAS'];
+        const sorted = [...j.presupuesto_ppto].sort((a, b) => {
+          const raRaw = regionalOrder.indexOf(a.regional); const ra = raRaw === -1 ? 99 : raRaw
+          const rbRaw = regionalOrder.indexOf(b.regional); const rb = rbRaw === -1 ? 99 : rbRaw
+          if (ra !== rb) return ra - rb
+          return (a.linea ?? '').localeCompare(b.linea ?? '') ||
+                 (a.producto ?? '').localeCompare(b.producto ?? '') ||
+                 (a.canal ?? '').localeCompare(b.canal ?? '')
+        });
+        for (const r of sorted) {
+          const added = wsPpto.addRow([r.proveedor, r.marca, r.linea, r.producto, r.presupuesto_bs, r.presupuesto_uds, r.regional, r.canal]);
+          added.getCell(5).numFmt = "#,##0.00";
+          added.getCell(6).numFmt = "#,##0";
+        }
+        wsPpto.eachRow((row, rowNum) => {
+          if (rowNum === 1) return;
+          const bg = rowNum % 2 === 0 ? "FFF0FDF4" : "FFFFFFFF";
+          row.eachCell(cell => {
+            cell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: bg } };
+            cell.font = { size: 9 };
+          });
+        });
+      }
 
       const buf  = await wb.xlsx.writeBuffer();
       const blob = new Blob([buf], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" });
@@ -842,10 +889,10 @@ export default function DashboardSoftysCanales() {
     setLoadingSku(true);
     try {
       const canalParam = canal ? `&canal=${encodeURIComponent(canal)}` : "";
-      const grupoParam = grupo === "Todos" ? "" : encodeURIComponent(grupo);
+      const grupoParam = grupo !== "Todos" ? `&grupo=${encodeURIComponent(grupo)}` : "";
       const diaParam   = dia > 0 ? `&dia=${dia}` : "";
       const j = await apiFetch<{ success: boolean; error?: string; data: SkuRow[] }>(
-        `/dashboard/softys-canales/por-sku/?regional=${rKey}&anho=${anho}&mes=${mes}&grupo=${grupoParam}${canalParam}${diaParam}`
+        `/dashboard/softys-canales/por-sku/?regional=${rKey}&anho=${anho}&mes=${mes}${grupoParam}${canalParam}${diaParam}`
       );
       if (!j.success) throw new Error(j.error);
       setSkus(j.data);
@@ -1366,7 +1413,7 @@ export default function DashboardSoftysCanales() {
                   : [1, 2, 3, 4] as const;
                 const semKey = (n: number) => `sem${n}` as keyof ClienteSemana;
                 return (
-                  <div className="overflow-x-auto overflow-y-auto max-h-[480px]">
+                  <div className="overflow-x-auto overflow-y-auto max-h-[460px] scrollbar-thin scrollbar-thumb-slate-200 scrollbar-track-transparent">
                     <table className="w-full text-xs min-w-[540px]">
                       <thead className="sticky top-0 bg-white z-10 shadow-[0_1px_0_0_#f1f5f9]">
                         <tr className="text-slate-400">
@@ -1414,7 +1461,7 @@ export default function DashboardSoftysCanales() {
                           );
                         })}
                       </tbody>
-                      <tfoot className="sticky bottom-0 border-t-2 border-slate-200 bg-slate-50">
+                      <tfoot className="sticky bottom-0 z-10 border-t-2 border-slate-200 bg-slate-50">
                         <tr className="text-slate-700 font-bold text-xs">
                           <td className="py-2 pr-2">TOTAL</td>
                           {sems.map(s => (
@@ -2096,7 +2143,7 @@ export default function DashboardSoftysCanales() {
                 <Tooltip content={<TooltipTendencia />} />
                 <Line dataKey="presupuesto_acumulado" name="Presupuesto" stroke="#22c55e" strokeWidth={2} strokeDasharray="6 4" dot={false} connectNulls />
                 <Line dataKey="avance_acumulado"      name="Avance"      stroke="#3b82f6" strokeWidth={2.5} dot={false} connectNulls />
-                <Line dataKey="proyeccion_acumulada"  name="Proyección"  stroke="#ef4444" strokeWidth={1.5} strokeDasharray="4 4" dot={false} connectNulls />
+                {esPeriodoActual && <Line dataKey="proyeccion_acumulada"  name="Proyección"  stroke="#ef4444" strokeWidth={1.5} strokeDasharray="4 4" dot={false} connectNulls />}
               </LineChart>
             </ResponsiveContainer>
           )}
@@ -2189,6 +2236,8 @@ export default function DashboardSoftysCanales() {
                     <th className="text-right py-2 font-semibold">Cob.</th>
                     <th className="text-right py-2 font-semibold">Venta Bs</th>
                     <th className="text-right py-2 font-semibold">Uds</th>
+                    <th className="text-right py-2 font-semibold">Ppto. Bs</th>
+                    <th className="text-right py-2 font-semibold">Ppto. Uds</th>
                     <th className="text-right py-2 font-semibold">Cumpl.</th>
                   </tr>
                 </thead>
@@ -2206,6 +2255,8 @@ export default function DashboardSoftysCanales() {
                         <td className="py-1.5 text-right text-slate-600 tabular-nums">{fmtN(s.clientes)}</td>
                         <td className="py-1.5 text-right font-semibold text-slate-800 tabular-nums">{fmtN(s.venta_neta)}</td>
                         <td className="py-1.5 text-right text-slate-600 tabular-nums">{fmtN(s.cantidad)}</td>
+                        <td className="py-1.5 text-right text-emerald-700 tabular-nums">{s.presupuesto > 0 ? fmtN(Math.round(s.presupuesto)) : '—'}</td>
+                        <td className="py-1.5 text-right text-emerald-600 tabular-nums">{s.presupuesto_uds > 0 ? fmtN(Math.round(s.presupuesto_uds)) : '—'}</td>
                         <td className={`py-1.5 text-right font-bold tabular-nums ${
                           s.porcentaje == null ? "text-slate-300" : s.porcentaje >= 100 ? "text-emerald-600" : s.porcentaje >= 80 ? "text-amber-500" : "text-red-500"
                         }`}>{fmtPct(s.porcentaje)}</td>
@@ -2261,8 +2312,8 @@ export default function DashboardSoftysCanales() {
                 <Tooltip content={<TooltipSkuTendencia />} />
                 {/* Presupuesto acumulado — igual que gráfico de tendencia principal */}
                 <Line dataKey="presupuesto_acumulado" name="Presupuesto" stroke="#22c55e" strokeWidth={2} strokeDasharray="6 4" dot={false} connectNulls />
-                {/* Proyección acumulada */}
-                <Line dataKey="proyeccion_acumulada" name="Proyección" stroke="#ef4444" strokeWidth={1.5} strokeDasharray="4 4" dot={false} connectNulls />
+                {/* Proyección acumulada — solo en período actual */}
+                {skuTend.esPeriodoActual && <Line dataKey="proyeccion_acumulada" name="Proyección" stroke="#ef4444" strokeWidth={1.5} strokeDasharray="4 4" dot={false} connectNulls />}
                 {/* Avance acumulado como barras — crece cada día como la línea del chart principal */}
                 <Bar dataKey="avance_acumulado" name="Avance" fill="#38bdf8" radius={[2, 2, 0, 0]} maxBarSize={20} />
               </ComposedChart>
@@ -2275,10 +2326,12 @@ export default function DashboardSoftysCanales() {
                 <svg width="28" height="8"><line x1="0" y1="4" x2="28" y2="4" stroke="#22c55e" strokeWidth="2" strokeDasharray="5 3" /></svg>
                 Presupuesto
               </span>
-              <span className="flex items-center gap-2">
-                <svg width="28" height="8"><line x1="0" y1="4" x2="28" y2="4" stroke="#ef4444" strokeWidth="1.5" strokeDasharray="4 4" /></svg>
-                Proyección
-              </span>
+              {skuTend.esPeriodoActual && (
+                <span className="flex items-center gap-2">
+                  <svg width="28" height="8"><line x1="0" y1="4" x2="28" y2="4" stroke="#ef4444" strokeWidth="1.5" strokeDasharray="4 4" /></svg>
+                  Proyección
+                </span>
+              )}
             </div>
           </>
         )}
