@@ -1,4 +1,4 @@
-export const CURRENT_VERSION = "1.2.9.3";
+export const CURRENT_VERSION = "1.2.9.4";
 
 export interface ChangelogVersion {
   version: string;
@@ -12,6 +12,23 @@ export interface ChangelogVersion {
 // Descripciones simplificadas para usuarios finales.
 // El detalle técnico completo está en CHANGELOG.md en la raíz del proyecto.
 export const CHANGELOG: ChangelogVersion[] = [
+  {
+    version: "1.2.9.4",
+    date: "Septiembre 2026",
+    fixes: [
+      "Dashboard Vendedor — la card de Unidades Vendidas ya no mostraba el presupuesto total del vendedor al filtrar por ruta; ahora muestra las unidades de la ruta vs el total vendido por el vendedor y su % de participación, igual que la card de Ventas Bs.",
+      "Ventas Nacional — el gráfico Evolutivo ahora respeta los filtros de categoría, proveedor, sub-categoría, marca y producto al calcular las barras de ventas",
+      "Ventas Nacional — el presupuesto mensual en el eje X del Evolutivo ya no sumaba versiones históricas; ahora usa solo la versión vigente de cada mes",
+      "Ventas Nacional — las etiquetas del gráfico de dona de canales ya no se superponen en segmentos pequeños; los segmentos menores al 5% se muestran en una leyenda compacta debajo",
+      "Dashboard Vendedor — los dropdowns de filtros ya no quedaban tapados por las filas fijas de la tabla al anclar el panel de filtros",
+      "Dashboard Vendedor — la cantidad de clientes en cartera al filtrar por ruta ahora coincide con el número mostrado en el listbox de rutas",
+    ],
+    features: [
+      "Dashboard Vendedor — nuevo gráfico de dona 'Participación por Ruta' en las cards de KPI: muestra qué rutas concentran más ventas del vendedor, con leyenda de nombres y porcentajes; las rutas actualmente filtradas se resaltan",
+    ],
+    newDashboardPerms: [],
+    newDashboardNames: {},
+  },
   {
     version: "1.2.9.3",
     date: "Septiembre 2026",
