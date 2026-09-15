@@ -712,33 +712,35 @@ def dashboard_nacional_kpis(request):
             try:
                 if rutas:
                     # Con ruta activa: clientes asignados a esas rutas en la planificación actual
+                    # Misma lógica que el endpoint opciones para que coincida con el listbox
                     phs_r = ", ".join(["%s"] * len(rutas))
                     sql_cartera = f"""
-                        SELECT COUNT(DISTINCT dck.cliente_sk) AS cartera
+                        SELECT COUNT(DISTINCT dc.codigo_cliente) AS cartera
                         FROM dual.dim_planificacion dp
-                        JOIN dual.dim_cliente_dual  dc
-                            ON  dc.ruta = dp.ruta AND dc.es_actual = true
-                        JOIN dw.dim_cliente         dck
-                            ON  dck.cliente_codigo_erp = dc.codigo_cliente
-                            AND dck.es_cliente_actual  = true
-                        JOIN dw.dim_vendedor        dv
+                        JOIN dw.dim_vendedor dv
                             ON  dv.vendedor_codigo_erp = SPLIT_PART(dp.codigo_erp, '.', 1)
                             AND dv.es_vendedor_actual  = true
+                        LEFT JOIN dual.dim_cliente_dual dc
+                            ON  dc.ruta = dp.ruta AND dc.es_actual = true
                         WHERE dp.es_actual = true
                           AND dv.vendedor_nombre = %s
                           AND dp.ruta IN ({phs_r})
                     """
                     _, cart_rows = _run_dw_query(sql_cartera, [vendedor] + list(rutas))
                 else:
-                    # Sin ruta: todos los clientes que compraron al vendedor en el año
+                    # Sin ruta: todos los clientes asignados al vendedor en planificación actual
                     sql_cartera = """
-                        SELECT COUNT(DISTINCT fv.cliente_sk) AS cartera
-                        FROM dw.fact_ventas fv
-                        JOIN dw.dim_fecha    df ON fv.fecha_sk    = df.fecha_sk
-                        JOIN dw.dim_vendedor dv ON fv.vendedor_sk = dv.vendedor_sk
-                        WHERE df.anho = %s AND dv.vendedor_nombre = %s
+                        SELECT COUNT(DISTINCT dc.codigo_cliente) AS cartera
+                        FROM dual.dim_planificacion dp
+                        JOIN dw.dim_vendedor dv
+                            ON  dv.vendedor_codigo_erp = SPLIT_PART(dp.codigo_erp, '.', 1)
+                            AND dv.es_vendedor_actual  = true
+                        LEFT JOIN dual.dim_cliente_dual dc
+                            ON  dc.ruta = dp.ruta AND dc.es_actual = true
+                        WHERE dp.es_actual = true
+                          AND dv.vendedor_nombre = %s
                     """
-                    _, cart_rows = _run_dw_query(sql_cartera, [anho, vendedor])
+                    _, cart_rows = _run_dw_query(sql_cartera, [vendedor])
                 data['cartera_anho'] = int(cart_rows[0].get('cartera', 0) or 0) if cart_rows else 0
             except Exception:
                 data['cartera_anho'] = None
@@ -749,7 +751,8 @@ def dashboard_nacional_kpis(request):
         if rutas and vendedor:
             try:
                 sql_total_vend = f"""
-                    SELECT COALESCE(SUM(fv.venta_neta), 0) AS total_vendedor
+                    SELECT COALESCE(SUM(fv.venta_neta), 0) AS total_vendedor,
+                           COALESCE(SUM(fv.cantidad), 0)   AS cantidad_vendedor
                     FROM dw.fact_ventas fv
                     JOIN dw.dim_fecha    df ON fv.fecha_sk    = df.fecha_sk
                     JOIN dw.dim_vendedor dv ON fv.vendedor_sk = dv.vendedor_sk
@@ -759,11 +762,55 @@ def dashboard_nacional_kpis(request):
                 """
                 _, tv_rows = _run_dw_query(sql_total_vend,
                     [anho, mes] + canal_param + vend_param + prod_params)
-                data['total_vendedor'] = float(tv_rows[0].get('total_vendedor', 0) or 0) if tv_rows else 0
+                data['total_vendedor']    = float(tv_rows[0].get('total_vendedor', 0)    or 0) if tv_rows else 0
+                data['cantidad_vendedor'] = float(tv_rows[0].get('cantidad_vendedor', 0) or 0) if tv_rows else 0
             except Exception:
-                data['total_vendedor'] = None
+                data['total_vendedor']    = None
+                data['cantidad_vendedor'] = None
         else:
-            data['total_vendedor'] = None
+            data['total_vendedor']    = None
+            data['cantidad_vendedor'] = None
+
+        # Ventas por ruta (para donut de participación)
+        # Join: dim_planificacion.ruta → dim_cliente_dual → dim_cliente → fact_ventas.cliente_sk
+        if vendedor:
+            try:
+                sql_rutas_breakdown = f"""
+                    WITH ruta_map AS (
+                        SELECT DISTINCT ON (dck.cliente_sk) dck.cliente_sk, dp.ruta
+                        FROM dual.dim_planificacion dp
+                        JOIN dual.dim_cliente_dual dc
+                            ON  dc.ruta      = dp.ruta AND dc.es_actual = true
+                        JOIN dw.dim_cliente dck
+                            ON  dck.cliente_codigo_erp = dc.codigo_cliente
+                            AND dck.es_cliente_actual  = true
+                        WHERE dp.es_actual = true
+                        ORDER BY dck.cliente_sk
+                    )
+                    SELECT
+                        COALESCE(rm.ruta, 'Sin Ruta') AS ruta,
+                        COALESCE(SUM(fv.venta_neta), 0)   AS venta_neta
+                    FROM dw.fact_ventas fv
+                    JOIN dw.dim_fecha    df ON fv.fecha_sk    = df.fecha_sk
+                    JOIN dw.dim_vendedor dv ON fv.vendedor_sk = dv.vendedor_sk
+                    LEFT JOIN ruta_map rm ON rm.cliente_sk = fv.cliente_sk
+                    {prod_join}
+                    WHERE df.anho = %s AND df.mes_numero = %s
+                      {canal_cond} {vend_cond} {prod_cond}
+                    GROUP BY COALESCE(rm.ruta, 'Sin Ruta')
+                    ORDER BY venta_neta DESC
+                """
+                _, ruta_rows = _run_dw_query(sql_rutas_breakdown,
+                    [anho, mes] + canal_param + vend_param + prod_params)
+                data['ventas_por_ruta'] = [
+                    {'ruta': r['ruta'], 'venta_neta': float(r['venta_neta'] or 0)}
+                    for r in ruta_rows
+                ]
+            except Exception:
+                logger.exception("Error al cargar ventas por ruta")
+                data['ventas_por_ruta'] = []
+        else:
+            data['ventas_por_ruta'] = []
 
         # Ventas del mes anterior (para crecimiento MoM)
         prev_mes  = mes - 1 if mes > 1 else 12
@@ -7215,11 +7262,27 @@ def dashboard_tendencia_estacional(request):
         canal        = _safe_str(request.GET.get('canal',      'Todos'), 20)
         supervisor   = _safe_str(request.GET.get('supervisor', ''),      100)
 
-    joins = """
+    categorias  = [s for s in request.GET.getlist('categoria') if s]
+    proveedores = [s for s in request.GET.getlist('proveedor') if s]
+    subgrupos   = [s for s in request.GET.getlist('subgrupo')  if s]
+    marcas      = [s for s in request.GET.getlist('marca')     if s]
+    productos   = [s for s in request.GET.getlist('producto')  if s]
+    cat_cond,  cat_params  = _multi_cat_cond(categorias)
+    prov_cond, prov_params = _multi_prov_cond(proveedores)
+    sub_cond,  sub_params  = _multi_sub_cond(subgrupos)
+    marc_cond, marc_params = _multi_marc_cond(marcas)
+    nom_cond,  nom_params  = _multi_prod_cond(productos)
+    prod_cond   = f"{cat_cond} {prov_cond} {sub_cond} {marc_cond} {nom_cond}".strip()
+    prod_params = cat_params + prov_params + sub_params + marc_params + nom_params
+    has_prod    = bool(prod_cond)
+
+    prod_join = "JOIN dw.dim_producto dp ON dp.producto_sk = fv.producto_sk" if has_prod else \
+                "LEFT JOIN dw.dim_producto dp ON dp.producto_sk = fv.producto_sk"
+    joins = f"""
         FROM dw.fact_ventas fv
         JOIN dw.dim_fecha        df ON df.fecha_sk    = fv.fecha_sk
         JOIN dw.dim_vendedor     dv ON dv.vendedor_sk = fv.vendedor_sk
-        LEFT JOIN dw.dim_producto dp ON dp.producto_sk = fv.producto_sk
+        {prod_join}
     """
 
     ciudad_cond = _regional_filter(regional)
@@ -7232,6 +7295,9 @@ def dashboard_tendencia_estacional(request):
         extra_conds.append("UPPER(dv.supervisor) = UPPER(%s)")
         extra_params.append(supervisor)
     extra_where = " AND " + " AND ".join(extra_conds)
+    if prod_cond:
+        extra_where += f" {prod_cond}"
+        extra_params.extend(prod_params)
 
     # Helper: ejecuta queries de desglose por categoría y canal para un WHERE+params dado
     def _desgloses(where_conds, params_base):
@@ -7323,6 +7389,34 @@ def dashboard_tendencia_estacional(request):
             """
             _, rows = _run_dw_query(sql, u6_params)
             cat_rows, canal_rows = _desgloses(where_str, u6_params)
+
+            # Presupuesto por mes para enriquecer el gráfico evolutivo
+            ppto_prod_join = "JOIN dw.dim_producto dp ON fp.producto_sk = dp.producto_sk" if has_prod else ""
+            canal_cond_p   = "AND dv.canal_rrhh = %s" if (canal and canal != 'Todos') else ""
+            canal_param_p  = [canal] if (canal and canal != 'Todos') else []
+            sql_ppto = f"""
+                SELECT fp.anho, fp.mes,
+                       COALESCE(SUM(fp.venta_neta_presupuestada), 0) AS presupuesto
+                FROM dw.fact_presupuesto fp
+                JOIN dw.dim_vendedor dv ON fp.vendedor_sk = dv.vendedor_sk
+                {ppto_prod_join}
+                WHERE (fp.anho * 100 + fp.mes) BETWEEN %s AND %s
+                  AND ({ciudad_cond})
+                  {canal_cond_p}
+                  {prod_cond}
+                  AND fp.version_sk = (
+                      SELECT MAX(vpv.version_sk)
+                      FROM dw.dim_presupuesto_version vpv
+                      WHERE vpv.anho = fp.anho AND vpv.mes = fp.mes
+                  )
+                GROUP BY fp.anho, fp.mes
+                ORDER BY fp.anho, fp.mes
+            """
+            ppto_params = [start_y * 100 + start_m, anho * 100 + mes] + canal_param_p + prod_params
+            _, ppto_rows = _run_dw_query(sql_ppto, ppto_params)
+            ppto_map = {(int(r['anho']), int(r['mes'])): float(r['presupuesto']) for r in ppto_rows}
+            for r in rows:
+                r['presupuesto'] = ppto_map.get((int(r['anho']), int(r['mes_numero'])), 0.0)
 
             return JsonResponse({
                 'success':        True,

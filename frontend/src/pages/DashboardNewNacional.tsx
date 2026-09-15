@@ -2,6 +2,7 @@ import {
   useEffect, useState, useCallback, useMemo, useRef,
   type ChangeEvent,
 } from "react";
+import { createPortal } from "react-dom";
 import {
   TrendingUp, RefreshCw, AlertCircle, FlaskConical,
   ChevronDown, Search, ArrowUp, ArrowDown, Pin, PinOff,
@@ -162,9 +163,10 @@ function MultiSelect({ label, value, options, onChange, placeholder = "Todos", s
   const [open,   setOpen]   = useState(false);
   const [search, setSearch] = useState("");
   const [pos,    setPos]    = useState({ top: 0, left: 0, width: 0 });
-  const ref     = useRef<HTMLDivElement>(null);
-  const btnRef  = useRef<HTMLButtonElement>(null);
-  const inputRef = useRef<HTMLInputElement>(null);
+  const ref        = useRef<HTMLDivElement>(null);
+  const dropRef    = useRef<HTMLDivElement>(null);
+  const btnRef     = useRef<HTMLButtonElement>(null);
+  const inputRef   = useRef<HTMLInputElement>(null);
 
   const recalcPos = () => {
     const r = btnRef.current?.getBoundingClientRect();
@@ -176,7 +178,9 @@ function MultiSelect({ label, value, options, onChange, placeholder = "Todos", s
     recalcPos();
     if (searchable) setTimeout(() => inputRef.current?.focus(), 50);
     function onMouseDown(e: MouseEvent) {
-      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
+      const t = e.target as Node;
+      if (ref.current?.contains(t) || dropRef.current?.contains(t)) return;
+      setOpen(false);
     }
     function onScroll() { recalcPos(); }
     document.addEventListener("mousedown", onMouseDown);
@@ -222,8 +226,9 @@ function MultiSelect({ label, value, options, onChange, placeholder = "Todos", s
         }
       </button>
 
-      {open && options.length > 0 && (
+      {open && options.length > 0 && createPortal(
         <div
+          ref={dropRef}
           style={{ position: "fixed", top: pos.top, left: pos.left, minWidth: pos.width, zIndex: 9999 }}
           className="w-max max-w-72 bg-white border border-slate-200 rounded-xl shadow-xl overflow-hidden flex flex-col">
           {searchable && (
@@ -271,7 +276,8 @@ function MultiSelect({ label, value, options, onChange, placeholder = "Todos", s
               ))
             )}
           </div>
-        </div>
+        </div>,
+        document.body
       )}
     </div>
   );
@@ -287,6 +293,7 @@ function SingleSelect({ label, value, options, onChange, placeholder = "Todos", 
   const [search, setSearch] = useState("");
   const [pos,    setPos]    = useState({ top: 0, left: 0, width: 0 });
   const ref      = useRef<HTMLDivElement>(null);
+  const dropRef  = useRef<HTMLDivElement>(null);
   const btnRef   = useRef<HTMLButtonElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
 
@@ -300,7 +307,9 @@ function SingleSelect({ label, value, options, onChange, placeholder = "Todos", 
     recalcPos();
     if (searchable) setTimeout(() => inputRef.current?.focus(), 50);
     function onMouseDown(e: MouseEvent) {
-      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
+      const t = e.target as Node;
+      if (ref.current?.contains(t) || dropRef.current?.contains(t)) return;
+      setOpen(false);
     }
     function onScroll() { recalcPos(); }
     document.addEventListener("mousedown", onMouseDown);
@@ -339,8 +348,9 @@ function SingleSelect({ label, value, options, onChange, placeholder = "Todos", 
         }
       </button>
 
-      {open && (
+      {open && createPortal(
         <div
+          ref={dropRef}
           style={{ position: "fixed", top: pos.top, left: pos.left, minWidth: pos.width, zIndex: 9999 }}
           className="w-max max-w-72 bg-white border border-slate-200 rounded-xl shadow-xl overflow-hidden flex flex-col">
           {searchable && (
@@ -381,13 +391,14 @@ function SingleSelect({ label, value, options, onChange, placeholder = "Todos", 
               ))
             }
           </div>
-        </div>
+        </div>,
+        document.body
       )}
     </div>
   );
 }
 
-interface EvoRow { _key: string; valor: number; lineHistorica: number | null; lineProyectada: number | null; esMesActual: boolean; valorProyectado?: number }
+interface EvoRow { _key: string; valor: number; lineHistorica: number | null; lineProyectada: number | null; esMesActual: boolean; valorProyectado?: number; presupuesto: number; pctCumpl: number | null }
 
 // ─── Regional Card ────────────────────────────────────────────────────────────
 
@@ -646,32 +657,38 @@ export default function DashboardNewNacional() {
       : selectedRegional === "santa_cruz" ? "santa_cruz"
       : selectedRegional === "cochabamba" ? "cochabamba" : "la_paz";
     const qs = new URLSearchParams({ regional: regionalKey, canal: canal || "Todos", anho: String(anho), mes: String(mes), modo: "ultimos6", dia_corte: "0" });
-    apiFetchRef.current<{ success: boolean; data: { anho: number; mes_numero: number; total: number; cantidad: number }[] }>(
+    fCats.forEach(v => qs.append("categoria", v));
+    fProvs.forEach(v => qs.append("proveedor", v));
+    fSubs.forEach(v => qs.append("subgrupo", v));
+    fMarcs.forEach(v => qs.append("marca", v));
+    fProductos.forEach(v => qs.append("producto", v));
+    apiFetchRef.current<{ success: boolean; data: { anho: number; mes_numero: number; total: number; cantidad: number; presupuesto?: number }[] }>(
       `/dashboard/tendencia-estacional/?${qs}`
     ).then(j => {
       if (!j.success || !j.data?.length) { setEvoData([]); return; }
       const rows = j.data;
       const MESES_SHORT = ["","Ene","Feb","Mar","Abr","May","Jun","Jul","Ago","Sep","Oct","Nov","Dic"];
-      // Proyección del mes actual: regresión sobre los últimos 3 meses completos
-      const base   = rows.slice(0, -1); // meses completos (sin el mes actual)
-      const recent = base.slice(-3);    // últimos 3 meses completos
-      // Proyección = promedio simple de los 3 últimos meses completos
+      const base   = rows.slice(0, -1);
+      const recent = base.slice(-3);
       const valorProyectado = Math.round(recent.reduce((s, r) => s + r.total, 0) / recent.length);
       setEvoData(rows.map((r, i) => {
         const isCurrent = i === rows.length - 1;
-        const isBridge  = i === rows.length - 2; // último mes completo — punto de partida de la proyección
+        const isBridge  = i === rows.length - 2;
+        const ppto = r.presupuesto ?? 0;
         return {
           _key:            `${MESES_SHORT[r.mes_numero]} ${r.anho}`,
           valor:           r.total,
-          lineHistorica:   !isCurrent ? r.total : null,        // línea sólida: meses 1-5
-          lineProyectada:  isBridge ? r.total : (isCurrent ? valorProyectado : null), // punteada: mes5→mes6
+          lineHistorica:   !isCurrent ? r.total : null,
+          lineProyectada:  isBridge ? r.total : (isCurrent ? valorProyectado : null),
           esMesActual:     isCurrent,
           valorProyectado: isCurrent ? valorProyectado : undefined,
+          presupuesto:     ppto,
+          pctCumpl:        ppto > 0 ? Math.round(r.total / ppto * 100) : null,
         };
       }));
     }).catch(() => setEvoData([]))
       .finally(() => setLoadingEvo(false));
-  }, [tendenciaMode, selectedRegional, canal, anho, mes]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [tendenciaMode, selectedRegional, canal, anho, mes, fCats, fProvs, fSubs, fMarcs, fProductos]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // ── Canales ───────────────────────────────────────────────────────────────────
   const fetchCanales = useCallback(async () => {
@@ -1128,7 +1145,7 @@ export default function DashboardNewNacional() {
                     <p className="text-[11px] font-semibold text-slate-500 mb-1 self-start">
                       Impacto al presupuesto por canal · {REGIONALES.find(r => r.key === selectedRegional)?.label}
                     </p>
-                    <div className="relative w-full" style={{ height: 190 }}>
+                    <div className="relative w-full" style={{ height: 230 }}>
                       <ResponsiveContainer width="100%" height="100%">
                         <PieChart>
                           <Pie
@@ -1136,9 +1153,30 @@ export default function DashboardNewNacional() {
                             cx="50%"
                             cy="50%"
                             innerRadius={52}
-                            outerRadius={80}
+                            outerRadius={78}
                             dataKey="value"
                             paddingAngle={2}
+                            label={(props: any) => { // eslint-disable-line @typescript-eslint/no-explicit-any
+                              const { cx, cy, midAngle, outerRadius: or, name, impactoPpto } = props as { cx: number; cy: number; midAngle: number; outerRadius: number; name: string; impactoPpto: number };
+                              if (impactoPpto < 5) return null;
+                              const R = Math.PI / 180;
+                              const x1 = cx + (or + 4) * Math.cos(-midAngle * R);
+                              const y1 = cy + (or + 4) * Math.sin(-midAngle * R);
+                              const x  = cx + (or + 26) * Math.cos(-midAngle * R);
+                              const y  = cy + (or + 26) * Math.sin(-midAngle * R);
+                              const anchor = x > cx ? "start" : "end";
+                              return (
+                                <g>
+                                  <line x1={x1} y1={y1} x2={x} y2={y} stroke="#cbd5e1" strokeWidth={1} />
+                                  <text x={x} y={y} textAnchor={anchor} dominantBaseline="central" fontSize={9} fontWeight={700} fill="#475569">
+                                    <tspan x={x} dy="-5">{name}</tspan>
+                                    <tspan x={x} dy="12" fill="#3b82f6">{impactoPpto.toFixed(0)}%</tspan>
+                                  </text>
+                                </g>
+                              );
+                            }}
+                            labelLine={false}
+
                           >
                             {pieData.map((_, i) => (
                               <Cell key={i} fill={CANAL_COLORS[i % CANAL_COLORS.length]} />
@@ -1182,6 +1220,17 @@ export default function DashboardNewNacional() {
                         </div>
                       </div>
                     </div>
+                    {/* Canales pequeños (<5%) que no caben como etiqueta inline */}
+                    {pieData.some(d => d.impactoPpto < 5) && (
+                      <div className="flex flex-wrap gap-x-3 gap-y-1 mt-2 px-1">
+                        {pieData.map((d, i) => d.impactoPpto < 5 ? (
+                          <span key={d.name} className="flex items-center gap-1 text-[9px] text-slate-500">
+                            <span className="w-2 h-2 rounded-full shrink-0" style={{ background: CANAL_COLORS[i % CANAL_COLORS.length] }} />
+                            {d.name} <span className="text-blue-500 font-semibold">{d.impactoPpto.toFixed(0)}%</span>
+                          </span>
+                        ) : null)}
+                      </div>
+                    )}
                   </div>
 
                 </div>
@@ -1874,10 +1923,30 @@ export default function DashboardNewNacional() {
               </div>
             ) : (
               <>
-                <ResponsiveContainer width="100%" height={220}>
+                <ResponsiveContainer width="100%" height={240}>
                   <ComposedChart data={evoData} margin={{ top: 4, right: 12, left: 0, bottom: 4 }} barCategoryGap="30%">
                     <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" />
-                    <XAxis dataKey="_key" tick={{ fontSize: 11, fontWeight: 600 }} />
+                    <XAxis
+                      dataKey="_key"
+                      height={60}
+                      tick={(props: any) => { const { x, y, payload } = props as { x: number; y: number; payload: { value: string } }; // eslint-disable-line @typescript-eslint/no-explicit-any
+                        const row = evoData.find(d => d._key === payload.value);
+                        const pct = row?.pctCumpl ?? null;
+                        const ppto = row?.presupuesto ?? 0;
+                        const pctColor = pct == null ? "#94a3b8" : pct >= 100 ? "#10b981" : pct >= 80 ? "#f59e0b" : "#ef4444";
+                        return (
+                          <g transform={`translate(${x},${y})`}>
+                            <text x={0} y={0} dy={12} textAnchor="middle" fontSize={11} fontWeight={600} fill="#475569">{payload.value}</text>
+                            {pct != null && (
+                              <text x={0} y={0} dy={25} textAnchor="middle" fontSize={9} fontWeight={700} fill={pctColor}>{pct}%</text>
+                            )}
+                            {ppto > 0 && (
+                              <text x={0} y={0} dy={37} textAnchor="middle" fontSize={8} fill="#94a3b8">{(ppto / 1_000_000).toFixed(1)}M Bs</text>
+                            )}
+                          </g>
+                        );
+                      }}
+                    />
                     <YAxis tick={{ fontSize: 11 }} tickFormatter={(v) => `${(v/1_000_000).toFixed(1)}M`} width={48} />
                     <Tooltip
                       content={({ active, payload, label }) => {
