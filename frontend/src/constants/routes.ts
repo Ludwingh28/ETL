@@ -31,6 +31,8 @@ export const PERM_TO_ROUTE: Record<string, string> = {
 
 const ADMIN_CARGOS = new Set(['Administrador de Sistema', 'Subadministrador de Sistemas'])
 
+const PROVEEDOR_PERMS = new Set(['pepsico', 'softys', 'softys-nuevo', 'dmujer', 'apego', 'colher'])
+
 export function getFirstDashboardRoute(user: {
   is_staff?: boolean
   cargo?: string | null
@@ -38,6 +40,17 @@ export function getFirstDashboardRoute(user: {
 }): string {
   const isAdmin = user.is_staff || ADMIN_CARGOS.has(user.cargo ?? '')
   if (isAdmin) return '/dashboard/nacional'
+
   const perms = user.dashboard_permissions ?? []
+
+  // Proveedores: ignorar permisos genéricos, ir directo al dashboard del proveedor asignado
+  if (user.cargo === 'Proveedor') {
+    const route = perms
+      .filter(p => PROVEEDOR_PERMS.has(p))
+      .map(p => PERM_TO_ROUTE[p])
+      .find(Boolean)
+    if (route) return route
+  }
+
   return perms.map(p => PERM_TO_ROUTE[p]).find(Boolean) ?? '/dashboard/nacional'
 }
