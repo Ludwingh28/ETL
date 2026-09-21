@@ -5717,7 +5717,7 @@ def dashboard_new_nacional_clientes(request):
 @permission_classes([IsAuthenticated])
 @_require_perm('new-nacional', 'vendedores-personal')
 def dashboard_new_nacional_cliente_fechas(request):
-    """Clientes top-200 con ventas por fecha del mes. Returns flat rows {codigo, nombre, fecha, venta_neta, cantidad}."""
+    """Todos los clientes con ventas por fecha del mes. Returns flat rows {codigo, nombre, fecha, venta_neta, cantidad}."""
     try:
         regional    = request.GET.get('regional', 'nacional').lower().replace(' ', '_')
         canal       = _safe_str(request.GET.get('canal', ''))
@@ -5754,7 +5754,11 @@ def dashboard_new_nacional_cliente_fechas(request):
         sku_drill_param = [sku_drill] if sku_drill else []
         prod_join = "JOIN dw.dim_producto dp ON fv.producto_sk = dp.producto_sk" if (has_prod or sku_drill) else ""
 
-        base_params = [anho, mes] + canal_param + vend_param + ruta_params + filter_params + sku_drill_param
+        q_search   = _safe_str(request.GET.get('q', ''), 100)
+        q_cond     = "AND (dc.cliente_codigo_erp ILIKE %s OR UPPER(dc.cliente_nombre) ILIKE %s)" if q_search else ""
+        q_params   = [f'%{q_search}%', f'%{q_search.upper()}%'] if q_search else []
+
+        base_params = [anho, mes] + canal_param + vend_param + ruta_params + filter_params + sku_drill_param + q_params
 
         sql = f"""
             WITH top_cli AS (
@@ -5768,10 +5772,9 @@ def dashboard_new_nacional_cliente_fechas(request):
                   AND fv.es_anulado = FALSE AND fv.venta_neta > 0
                   AND ({ciudad_cond}) {canal_cond} {vend_cond} {ruta_cond}
                   AND dc.cliente_codigo_erp IS NOT NULL
-                  {filter_cond} {sku_drill_cond}
+                  {filter_cond} {sku_drill_cond} {q_cond}
                 GROUP BY dc.cliente_codigo_erp
                 ORDER BY SUM(fv.venta_neta) DESC
-                LIMIT 200
             )
             SELECT
                 dc.cliente_codigo_erp                              AS codigo,
@@ -5792,7 +5795,7 @@ def dashboard_new_nacional_cliente_fechas(request):
             GROUP BY dc.cliente_codigo_erp, dc.cliente_nombre, df.fecha_completa
             ORDER BY dc.cliente_nombre, df.fecha_completa
         """
-        _, rows = _run_dw_query(sql, base_params + base_params)
+        _, rows = _run_dw_query(sql, base_params + [anho, mes] + canal_param + vend_param + ruta_params + filter_params + sku_drill_param)
 
         result = [
             {

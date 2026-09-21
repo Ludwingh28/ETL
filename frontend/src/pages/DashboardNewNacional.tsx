@@ -578,6 +578,7 @@ export default function DashboardNewNacional() {
   const [clientesFlat,     setClientesFlat]     = useState<ClienteFechaFlat[]>([]);
   const [loadingCliFechas, setLoadingCliFechas] = useState(false);
   const [cliSearch,        setCliSearch]        = useState("");
+  const [cliSearchDebounced, setCliSearchDebounced] = useState("");
   const [cliViewUds,       setCliViewUds]       = useState(false); // false = Bs, true = Uds
   const [cliSortAsc,       setCliSortAsc]       = useState(false); // false = mayor a menor
   const [selectedCli,      setSelectedCli]      = useState<{ codigo: string; nombre: string } | null>(null);
@@ -845,16 +846,44 @@ export default function DashboardNewNacional() {
     try {
       const qs        = buildDrillQS(selectedRegional, canal, anho, mes, fCats, fProvs, fSubs, fMarcs, fProductos, compDrill);
       const vendParam = selectedVend ? `&vendedor=${encodeURIComponent(selectedVend)}` : "";
+      const qParam    = cliSearchDebounced.trim() ? `&q=${encodeURIComponent(cliSearchDebounced.trim())}` : "";
       const j = await apiFetchRef.current<{ success: boolean; data: ClienteFechaFlat[] }>(
-        `/dashboard/new-nacional/cliente-fechas/?${qs}${skuDrillParam}${vendParam}`
+        `/dashboard/new-nacional/cliente-fechas/?${qs}${skuDrillParam}${vendParam}${qParam}`
       );
       if (j.success) setClientesFlat(j.data); else setClientesFlat([]);
     } catch { setClientesFlat([]); }
     finally { setLoadingCliFechas(false); }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selectedRegional, canal, fCats, fProvs, fSubs, fMarcs, fProductos, compDrill, skuDrillParam, selectedVend, anho, mes]);
+  }, [selectedRegional, canal, fCats, fProvs, fSubs, fMarcs, fProductos, compDrill, skuDrillParam, selectedVend, anho, mes, cliSearchDebounced]);
 
   useEffect(() => { void fetchClientesFechas(); }, [fetchClientesFechas]);
+
+  useEffect(() => {
+    const t = setTimeout(() => setCliSearchDebounced(cliSearch), 500);
+    return () => clearTimeout(t);
+  }, [cliSearch]);
+
+  // Construye el mapa de clientes UNA VEZ cuando cambian los datos crudos
+  const { clienteMap: cliMap, fechas: cliFechas } = useMemo(() => {
+    const clienteMap = new Map<string, { nombre: string; fechas: Map<string, { venta_neta: number; cantidad: number }> }>();
+    const fechasSet  = new Set<string>();
+    for (const row of clientesFlat) {
+      if (!clienteMap.has(row.codigo)) clienteMap.set(row.codigo, { nombre: row.nombre, fechas: new Map() });
+      fechasSet.add(row.fecha);
+      clienteMap.get(row.codigo)!.fechas.set(row.fecha, { venta_neta: row.venta_neta, cantidad: row.cantidad });
+    }
+    return { clienteMap, fechas: Array.from(fechasSet).sort() };
+  }, [clientesFlat]);
+
+  // Solo ordena — el filtro de texto lo hace el backend
+  const cliFiltrados = useMemo(() => {
+    return Array.from(cliMap.entries())
+      .sort((a, b) => {
+        const totA = Array.from(a[1].fechas.values()).reduce((s, v) => s + (cliViewUds ? v.cantidad : v.venta_neta), 0);
+        const totB = Array.from(b[1].fechas.values()).reduce((s, v) => s + (cliViewUds ? v.cantidad : v.venta_neta), 0);
+        return cliSortAsc ? totA - totB : totB - totA;
+      });
+  }, [cliMap, cliViewUds, cliSortAsc]);
 
   useEffect(() => {
     if (!selectedCli) { setCliSkus([]); setCliSkuSearch(""); return; }
@@ -1677,31 +1706,15 @@ export default function DashboardNewNacional() {
           ) : clientesFlat.length === 0 ? (
             <div className="h-40 flex items-center justify-center text-slate-400 text-sm">Sin datos</div>
           ) : (() => {
-            const clienteMap = new Map<string, { nombre: string; fechas: Map<string, { venta_neta: number; cantidad: number }> }>();
-            const fechasSet = new Set<string>();
-            for (const row of clientesFlat) {
-              if (!clienteMap.has(row.codigo)) clienteMap.set(row.codigo, { nombre: row.nombre, fechas: new Map() });
-              fechasSet.add(row.fecha);
-              clienteMap.get(row.codigo)!.fechas.set(row.fecha, { venta_neta: row.venta_neta, cantidad: row.cantidad });
-            }
-            const fechas = Array.from(fechasSet).sort();
-            const q = cliSearch.trim().toLowerCase();
-            const clientes = Array.from(clienteMap.entries())
-              .filter(([, { nombre }]) => !q || nombre.toLowerCase().includes(q))
-              .sort((a, b) => {
-                const totA = Array.from(a[1].fechas.values()).reduce((s, v) => s + (cliViewUds ? v.cantidad : v.venta_neta), 0);
-                const totB = Array.from(b[1].fechas.values()).reduce((s, v) => s + (cliViewUds ? v.cantidad : v.venta_neta), 0);
-                return cliSortAsc ? totA - totB : totB - totA;
-              });
             return (
               <div className="overflow-x-auto overflow-y-auto" style={{ maxHeight: 420 }}>
-                <table className="text-xs border-collapse" style={{ minWidth: `${Math.max(400, fechas.length * 76 + 260)}px` }}>
+                <table className="text-xs border-collapse" style={{ minWidth: `${Math.max(400, cliFechas.length * 76 + 260)}px` }}>
                   <thead className="sticky top-0 z-20">
                     <tr>
                       <th className="sticky left-0 z-30 bg-white text-left py-2 pr-4 font-semibold text-slate-600 shadow-[1px_0_0_0_#f1f5f9] min-w-56 border-b border-slate-100">
                         Cliente
                       </th>
-                      {fechas.map(f => (
+                      {cliFechas.map(f => (
                         <th key={f} className="bg-white py-2 px-2 font-semibold text-center text-slate-400 min-w-18 border-b border-slate-100 whitespace-nowrap">
                           {f.slice(8,10)}/{f.slice(5,7)}
                         </th>
@@ -1712,7 +1725,7 @@ export default function DashboardNewNacional() {
                     </tr>
                   </thead>
                   <tbody>
-                    {clientes.map(([codigo, { nombre, fechas: fechaMap }]) => {
+                    {cliFiltrados.map(([codigo, { nombre, fechas: fechaMap }]) => {
                       const totalMes     = Array.from(fechaMap.values()).reduce((s, v) => s + (cliViewUds ? v.cantidad : v.venta_neta), 0);
                       const isSelCliente = selectedCli?.codigo === codigo;
                       return (
@@ -1735,7 +1748,7 @@ export default function DashboardNewNacional() {
                               <span className={`font-semibold leading-snug text-[11px] ${isSelCliente ? "text-brand-700" : "text-slate-700"}`}>{nombre}</span>
                             </div>
                           </td>
-                          {fechas.map(f => {
+                          {cliFechas.map(f => {
                             const v         = fechaMap.get(f);
                             const isSelCell = isSelCliente && selectedCliFecha === f;
                             return (
@@ -1772,8 +1785,8 @@ export default function DashboardNewNacional() {
                       <td className="sticky left-0 z-30 py-2 pr-4 font-bold text-slate-700 bg-slate-50 shadow-[1px_0_0_0_#e2e8f0]">
                         Total
                       </td>
-                      {fechas.map(f => {
-                        const colTotal = clientes.reduce((s, [, { fechas: fm }]) => s + (cliViewUds ? (fm.get(f)?.cantidad ?? 0) : (fm.get(f)?.venta_neta ?? 0)), 0);
+                      {cliFechas.map(f => {
+                        const colTotal = cliFiltrados.reduce((s, [, { fechas: fm }]) => s + (cliViewUds ? (fm.get(f)?.cantidad ?? 0) : (fm.get(f)?.venta_neta ?? 0)), 0);
                         return (
                           <td key={f} className="py-2 px-2 text-center tabular-nums font-bold text-slate-700 bg-slate-50 text-[11px]">
                             {colTotal > 0 ? fmtN(colTotal) : "—"}
@@ -1781,7 +1794,7 @@ export default function DashboardNewNacional() {
                         );
                       })}
                       <td className="sticky right-0 z-30 py-2 pl-3 pr-3 text-right tabular-nums font-bold text-brand-700 bg-slate-50 shadow-[-1px_0_0_0_#e2e8f0]">
-                        {fmtN(clientes.reduce((s, [, { fechas: fm }]) => s + Array.from(fm.values()).reduce((ss, v) => ss + (cliViewUds ? v.cantidad : v.venta_neta), 0), 0))}
+                        {fmtN(cliFiltrados.reduce((s, [, { fechas: fm }]) => s + Array.from(fm.values()).reduce((ss, v) => ss + (cliViewUds ? v.cantidad : v.venta_neta), 0), 0))}
                       </td>
                     </tr>
                   </tfoot>
