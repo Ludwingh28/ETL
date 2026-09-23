@@ -103,7 +103,7 @@ _PERMISOS_POR_CARGO: dict[str, list[str]] = {
                            'avances-ventas', 'unidades-vendidas', 'unidades-supervisores',
                            'informacion-rutas', 'tendencia-estacional', 'ticket-promedio',
                            'ficha-sku', 'margen-bruto', 'matriz', 'descargas', 'lista-precios',
-                           'pepsico', 'softys', 'dmujer', 'apego', 'colher'],
+                           'pepsico', 'softys-nuevo', 'dmujer', 'apego', 'colher'],
     'Gerente de Ventas':  ['nacional', 'regionales', 'canales', 'supervisores', 'unidades-vendidas',
                            'unidades-supervisores', 'informacion-rutas', 'tendencia-estacional',
                            'ticket-promedio', 'ficha-sku', 'margen-bruto', 'lista-precios'],
@@ -113,7 +113,7 @@ _PERMISOS_POR_CARGO: dict[str, list[str]] = {
     'Supervisor':         ['canales', 'supervisores', 'preventas-realizadas', 'avances-ventas',
                            'unidades-supervisores', 'informacion-rutas'],
     'Vendedor':           ['preventas-realizadas', 'avances-ventas', 'lista-precios'],
-    'Proveedor':          ['lista-precios', 'pepsico', 'softys', 'dmujer', 'apego', 'colher'],
+    'Proveedor':          ['lista-precios', 'pepsico', 'softys-nuevo', 'dmujer', 'apego', 'colher'],
     'Analista de Datos':  ['nacional', 'regionales', 'canales', 'supervisores', 'preventas-realizadas',
                            'avances-ventas', 'unidades-vendidas', 'unidades-supervisores',
                            'informacion-rutas', 'tendencia-estacional', 'ticket-promedio',
@@ -720,12 +720,12 @@ def dashboard_nacional_kpis(request):
                     phs_r = ", ".join(["%s"] * len(rutas))
                     sql_cartera = f"""
                         SELECT COUNT(DISTINCT dc.codigo_cliente) AS cartera
-                        FROM dual.dim_planificacion dp
+                        FROM dual.fact_planificacion dp
                         JOIN dw.dim_vendedor dv
                             ON  dv.vendedor_codigo_erp = SPLIT_PART(dp.codigo_erp, '.', 1)
                             AND dv.es_vendedor_actual  = true
-                        LEFT JOIN dual.dim_cliente_dual dc
-                            ON  dc.ruta = dp.ruta AND dc.es_actual = true
+                        LEFT JOIN dual.dim_clientes dc
+                            ON  dc.ruta = dp.ruta
                         WHERE dp.es_actual = true
                           AND dv.vendedor_nombre = %s
                           AND dp.ruta IN ({phs_r})
@@ -735,12 +735,12 @@ def dashboard_nacional_kpis(request):
                     # Sin ruta: todos los clientes asignados al vendedor en planificación actual
                     sql_cartera = """
                         SELECT COUNT(DISTINCT dc.codigo_cliente) AS cartera
-                        FROM dual.dim_planificacion dp
+                        FROM dual.fact_planificacion dp
                         JOIN dw.dim_vendedor dv
                             ON  dv.vendedor_codigo_erp = SPLIT_PART(dp.codigo_erp, '.', 1)
                             AND dv.es_vendedor_actual  = true
-                        LEFT JOIN dual.dim_cliente_dual dc
-                            ON  dc.ruta = dp.ruta AND dc.es_actual = true
+                        LEFT JOIN dual.dim_clientes dc
+                            ON  dc.ruta = dp.ruta
                         WHERE dp.es_actual = true
                           AND dv.vendedor_nombre = %s
                     """
@@ -783,9 +783,9 @@ def dashboard_nacional_kpis(request):
                 sql_rutas_breakdown = f"""
                     WITH ruta_map AS (
                         SELECT DISTINCT ON (dck.cliente_sk) dck.cliente_sk, dp.ruta
-                        FROM dual.dim_planificacion dp
-                        JOIN dual.dim_cliente_dual dc
-                            ON  dc.ruta      = dp.ruta AND dc.es_actual = true
+                        FROM dual.fact_planificacion dp
+                        JOIN dual.dim_clientes dc
+                            ON  dc.ruta      = dp.ruta
                         JOIN dw.dim_cliente dck
                             ON  dck.cliente_codigo_erp = dc.codigo_cliente
                             AND dck.es_cliente_actual  = true
@@ -2435,8 +2435,8 @@ def dashboard_softys_canales_kpis(request):
         try:
             sql_universo = f"""
                 SELECT cd.canal, COUNT(DISTINCT cd.id_cliente) AS universo
-                FROM dual.dim_cliente_dual cd
-                WHERE cd.es_actual = true
+                FROM dual.dim_clientes cd
+                WHERE 1=1
                   AND ({ruta_cond})
                   {canal_dual}
                 GROUP BY cd.canal
@@ -4184,8 +4184,7 @@ def dashboard_preventas_por_vendedor(request):
         sql = f"""
             WITH ruta_clientes AS (
                 SELECT ruta, COUNT(*) AS total_clientes
-                FROM dual.dim_cliente_dual
-                WHERE es_actual = true
+                FROM dual.dim_clientes
                 GROUP BY ruta
             ),
             vendedor_rutas AS (
@@ -4432,9 +4431,9 @@ def _multi_ruta_cond(rutas):
     phs = ", ".join(["%s"] * len(rutas))
     cond = f"""AND fv.cliente_sk IN (
         SELECT dck_r.cliente_sk
-        FROM dual.dim_planificacion dp_r
-        JOIN dual.dim_cliente_dual  dc_r
-            ON  dc_r.ruta      = dp_r.ruta AND dc_r.es_actual = true
+        FROM dual.fact_planificacion dp_r
+        JOIN dual.dim_clientes  dc_r
+            ON  dc_r.ruta      = dp_r.ruta
         JOIN dw.dim_cliente        dck_r
             ON  dck_r.cliente_codigo_erp = dc_r.codigo_cliente
             AND dck_r.es_cliente_actual  = true
@@ -4880,12 +4879,12 @@ def dashboard_new_nacional_opciones(request):
                 sql_rutas = """
                     SELECT dp.ruta AS ruta,
                            COUNT(DISTINCT dc.codigo_cliente) AS num_clientes
-                    FROM dual.dim_planificacion dp
+                    FROM dual.fact_planificacion dp
                     JOIN dw.dim_vendedor dv
                         ON  dv.vendedor_codigo_erp = SPLIT_PART(dp.codigo_erp, '.', 1)
                         AND dv.es_vendedor_actual  = true
-                    LEFT JOIN dual.dim_cliente_dual dc
-                        ON  dc.ruta = dp.ruta AND dc.es_actual = true
+                    LEFT JOIN dual.dim_clientes dc
+                        ON  dc.ruta = dp.ruta
                     WHERE dp.es_actual = true
                       AND dv.vendedor_nombre = %s
                       AND dp.ruta IS NOT NULL AND dp.ruta <> ''
@@ -4911,7 +4910,7 @@ def dashboard_new_nacional_opciones(request):
         logger.exception("Error interno - opciones")
         try:
             _, can_rows = _run_dw_query("""
-                SELECT DISTINCT canal FROM dual.dim_cliente_dual
+                SELECT DISTINCT canal FROM dual.dim_clientes
                 WHERE canal IS NOT NULL AND canal <> ''
                 ORDER BY canal
             """, [])
@@ -6562,7 +6561,7 @@ def dashboard_informacion_rutas(request):
         _dc_parts         = ' OR '.join(p.replace('ruta LIKE', 'dc.ruta LIKE') for p in _ruta_prefijos)
         regional_cond     = f"AND ({_dc_parts})"
         sup_regional_cond = regional_cond
-        sup_dc_join       = "JOIN dual.dim_cliente_dual dc ON dc.ruta = dp.ruta AND dc.es_actual = true"
+        sup_dc_join       = "JOIN dual.dim_clientes dc ON dc.ruta = dp.ruta"
     else:
         # Fallback para regionales sin prefijo definido (ej: la_paz)
         ciudad_cond       = _regional_filter(regional)
@@ -6597,7 +6596,7 @@ def dashboard_informacion_rutas(request):
                 MAX(dp.vendedor)   AS vendedor,
                 MAX(dv.supervisor) AS supervisor,
                 (SELECT STRING_AGG(d2.dia, ', ' ORDER BY d2.dia)
-                 FROM (SELECT DISTINCT dia FROM dual.dim_planificacion
+                 FROM (SELECT DISTINCT dia FROM dual.fact_planificacion
                        WHERE ruta = dc.ruta AND es_actual = true) AS d2) AS dia,
                 COUNT(DISTINCT dc.id_cliente)                                          AS total_clientes,
                 COUNT(DISTINCT CASE WHEN vm.canal_rrhh = dv.canal_rrhh
@@ -6607,8 +6606,8 @@ def dashboard_informacion_rutas(request):
                                         THEN dck.cliente_sk END)::NUMERIC
                     / NULLIF(COUNT(DISTINCT dc.id_cliente), 0) * 100
                 , 1)                                                                   AS pct_cobertura
-            FROM dual.dim_cliente_dual dc
-            LEFT JOIN dual.dim_planificacion dp
+            FROM dual.dim_clientes dc
+            LEFT JOIN dual.fact_planificacion dp
                    ON dp.ruta = dc.ruta AND dp.es_actual = true
             LEFT JOIN dw.dim_vendedor dv
                    ON dv.vendedor_codigo_erp = SPLIT_PART(dp.codigo_erp, '.', 1)
@@ -6617,7 +6616,7 @@ def dashboard_informacion_rutas(request):
                    ON dck.cliente_codigo_erp = dc.codigo_cliente
                   AND dck.es_cliente_actual = true
             LEFT JOIN ventas_mes vm ON vm.cliente_sk = dck.cliente_sk
-            WHERE dc.es_actual = true
+            WHERE 1=1
               {regional_cond}
               {canal_cond}
               {dia_cond}
@@ -6632,7 +6631,7 @@ def dashboard_informacion_rutas(request):
         if canal and canal != 'Todos': params_sup.append(canal)
         sql_sup = f"""
             SELECT DISTINCT dv.supervisor
-            FROM dual.dim_planificacion dp
+            FROM dual.fact_planificacion dp
             JOIN dw.dim_vendedor dv
                    ON dv.vendedor_codigo_erp = SPLIT_PART(dp.codigo_erp, '.', 1)
                   AND dv.es_vendedor_actual = true
@@ -6684,9 +6683,8 @@ def dashboard_informacion_rutas_detalle(request):
             JOIN dw.dim_vendedor      dv  ON dv.vendedor_sk = fv.vendedor_sk
             JOIN dw.dim_producto      dp  ON dp.producto_sk = fv.producto_sk
             JOIN dw.dim_cliente       dck ON dck.cliente_sk = fv.cliente_sk
-            JOIN dual.dim_cliente_dual dcd
+            JOIN dual.dim_clientes dcd
                    ON dcd.codigo_cliente = dck.cliente_codigo_erp
-                  AND dcd.es_actual = true
             WHERE df.anho = %s AND df.mes_numero = %s
               AND dcd.ruta = %s
               {canal_cond}
@@ -6736,7 +6734,7 @@ def dashboard_informacion_rutas_clientes(request):
                 ventas.semana                                                       AS semana,
                 COALESCE(ventas.bs, 0)                                             AS bs,
                 COALESCE(ventas.pedidos, 0)                                        AS pedidos
-            FROM dual.dim_cliente_dual   dcd
+            FROM dual.dim_clientes   dcd
             JOIN dw.dim_cliente          dck ON dck.cliente_codigo_erp = dcd.codigo_cliente
                                             AND dck.es_cliente_actual = true
             LEFT JOIN (
@@ -6755,7 +6753,6 @@ def dashboard_informacion_rutas_clientes(request):
                 GROUP BY fv.cliente_sk, semana
             ) ventas                         ON ventas.cliente_sk = dck.cliente_sk
             WHERE dcd.ruta = %s
-              AND dcd.es_actual = true
             ORDER BY dck.cliente_nombre, ventas.semana NULLS LAST
         """
         _, rows = _run_dw_query(sql, params)
@@ -6801,8 +6798,7 @@ def dashboard_informacion_rutas_cliente_detalle(request):
             JOIN dw.dim_producto       dp  ON dp.producto_sk = fv.producto_sk
             JOIN dw.dim_cliente        dck ON dck.cliente_sk = fv.cliente_sk
                                           AND dck.es_cliente_actual = true
-            JOIN dual.dim_cliente_dual dcd ON dcd.codigo_cliente = dck.cliente_codigo_erp
-                                          AND dcd.es_actual = true
+            JOIN dual.dim_clientes dcd ON dcd.codigo_cliente = dck.cliente_codigo_erp
             WHERE df.anho = %s AND df.mes_numero = %s
               AND dcd.ruta = %s
               AND dck.cliente_codigo_erp = %s
@@ -6849,9 +6845,8 @@ def dashboard_informacion_rutas_categorias(request):
             JOIN dw.dim_vendedor      dv  ON dv.vendedor_sk = fv.vendedor_sk
             JOIN dw.dim_producto      dp  ON dp.producto_sk = fv.producto_sk
             JOIN dw.dim_cliente       dck ON dck.cliente_sk = fv.cliente_sk
-            JOIN dual.dim_cliente_dual dcd
+            JOIN dual.dim_clientes dcd
                    ON dcd.codigo_cliente = dck.cliente_codigo_erp
-                  AND dcd.es_actual = true
             WHERE df.anho = %s AND df.mes_numero = %s
               AND dcd.ruta = %s
               {canal_cond}
@@ -6907,8 +6902,8 @@ def dashboard_informacion_rutas_skus(request):
         sql = f"""
             WITH total_ruta AS (
                 SELECT COUNT(DISTINCT codigo_cliente) AS n
-                FROM dual.dim_cliente_dual
-                WHERE es_actual = true AND ruta = %s
+                FROM dual.dim_clientes
+                WHERE ruta = %s
             )
             SELECT
                 dp.producto_codigo_erp                                     AS codigo,
@@ -6926,9 +6921,8 @@ def dashboard_informacion_rutas_skus(request):
             JOIN dw.dim_vendedor      dv  ON dv.vendedor_sk = fv.vendedor_sk
             JOIN dw.dim_producto      dp  ON dp.producto_sk = fv.producto_sk
             JOIN dw.dim_cliente       dck ON dck.cliente_sk = fv.cliente_sk
-            JOIN dual.dim_cliente_dual dcd
+            JOIN dual.dim_clientes dcd
                    ON dcd.codigo_cliente = dck.cliente_codigo_erp
-                  AND dcd.es_actual = true
             WHERE df.anho = %s AND df.mes_numero = %s
               AND dcd.ruta = %s
               {canal_cond}
@@ -7044,9 +7038,8 @@ def dashboard_matriz_datos(request):
             JOIN dw.dim_producto       dp  ON dp.producto_sk   = fv.producto_sk
             LEFT JOIN dw.dim_cliente     dck ON dck.cliente_sk  = fv.cliente_sk
                                            AND dck.es_cliente_actual = true
-            LEFT JOIN dual.dim_cliente_dual dcd
+            LEFT JOIN dual.dim_clientes dcd
                                         ON dcd.codigo_cliente  = dck.cliente_codigo_erp
-                                       AND dcd.es_actual       = true
             WHERE df.anho = %s AND df.mes_numero = %s
               AND fv.es_anulado = FALSE AND fv.venta_neta > 0
               AND ({ciudad_cond})
@@ -7194,8 +7187,8 @@ def exportar_clientes_sin_compra(request):
             dc.nombre_compania,
             COALESCE(dv.canal_rrhh, dc.canal)      AS canal,
             TO_CHAR(uc.ultima_fecha, 'DD/MM/YYYY') AS ultima_compra
-        FROM dual.dim_cliente_dual dc
-        LEFT JOIN dual.dim_planificacion dp
+        FROM dual.dim_clientes dc
+        LEFT JOIN dual.fact_planificacion dp
                ON dp.ruta = dc.ruta AND dp.es_actual = true
         LEFT JOIN dw.dim_vendedor dv
                ON dv.vendedor_codigo_erp = SPLIT_PART(dp.codigo_erp, '.', 1)
@@ -7205,7 +7198,7 @@ def exportar_clientes_sin_compra(request):
               AND dck.es_cliente_actual = true
         LEFT JOIN ventas_mes  vm ON vm.cliente_sk  = dck.cliente_sk
         LEFT JOIN ultima_compra uc ON uc.cliente_sk = dck.cliente_sk
-        WHERE dc.es_actual = true
+        WHERE 1=1
           AND vm.cliente_sk IS NULL
           {regional_cond}
           {canal_cond}
@@ -7957,7 +7950,7 @@ def dashboard_rutas_opciones(request):
     """
     sql_dias = """
         SELECT DISTINCT dp.dia
-        FROM dual.dim_planificacion dp
+        FROM dual.fact_planificacion dp
         WHERE dp.es_actual = true
           AND dp.dia IS NOT NULL AND TRIM(dp.dia) <> ''
         ORDER BY dp.dia
@@ -8021,7 +8014,7 @@ def dashboard_rutas_buscar(request):
             INITCAP(dp.vendedor)     AS vendedor,
             dv.canal_rrhh            AS canal,
             INITCAP(dv.supervisor)   AS supervisor
-        FROM dual.dim_planificacion dp
+        FROM dual.fact_planificacion dp
         JOIN dw.dim_vendedor dv
             ON  dv.vendedor_codigo_erp = SPLIT_PART(dp.codigo_erp, '.', 1)
             AND dv.es_vendedor_actual  = true
@@ -8063,16 +8056,10 @@ def dashboard_rutas_info(request):
         # Tomar solo la versión más reciente; id_zona se repite por sucursal
         sql_poly = """
             SELECT dzp.latitud, dzp.longitud
-            FROM dual.dim_zona_posicion dzp
-            JOIN (
-                SELECT id_ruta::integer AS id_zona_int, sucursal_origen
-                FROM dual.dim_ruta
-                WHERE nombre = %s
-                  AND es_ruta_actual = true
-                ORDER BY version_ruta DESC NULLS LAST
-                LIMIT 1
-            ) dr ON dr.id_zona_int = dzp.id_zona
-                AND dr.sucursal_origen = dzp.sucursal_origen
+            FROM dual.dim_rutas dr
+            JOIN dual.dim_puntos_ruta dzp ON dzp.ruta_sk = dr.ruta_sk
+            WHERE dr.nombre = %s
+              AND dr.estado = true
             ORDER BY dzp.secuencia
         """
         _, poly_rows = _run_dw_query(sql_poly, [ruta])
@@ -8082,8 +8069,8 @@ def dashboard_rutas_info(request):
         # Clientes activos en la ruta
         sql_cli = """
             SELECT COUNT(*) AS total
-            FROM dual.dim_cliente_dual
-            WHERE ruta = %s AND es_actual = true
+            FROM dual.dim_clientes
+            WHERE ruta = %s
         """
         _, cli_rows = _run_dw_query(sql_cli, [ruta])
         clientes = int(cli_rows[0]['total']) if cli_rows else 0
@@ -8095,7 +8082,7 @@ def dashboard_rutas_info(request):
                 dp.dia,
                 dv.canal_rrhh          AS canal,
                 INITCAP(dv.supervisor) AS supervisor
-            FROM dual.dim_planificacion dp
+            FROM dual.fact_planificacion dp
             JOIN dw.dim_vendedor dv
                 ON  dv.vendedor_codigo_erp = SPLIT_PART(dp.codigo_erp, '.', 1)
                 AND dv.es_vendedor_actual  = true
@@ -8118,7 +8105,7 @@ def dashboard_rutas_info(request):
         sql_cols = """
             SELECT column_name
             FROM information_schema.columns
-            WHERE table_schema = 'dual' AND table_name = 'dim_cliente_dual'
+            WHERE table_schema = 'dual' AND table_name = 'dim_clientes'
             ORDER BY ordinal_position
         """
         _, col_rows    = _run_dw_query(sql_cols, [])
@@ -8137,8 +8124,8 @@ def dashboard_rutas_info(request):
                            COALESCE(nombre_compania, '')    AS nombre,
                            COALESCE(codigo_cliente::text, '') AS codigo,
                            COALESCE({cls_col}::text, '')    AS clasificacion
-                    FROM dual.dim_cliente_dual
-                    WHERE ruta = %s AND es_actual = true
+                    FROM dual.dim_clientes
+                    WHERE ruta = %s
                       AND {lat_col} IS NOT NULL AND {lng_col} IS NOT NULL
                 """
                 _, geo_rows  = _run_dw_query(sql_geo, [ruta])
@@ -8207,7 +8194,7 @@ def dashboard_rutas_todos_poligonos(request):
             SELECT DISTINCT ON (dp.ruta)
                 dp.ruta,
                 INITCAP(dp.vendedor) AS vendedor_full
-            FROM dual.dim_planificacion dp
+            FROM dual.fact_planificacion dp
             JOIN dw.dim_vendedor dv
                 ON  dv.vendedor_codigo_erp = SPLIT_PART(dp.codigo_erp, '.', 1)
                 AND dv.es_vendedor_actual  = true
@@ -8216,14 +8203,10 @@ def dashboard_rutas_todos_poligonos(request):
             LIMIT 150
         ),
         ruta_zona AS (
-            SELECT DISTINCT ON (dr.nombre)
-                dr.nombre,
-                dr.id_ruta::integer AS zona_id,
-                dr.sucursal_origen
-            FROM dual.dim_ruta dr
-            WHERE dr.es_ruta_actual = true
-              AND dr.nombre IN (SELECT ruta FROM rutas_filtradas)
-            ORDER BY dr.nombre, dr.version_ruta DESC NULLS LAST
+            SELECT dr.nombre, dr.ruta_sk
+            FROM dual.dim_rutas dr
+            WHERE dr.nombre IN (SELECT ruta FROM rutas_filtradas)
+              AND dr.estado = true
         )
         SELECT rz.nombre   AS ruta,
                rf.vendedor_full,
@@ -8231,9 +8214,7 @@ def dashboard_rutas_todos_poligonos(request):
                dzp.longitud
         FROM ruta_zona rz
         JOIN rutas_filtradas rf ON rf.ruta = rz.nombre
-        JOIN dual.dim_zona_posicion dzp
-            ON  dzp.id_zona         = rz.zona_id
-            AND dzp.sucursal_origen = rz.sucursal_origen
+        JOIN dual.dim_puntos_ruta dzp ON dzp.ruta_sk = rz.ruta_sk
         ORDER BY rz.nombre, dzp.secuencia
     """
     try:
@@ -8259,7 +8240,7 @@ def dashboard_rutas_todos_poligonos(request):
             try:
                 sql_cols2 = """
                     SELECT column_name FROM information_schema.columns
-                    WHERE table_schema = 'dual' AND table_name = 'dim_cliente_dual'
+                    WHERE table_schema = 'dual' AND table_name = 'dim_clientes'
                     ORDER BY ordinal_position
                 """
                 _, col_rows2  = _run_dw_query(sql_cols2, [])
@@ -8275,9 +8256,8 @@ def dashboard_rutas_todos_poligonos(request):
                                COALESCE(nombre_compania, '')        AS nombre,
                                COALESCE(codigo_cliente::text, '')   AS codigo,
                                COALESCE({cls2}::text, '')           AS clasificacion
-                        FROM dual.dim_cliente_dual
+                        FROM dual.dim_clientes
                         WHERE ruta IN ({placeholders})
-                          AND es_actual = true
                           AND {lat2} IS NOT NULL AND {lng2} IS NOT NULL
                         LIMIT 3000
                     """
@@ -8910,9 +8890,9 @@ def dashboard_new_nacional_rutas_mapa(request):
             ROUND(AVG(dcd.longitud::numeric), 6) AS lng,
             COALESCE(SUM(vc.venta), 0)           AS venta_acumulada,
             COUNT(dcd.codigo_cliente)             AS n_clientes
-        FROM dual.dim_planificacion dp
-        JOIN dual.dim_cliente_dual dcd
-             ON dcd.ruta = dp.ruta AND dcd.es_actual = true
+        FROM dual.fact_planificacion dp
+        JOIN dual.dim_clientes dcd
+             ON dcd.ruta = dp.ruta
         LEFT JOIN ventas_cliente vc
              ON vc.cliente_codigo_erp = dcd.codigo_cliente
         WHERE dp.es_actual = true
