@@ -71,7 +71,7 @@ export const DASHBOARD_GROUPS: DashboardGroup[] = [
       { id: 'ficha-sku',                   label: 'Ficha de SKU'              },
       { id: 'distribucion-rutas',          label: 'Distribución de Rutas'     },
       { id: 'lista-precios',               label: 'Lista de Precios'          },
-      { id: 'inventario-almacen',          label: 'Inventario por Almacén'    },
+      { id: 'inventario-almacen',          label: 'Inventarios'               },
       { id: 'fechas-vencimiento',          label: 'Fechas de Vencimiento'     },
     ],
   },
@@ -141,4 +141,14 @@ export const CARGO_COLOR: Record<string, string> = {
   'Analista de Datos':          'bg-rose-100 text-rose-700',
   'Administrador de Sistema':   'bg-red-100 text-red-700',
   'Subadministrador de Sistemas': 'bg-pink-100 text-pink-700',
+}
+
+export const CANAL_LISTA_MAP: Record<string, string> = {
+  'DTS':     'HORIZONTAL',
+  'SPM':     'SUPERMERCADOS',
+  'WHS':     'MAYORISTA CONTADO',
+  'WHS-BEB': 'MAYORISTA CONTADO',
+  'HORECA':  'HORECA',
+  'PROV':    'PROVINCIA',
+  'CODIST':  'CODISTRIBUIDORES',
 }

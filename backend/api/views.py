@@ -41,6 +41,20 @@ def _safe_int(val, default):
 
 _SAFE_STR_RE = _re.compile(r"[^\w \-\.&]", flags=_re.UNICODE)
 
+def _fmt_barcodes(raw) -> str:
+    """Limpia códigos de barra: elimina .0 decimal y normaliza separadores."""
+    if not raw:
+        return ''
+    codes = []
+    for code in str(raw).split(','):
+        code = code.strip()
+        if code.endswith('.0'):
+            code = code[:-2]
+        if code:
+            codes.append(code)
+    return ', '.join(codes)
+
+
 def _safe_str(val, max_len=100):
     """Limpia y trunca un string de entrada; elimina caracteres no esperados."""
     if val is None:
@@ -284,6 +298,7 @@ def _serialize_user(user):
         'is_active':             user.is_active,
         'is_staff':              user.is_staff,
         'dashboard_permissions': profile.dashboard_permissions,
+        'listas_precios':        profile.listas_precios,
         'groups':                list(user.groups.values_list('name', flat=True)),
         'date_joined':           user.date_joined.isoformat() if user.date_joined else None,
         'last_seen':             profile.last_seen.isoformat() if profile.last_seen else None,
@@ -1287,6 +1302,12 @@ def admin_create_user(request):
         password   = password,
         is_staff   = (cargo in ADMIN_CARGOS),
     )
+    listas_enviadas = data.get('listas_precios', None)
+    if isinstance(listas_enviadas, list) and listas_enviadas:
+        listas_precios = listas_enviadas
+    else:
+        lista_default = _CANAL_LISTA_MAP.get(canal, '')
+        listas_precios = [lista_default] if lista_default else []
     UserProfile.objects.create(
         user                  = new_user,
         cargo                 = cargo,
@@ -1294,6 +1315,7 @@ def admin_create_user(request):
         canal                 = canal,
         vendedor_nombre_dw    = vendedor_nombre_dw,
         dashboard_permissions = dashboard_permissions,
+        listas_precios        = listas_precios,
     )
     logger.warning("ADMIN_CREATE_USER actor=%s new_user=%s cargo=%s", request.user.username, username, cargo)
     return JsonResponse({'success': True, 'user': _serialize_user(new_user)}, status=201)
@@ -1327,6 +1349,30 @@ def admin_dw_vendedores(request):
         return JsonResponse({'success': True, 'data': rows})
     except Exception:
         logger.exception("Error interno admin_dw_vendedores")
+        return JsonResponse({'success': False, 'error': 'Error interno del servidor'}, status=500)
+
+
+@api_view(['GET'])
+@authentication_classes([ExpiringTokenAuthentication])
+@permission_classes([IsAuthenticated])
+def admin_listas_precios(request):
+    """Lista de nombres de listas de precios disponibles en el DW (para gestión de usuarios)."""
+    if not _is_user_manager(request.user):
+        return JsonResponse({'success': False, 'error': 'Sin permisos'}, status=403)
+    try:
+        _, rows = _run_dw_query(
+            """
+            SELECT DISTINCT lp.lista_nombre
+            FROM dw.dim_lista_precios lp
+            JOIN dw.fact_precio_producto fp ON fp.lista_precios_sk = lp.lista_precios_sk
+            WHERE fp.es_precio_actual = true
+            ORDER BY lp.lista_nombre
+            """,
+            [],
+        )
+        return JsonResponse({'success': True, 'listas': [r['lista_nombre'] for r in rows]})
+    except Exception:
+        logger.exception("Error interno admin_listas_precios")
         return JsonResponse({'success': False, 'error': 'Error interno del servidor'}, status=500)
 
 
@@ -1411,6 +1457,15 @@ def admin_update_user(request, user_id):
         profile.canal = data['canal']
     if 'vendedor_nombre_dw' in data:
         profile.vendedor_nombre_dw = data['vendedor_nombre_dw'].strip()
+    if 'listas_precios' in data and isinstance(data['listas_precios'], list):
+        profile.listas_precios = data['listas_precios']
+    elif 'canal' in data:
+        # Si cambia el canal y no se envían listas explícitas, recalcular la base
+        nueva_lista = _CANAL_LISTA_MAP.get(data['canal'], '')
+        if nueva_lista and nueva_lista not in profile.listas_precios:
+            profile.listas_precios = [nueva_lista] + [
+                l for l in profile.listas_precios if l != nueva_lista
+            ]
     profile.save()
 
     return JsonResponse({'success': True, 'user': _serialize_user(target)})
@@ -1438,6 +1493,10 @@ def admin_update_permissions(request, user_id):
 
     profile = _get_or_create_profile(target)
     profile.dashboard_permissions = perms
+    if 'listas_precios' in request.data:
+        listas = request.data['listas_precios']
+        if isinstance(listas, list):
+            profile.listas_precios = listas
     profile.save()
     logger.warning("ADMIN_UPDATE_PERMS actor=%s target=%s perms=%s", request.user.username, target.username, perms)
 
@@ -2265,6 +2324,16 @@ def dashboard_canales_por_sku(request):
 # â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€
 #  DASHBOARD SOFTYS â€" CANALES / REGIONAL
 # â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€
+
+_CANAL_LISTA_MAP = {
+    'DTS':     'HORIZONTAL',
+    'SPM':     'SUPERMERCADOS',
+    'WHS':     'MAYORISTA CONTADO',
+    'WHS-BEB': 'MAYORISTA CONTADO',
+    'HORECA':  'HORECA',
+    'PROV':    'PROVINCIA',
+    'CODIST':  'CODISTRIBUIDORES',
+}
 
 _SOFTYS_COND     = "dp.proveedor = 'SOFTYS'"
 _SOFTYS_COND_DP2 = "dp2.proveedor = 'SOFTYS'"
@@ -7856,72 +7925,68 @@ def dashboard_ficha_sku_inventario(request):
 @_require_perm('inventario-almacen')
 def dashboard_inventario_almacen(request):
     """
-    Stock por producto y almacén para una fecha dada.
-    Params: fecha (YYYY-MM-DD), regional, almacen (codigo_erp)
-    """
-    fecha        = _safe_str(request.GET.get('fecha', ''), 10)
-    regional_key = _safe_str(request.GET.get('regional', ''), 20).lower().replace(' ', '_')
-    almacen      = _safe_str(request.GET.get('almacen', ''), 50)
-
-    if not fecha:
-        return JsonResponse({'success': False, 'error': 'Parámetro fecha requerido'}, status=400)
-
-    CIUDADES_ALMACEN = {
-        'santa_cruz': ['SANTA CRUZ'],
-        'cochabamba': ['COCHABAMBA'],
-        'la_paz':     ['LA PAZ'],
-    }
-
-    params = [fecha]
-    almacen_cond  = ''
-    regional_cond = ''
-
-    if almacen:
-        almacen_cond = 'AND da.almacen_codigo_erp = %s'
-        params.append(almacen)
-    elif regional_key and regional_key != 'nacional' and regional_key in CIUDADES_ALMACEN:
-        ciudades = CIUDADES_ALMACEN[regional_key]
-        ph = ', '.join(['%s'] * len(ciudades))
-        regional_cond = f'AND da.ciudad IN ({ph})'
-        params.extend(ciudades)
-
-    sql = f"""
-        SELECT
-            da.almacen_nombre                           AS almacen,
-            dp.producto_codigo_erp                      AS cod_interno,
-            INITCAP(dp.producto_nombre)                 AS producto,
-            fi.u_medida                                 AS u_medida,
-            COALESCE(SUM(fi.stock_buenos),   0)         AS stock_buenos,
-            COALESCE(SUM(fi.stock_danhados), 0)         AS stock_danhados,
-            COALESCE(SUM(fi.stock_vencidos), 0)         AS stock_vencidos,
-            COALESCE(SUM(fi.stock_total),    0)         AS stock_total
-        FROM dw.fact_inventario fi
-        JOIN dw.dim_producto dp ON dp.producto_sk = fi.producto_sk
-        JOIN dw.dim_almacen  da ON da.almacen_sk  = fi.almacen_sk
-        WHERE fi.fecha_inventario = %s
-          {almacen_cond}
-          {regional_cond}
-        GROUP BY da.almacen_nombre, dp.producto_codigo_erp, dp.producto_nombre, fi.u_medida
-        ORDER BY da.almacen_nombre, dp.producto_nombre
+    Inventario pivoteado: una fila por producto, una columna por almacén.
+    Usa automáticamente la fecha más reciente disponible en fact_inventario.
     """
     try:
-        _, rows = _run_dw_query(sql, params)
+        _, fecha_rows = _run_dw_query(
+            "SELECT MAX(fi.fecha_inventario::date)::TEXT AS fecha FROM dw.fact_inventario fi WHERE fi.estado = true",
+            [],
+        )
+        fecha = (fecha_rows[0]['fecha'] if fecha_rows else None)
+        if not fecha:
+            return JsonResponse({'success': True, 'data': [], 'almacenes': [], 'fecha': None})
+
+        # Todos los almacenes que alguna vez tuvieron inventario (para siempre mostrar la columna)
+        _, alm_rows = _run_dw_query(
+            """
+            SELECT DISTINCT da.almacen_nombre
+            FROM dw.fact_inventario fi
+            JOIN dw.dim_almacen da ON da.almacen_sk = fi.almacen_sk
+            WHERE fi.estado = true
+            ORDER BY da.almacen_nombre
+            """,
+            [],
+        )
+        almacenes_todos = [r['almacen_nombre'] for r in alm_rows]
+
+        _, rows = _run_dw_query(
+            """
+            SELECT
+                da.almacen_nombre                                           AS almacen,
+                dp.producto_codigo_erp                                      AS cod_interno,
+                INITCAP(dp.producto_nombre)                                 AS producto,
+                fi.u_medida                                                 AS u_medida,
+                COALESCE(SUM(fi.stock_buenos), 0)                           AS stock_total
+            FROM dw.fact_inventario fi
+            JOIN dw.dim_producto dp ON dp.producto_sk = fi.producto_sk
+            JOIN dw.dim_almacen  da ON da.almacen_sk  = fi.almacen_sk
+            WHERE fi.fecha_inventario::date = %s::date
+              AND fi.estado = true
+            GROUP BY da.almacen_nombre, dp.producto_codigo_erp, dp.producto_nombre, fi.u_medida
+            ORDER BY dp.producto_nombre, da.almacen_nombre
+            """,
+            [fecha],
+        )
+
         data = [
             {
-                'almacen':        r['almacen'],
-                'cod_interno':    r['cod_interno'],
-                'producto':       r['producto'],
-                'u_medida':       r['u_medida'] or '',
-                'stock_buenos':   float(r['stock_buenos']   or 0),
-                'stock_danhados': float(r['stock_danhados'] or 0),
-                'stock_vencidos': float(r['stock_vencidos'] or 0),
-                'stock_total':    float(r['stock_total']    or 0),
+                'almacen':     r['almacen'] or '',
+                'cod_interno': r['cod_interno'] or '',
+                'producto':    r['producto'] or '',
+                'u_medida':    r['u_medida'] or '',
+                'stock_total': float(r['stock_total'] or 0),
             }
             for r in rows
         ]
-        return JsonResponse({'success': True, 'data': data})
+        return JsonResponse({
+            'success':   True,
+            'fecha':     fecha,
+            'almacenes': almacenes_todos,
+            'data':      data,
+        })
     except Exception:
-        logger.exception("Error interno")
+        logger.exception("Error interno inventario-almacen")
         return JsonResponse({'success': False, 'error': 'Error interno del servidor'}, status=500)
 
 
@@ -9023,52 +9088,59 @@ def dashboard_new_nacional_canales_mini(request):
 def dashboard_lista_precios_datos(request):
     """
     Lista de precios actual por canal/lista.
-    Params: lista (nombre de lista de precios; opcional para privilegiados)
-    Vendedores: lista forzada por su canal_rrhh en dim_vendedor.
-    Responde: { data, listas, lista_activa, lista_forzada }
+    Params: lista (nombre de lista; opcional — filtra dentro de las listas permitidas)
+    Vendedores: listas restringidas a las asignadas en profile.listas_precios.
+      Si listas_precios está vacío, fallback a canal_rrhh via DW.
+    Responde: { data, listas, listas_permitidas, lista_activa, lista_forzada }
     """
     profile = getattr(request.user, 'profile', None)
     cargo   = (getattr(profile, 'cargo', '') or '').strip()
 
-    # Mapeo canal_rrhh → lista_nombre (confirmado con el DW)
-    _CANAL_LISTA_MAP = {
-        'DTS':         'HORIZONTAL',
-        'SPM':         'SUPERMERCADOS',
-        'WHS':         'MAYORISTA CONTADO',
-        'WHS-BEB':     'MAYORISTA CONTADO',
-        'HORECA':      'HORECA',
-        'PROV':        'PROVINCIA',
-        'CODIST':      'CODISTRIBUIDORES',
-        # E COMERCE, OFICINA, OFICINA- ECOM: sin restricción hasta confirmar
-    }
+    es_vendedor      = cargo == 'Vendedor'
+    lista_forzada    = False
+    lista_solicitada = _safe_str(request.GET.get('lista', ''), 80)
+    listas_permitidas = []  # vacío = sin restricción (privilegiados)
 
-    es_vendedor   = cargo == 'Vendedor'
-    lista_forzada = False
-    lista         = _safe_str(request.GET.get('lista', ''), 80)
+    # Filtro temporal: mes/año del request, por defecto mes actual
+    try:
+        p_anho = int(request.GET.get('anho', 0)) or None
+        p_mes  = int(request.GET.get('mes',  0)) or None
+    except (ValueError, TypeError):
+        p_anho, p_mes = None, None
+    if not p_anho or not p_mes:
+        hoy   = __import__('datetime').date.today()
+        p_anho = p_anho or hoy.year
+        p_mes  = p_mes  or hoy.month
 
     if es_vendedor:
-        vendedor_nombre = getattr(profile, 'vendedor_nombre_dw', '') or ''
-        if vendedor_nombre:
-            try:
-                _, vend_rows = _run_dw_query(
-                    """
-                    SELECT dv.canal_rrhh
-                    FROM dw.dim_vendedor dv
-                    WHERE dv.vendedor_nombre = %s AND dv.es_vendedor_actual = true
-                    LIMIT 1
-                    """,
-                    [vendedor_nombre],
-                )
-                if vend_rows:
-                    canal_rrhh = (vend_rows[0].get('canal_rrhh') or '').strip()
-                    lista_mapeada = _CANAL_LISTA_MAP.get(canal_rrhh)
-                    if lista_mapeada:
-                        lista         = lista_mapeada
-                        lista_forzada = True
-            except Exception:
-                logger.exception("Error obteniendo canal del vendedor para lista-precios")
+        listas_perfil = list(getattr(profile, 'listas_precios', None) or [])
+        if listas_perfil:
+            listas_permitidas = listas_perfil
+            lista_forzada = True
+        else:
+            # Fallback: derivar lista del canal_rrhh en DW
+            vendedor_nombre = getattr(profile, 'vendedor_nombre_dw', '') or ''
+            if vendedor_nombre:
+                try:
+                    _, vend_rows = _run_dw_query(
+                        """
+                        SELECT dv.canal_rrhh
+                        FROM dw.dim_vendedor dv
+                        WHERE dv.vendedor_nombre = %s AND dv.es_vendedor_actual = true
+                        LIMIT 1
+                        """,
+                        [vendedor_nombre],
+                    )
+                    if vend_rows:
+                        canal_rrhh   = (vend_rows[0].get('canal_rrhh') or '').strip()
+                        lista_mapeada = _CANAL_LISTA_MAP.get(canal_rrhh)
+                        if lista_mapeada:
+                            listas_permitidas = [lista_mapeada]
+                            lista_forzada = True
+                except Exception:
+                    logger.exception("Error obteniendo canal del vendedor para lista-precios")
 
-    # Listas disponibles (para poblar el selector)
+    # Listas disponibles en el DW (para poblar selector)
     try:
         _, lista_rows = _run_dw_query(
             """
@@ -9080,52 +9152,99 @@ def dashboard_lista_precios_datos(request):
             """,
             [],
         )
-        listas = [r['lista_nombre'] for r in lista_rows]
+        listas_dw = [r['lista_nombre'] for r in lista_rows]
     except Exception:
         logger.exception("Error obteniendo listas de precios disponibles")
-        listas = []
+        listas_dw = []
 
-    # Datos de precios
-    params     = []
-    lista_cond = ""
-    if lista:
+    # Las listas que el usuario puede ver: si hay restricción, intersectar con DW
+    if listas_permitidas:
+        listas = [l for l in listas_permitidas if l in listas_dw] or listas_permitidas
+    else:
+        listas = listas_dw
+
+    # Determinar lista activa: la solicitada (si está permitida) o la primera disponible
+    if lista_solicitada:
+        lista_activa = lista_solicitada if (not listas_permitidas or lista_solicitada in listas_permitidas) else (listas[0] if listas else '')
+    else:
+        lista_activa = listas[0] if listas else ''
+
+    # Condición SQL de listas (lista_params se reutiliza en todas las queries)
+    lista_params = []
+    lista_cond   = ""
+    if listas_permitidas:
+        phs = ", ".join(["%s"] * len(listas_permitidas))
+        lista_cond = f"AND lp.lista_nombre IN ({phs})"
+        lista_params.extend(listas_permitidas)
+        if lista_activa and lista_activa in listas_permitidas:
+            lista_cond   = "AND lp.lista_nombre = %s"
+            lista_params = [lista_activa]
+    elif lista_activa:
         lista_cond = "AND lp.lista_nombre = %s"
-        params.append(lista)
+        lista_params.append(lista_activa)
 
+    # ── Períodos disponibles (año/mes con datos para las listas del usuario) ──
+    try:
+        _, pd_rows = _run_dw_query(
+            f"""
+            SELECT DISTINCT
+                EXTRACT(YEAR  FROM fp.fecha_precio)::int AS anho,
+                EXTRACT(MONTH FROM fp.fecha_precio)::int AS mes
+            FROM dw.fact_precio_producto fp
+            JOIN dw.dim_lista_precios lp ON lp.lista_precios_sk = fp.lista_precios_sk
+            WHERE true
+              {lista_cond}
+            ORDER BY anho DESC, mes DESC
+            """,
+            lista_params,
+        )
+        periodos_disponibles = [{'anho': r['anho'], 'mes': r['mes']} for r in pd_rows]
+    except Exception:
+        logger.exception("Error obteniendo períodos disponibles de lista-precios")
+        periodos_disponibles = []
+
+    # ── Query principal: precios actuales filtrados por año/mes ──────────────
     sql = f"""
-        SELECT
-            dp.producto_codigo_erp  AS cod_interno,
-            dp.producto_nombre      AS producto,
-            fp.precio_venta         AS costo,
-            lp.lista_nombre         AS lista
+        SELECT DISTINCT ON (fp.producto_sk, fp.lista_precios_sk)
+            dp.producto_codigo_erp      AS cod_interno,
+            fp.codigo_barra             AS cod_barra,
+            dp.producto_nombre          AS producto,
+            fp.precio_venta             AS costo,
+            fp.precio_venta_publico     AS pvp,
+            fp.margen                   AS margen,
+            lp.lista_nombre             AS lista
         FROM dw.fact_precio_producto fp
         JOIN dw.dim_lista_precios lp ON lp.lista_precios_sk = fp.lista_precios_sk
         JOIN dw.dim_producto      dp ON dp.producto_sk      = fp.producto_sk
-        WHERE fp.es_precio_actual = true
+        WHERE EXTRACT(YEAR  FROM fp.fecha_precio)::int = %s
+          AND EXTRACT(MONTH FROM fp.fecha_precio)::int = %s
           AND dp.es_producto_actual = true
           {lista_cond}
-        ORDER BY dp.producto_nombre
+        ORDER BY fp.producto_sk, fp.lista_precios_sk, fp.version_precio DESC, fp.fecha_precio DESC
     """
 
     try:
-        _, rows = _run_dw_query(sql, params)
+        _, rows = _run_dw_query(sql, [p_anho, p_mes] + lista_params)
         data = []
         for r in rows:
-            costo = float(r['costo']) if r.get('costo') is not None else None
+            def _f(v): return float(v) if v is not None else None
             data.append({
                 'cod_interno': r.get('cod_interno') or '',
-                'cod_barra':   None,   # aún no cargado en dim_producto
+                'cod_barra':   _fmt_barcodes(r.get('cod_barra')),
                 'producto':    r.get('producto') or '',
-                'costo':       costo,
-                'pvp':         None,   # aún no disponible en el DW
+                'costo':       _f(r.get('costo')),
+                'pvp':         _f(r.get('pvp')),
+                'margen':      _f(r.get('margen')),
                 'lista':       r.get('lista') or '',
             })
         return JsonResponse({
-            'success':       True,
-            'data':          data,
-            'listas':        listas,
-            'lista_activa':  lista,
-            'lista_forzada': lista_forzada,
+            'success':              True,
+            'data':                 data,
+            'listas':               listas,
+            'listas_permitidas':    listas_permitidas,
+            'lista_activa':         lista_activa,
+            'lista_forzada':        lista_forzada,
+            'periodos_disponibles': periodos_disponibles,
         })
     except Exception:
         logger.exception("Error interno lista-precios-datos")

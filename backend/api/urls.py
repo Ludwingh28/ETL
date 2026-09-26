@@ -13,6 +13,7 @@ urlpatterns = [
     path('admin/users/',                          views.admin_list_users,        name='admin-list-users'),
     path('admin/users/create/',                   views.admin_create_user,       name='admin-create-user'),
     path('admin/dw-vendedores/',                  views.admin_dw_vendedores,          name='admin-dw-vendedores'),
+    path('admin/listas-precios/',                 views.admin_listas_precios,         name='admin-listas-precios'),
     path('dashboard/vendedores-nombres/',         views.dashboard_vendedores_nombres, name='dashboard-vendedores-nombres'),
     path('admin/users/<int:user_id>/',            views.admin_update_user,       name='admin-update-user'),
     path('admin/users/<int:user_id>/permissions/', views.admin_update_permissions, name='admin-update-permissions'),

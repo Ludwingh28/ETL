@@ -15,21 +15,25 @@ interface ProductoPrecio {
   producto:    string;
   costo:       number | null;
   pvp:         number | null;
+  margen:      number | null;
   lista:       string;
 }
 
+interface PeriodoDisponible { anho: number; mes: number; }
+
 interface ApiResponse {
-  success:       boolean;
-  data:          ProductoPrecio[];
-  listas:        string[];
-  lista_activa:  string;
-  lista_forzada: boolean;
-  error?:        string;
+  success:              boolean;
+  data:                 ProductoPrecio[];
+  listas:               string[];
+  listas_permitidas:    string[];
+  lista_activa:         string;
+  lista_forzada:        boolean;
+  periodos_disponibles: PeriodoDisponible[];
+  error?:               string;
 }
 
 // ─── Constantes ───────────────────────────────────────────────────────────────
 
-const ANHOS = Array.from({ length: 5 }, (_, i) => new Date().getFullYear() - i);
 const MESES = ["","Enero","Febrero","Marzo","Abril","Mayo","Junio",
                "Julio","Agosto","Septiembre","Octubre","Noviembre","Diciembre"];
 
@@ -72,7 +76,7 @@ async function exportXLSX(rows: ProductoPrecio[], lista: string, anho: number, m
   });
 
   for (const r of rows) {
-    const margen = calcMargen(r.costo, r.pvp);
+    const margen = r.margen ?? calcMargen(r.costo, r.pvp);
     ws.addRow({
       cod_interno: r.cod_interno,
       cod_barra:   r.cod_barra ?? "",
@@ -123,7 +127,7 @@ function exportPDF(rows: ProductoPrecio[], lista: string, anho: number, mes: num
     startY: 25,
     head: [["Cod. Interno", "Cod. Barra", "SKU", "Costo (Bs)", "Margen (Bs)", "PVP (Bs)"]],
     body: rows.map(r => {
-      const margen = calcMargen(r.costo, r.pvp);
+      const margen = r.margen ?? calcMargen(r.costo, r.pvp);
       return [
         r.cod_interno,
         r.cod_barra ?? "—",
@@ -177,18 +181,24 @@ export default function DashboardListaPrecios() {
 
   // ── Estado de datos ───────────────────────────────────────────────────────
   const [datos,        setDatos]        = useState<ProductoPrecio[]>([]);
-  const [listas,       setListas]       = useState<string[]>([]);
-  const [listaForzada, setListaForzada] = useState(false);
+  const [listas,           setListas]           = useState<string[]>([]);
+  const [listasPermitidas, setListasPermitidas] = useState<string[]>([]);
+  const [listaForzada,     setListaForzada]     = useState(false);
   const [loading,      setLoading]      = useState(false);
   const [error,        setError]        = useState<string | null>(null);
   const [exportando,   setExportando]   = useState(false);
 
-  // ── Búsqueda ──────────────────────────────────────────────────────────────
-  const [busqueda, setBusqueda] = useState("");
+  // ── Períodos disponibles ─────────────────────────────────────────────────
+  const [periodosDisponibles, setPeriodosDisponibles] = useState<PeriodoDisponible[]>([]);
+
+  // ── Búsqueda y filtros extra ─────────────────────────────────────────────
+  const [busqueda,      setBusqueda]      = useState("");
+  const [mostrarSinPvp, setMostrarSinPvp] = useState(false);
 
   useEffect(() => {
     setActiveFilters({ anho, mes, lista, busqueda });
   }, [anho, mes, lista, busqueda]);
+
 
   // ── Carga de datos ────────────────────────────────────────────────────────
   const cargar = useCallback(async () => {
@@ -196,32 +206,43 @@ export default function DashboardListaPrecios() {
     setError(null);
     try {
       const params = new URLSearchParams();
+      params.set("anho", String(anho));
+      params.set("mes",  String(mes));
       if (lista) params.set("lista", lista);
       const j = await apiFetch<ApiResponse>(`/dashboard/lista-precios/datos/?${params}`);
       if (!j.success) { setError(j.error ?? "Error desconocido"); return; }
       setDatos(j.data);
       setListas(j.listas);
+      setListasPermitidas(j.listas_permitidas ?? []);
       setListaForzada(j.lista_forzada);
+      setPeriodosDisponibles(j.periodos_disponibles ?? []);
       if (j.lista_forzada && j.lista_activa && !lista) setLista(j.lista_activa);
+      // Si el mes/año actual no tiene datos, saltar al más reciente disponible
+      if (j.data.length === 0 && j.periodos_disponibles?.length) {
+        const ultimo = j.periodos_disponibles[0]; // ordenados DESC
+        setAnho(ultimo.anho);
+        setMes(ultimo.mes);
+      }
     } catch {
       setError("Error de conexión con el servidor");
     } finally {
       setLoading(false);
     }
-  }, [apiFetch, lista]);
+  }, [apiFetch, anho, mes, lista]);
 
   useEffect(() => { cargar(); }, [cargar]);
 
   // ── Filtrado local ────────────────────────────────────────────────────────
   const datosFiltrados = useMemo(() => {
-    if (!busqueda.trim()) return datos;
+    let result = mostrarSinPvp ? datos : datos.filter(r => r.pvp != null);
+    if (!busqueda.trim()) return result;
     const q = busqueda.trim().toLowerCase();
-    return datos.filter(r =>
+    return result.filter(r =>
       r.producto.toLowerCase().includes(q)    ||
       r.cod_interno.toLowerCase().includes(q) ||
       (r.cod_barra?.toLowerCase().includes(q) ?? false)
     );
-  }, [datos, busqueda]);
+  }, [datos, busqueda, mostrarSinPvp]);
 
   // ── Exportar ──────────────────────────────────────────────────────────────
   const handleXLSX = async () => {
@@ -279,27 +300,38 @@ export default function DashboardListaPrecios() {
 
             <div className="flex flex-col gap-1">
               <label className="text-[10px] font-semibold uppercase tracking-wide text-slate-400">Gestión</label>
-              <select value={anho} onChange={e => setAnho(+e.target.value)} className={selCls}>
-                {ANHOS.map(a => <option key={a} value={a}>{a}</option>)}
+              <select value={anho} onChange={e => { setAnho(+e.target.value); }} className={selCls}>
+                {[...new Set(periodosDisponibles.map(p => p.anho))].map(a => (
+                  <option key={a} value={a}>{a}</option>
+                ))}
               </select>
             </div>
 
             <div className="flex flex-col gap-1">
               <label className="text-[10px] font-semibold uppercase tracking-wide text-slate-400">Mes</label>
               <select value={mes} onChange={e => setMes(+e.target.value)} className={selCls}>
-                {MESES.slice(1).map((n, i) => <option key={i+1} value={i+1}>{n}</option>)}
+                {periodosDisponibles
+                  .filter(p => p.anho === anho)
+                  .map(p => (
+                    <option key={p.mes} value={p.mes}>{MESES[p.mes]}</option>
+                  ))
+                }
               </select>
             </div>
 
             <div className="flex flex-col gap-1">
               <label className="text-[10px] font-semibold uppercase tracking-wide text-slate-400">
                 Lista de Precios
-                {listaForzada && <span className="ml-1 text-brand-500">(tu canal)</span>}
+                {listaForzada && (
+                  <span className="ml-1 text-brand-500">
+                    {listasPermitidas.length > 1 ? `(${listasPermitidas.length} asignadas)` : "(tu canal)"}
+                  </span>
+                )}
               </label>
               <select
                 value={lista}
                 onChange={e => setLista(e.target.value)}
-                disabled={listaForzada}
+                disabled={listaForzada && listasPermitidas.length <= 1}
                 className={selCls}
               >
                 {isPrivileged && <option value="">Todas las listas</option>}
@@ -307,7 +339,7 @@ export default function DashboardListaPrecios() {
               </select>
             </div>
 
-            <div className="flex flex-col gap-1 flex-1 min-w-48">
+<div className="flex flex-col gap-1 flex-1 min-w-48">
               <label className="text-[10px] font-semibold uppercase tracking-wide text-slate-400">Buscar</label>
               <div className="relative">
                 <Search size={12} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" />
@@ -319,6 +351,19 @@ export default function DashboardListaPrecios() {
                   className="w-full pl-7 pr-3 py-2 text-xs border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-brand-500"
                 />
               </div>
+            </div>
+
+            <div className="flex flex-col gap-1">
+              <span className="text-[10px] invisible select-none">·</span>
+              <label className="flex items-center gap-2 cursor-pointer select-none py-2">
+                <input
+                  type="checkbox"
+                  checked={mostrarSinPvp}
+                  onChange={e => setMostrarSinPvp(e.target.checked)}
+                  className="w-3.5 h-3.5 rounded accent-brand-600 cursor-pointer"
+                />
+                <span className="text-xs text-slate-500 whitespace-nowrap">Listar Productos sin PVP</span>
+              </label>
             </div>
 
           </div>
@@ -375,12 +420,17 @@ export default function DashboardListaPrecios() {
                     </tr>
                   ) : (
                     datosFiltrados.map((row, i) => {
-                      const margen = calcMargen(row.costo, row.pvp);
+                      const margen = row.margen ?? calcMargen(row.costo, row.pvp);
                       return (
                         <tr key={i} className="border-b border-slate-50 hover:bg-slate-50 transition-colors">
                           <td className="px-3 py-2.5 font-mono text-slate-600">{row.cod_interno}</td>
-                          <td className="px-3 py-2.5 font-mono text-slate-400">
-                            {row.cod_barra ?? <span className="text-slate-300">—</span>}
+                          <td className="px-3 py-2.5">
+                            {row.cod_barra
+                              ? row.cod_barra.split(',').map(c => c.trim()).filter(Boolean).map((c, i) => (
+                                  <span key={i} className="inline-block font-mono text-xs text-slate-500 bg-slate-100 rounded px-1.5 py-0.5 mr-1 whitespace-nowrap">{c}</span>
+                                ))
+                              : <span className="text-slate-300">—</span>
+                            }
                           </td>
                           <td className="px-3 py-2.5 font-medium text-slate-800 min-w-52">{row.producto}</td>
                           <td className="px-3 py-2.5 text-right tabular-nums text-slate-700">
