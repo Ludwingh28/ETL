@@ -17,6 +17,7 @@ run_queries.py
 *.xls
 examples/*
 _audit_test.py
+References/*
 
 # ── Logs ──────────────────────────────────────────────────────────────────────
 backend/logs/*.log
