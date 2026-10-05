@@ -149,7 +149,7 @@ function exportPDF(rows: ProductoPrecio[], lista: string, anho: number, mes: num
       5: { cellWidth: 28, halign: "right" },
     },
     margin: { left: 14, right: 14 },
-    didDrawPage: (data) => {
+    didDrawPage: (data: any) => {
       // Número de página al pie
       const pageCount = (doc as any).internal.getNumberOfPages();
       doc.setFontSize(7);

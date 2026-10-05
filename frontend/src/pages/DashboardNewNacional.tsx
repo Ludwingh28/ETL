@@ -1433,7 +1433,7 @@ export default function DashboardNewNacional() {
             </p>
           </div>
           {compDrill && (
-            <button onClick={() => { setCompDrill(null); setSelectedSku(null); }}
+            <button onClick={() => { setCompDrill(null); setSelectedSku([]); }}
               className="inline-flex items-center gap-1.5 text-[11px] font-semibold px-2.5 py-1 rounded-full bg-violet-50 text-violet-700 border border-violet-200 hover:bg-violet-100 transition-colors">
               {GROUP_BY_LABEL[compDrill.field] ?? compDrill.field}: {compDrill.value}
               <span className="opacity-60">✕</span>
@@ -1504,12 +1504,12 @@ export default function DashboardNewNacional() {
                   {GROUP_BY_LABEL[compDrill.field]}: {compDrill.value}
                 </span>
               )}
-              {selectedSku && (
+              {selectedSku.length === 1 && (
                 <span className="inline-flex items-center gap-1 text-[11px] font-semibold px-2 py-0.5 rounded-full bg-teal-50 text-teal-600 border border-teal-200">
-                  SKU: {selectedSku.producto}
+                  SKU: {selectedSku[0].producto}
                 </span>
               )}
-              {!selectedSku && skuSearch.trim() && filteredSkus.length > 0 && filteredSkus.length < skus.length && (
+              {selectedSku.length === 0 && skuSearch.trim() && filteredSkus.length > 0 && filteredSkus.length < skus.length && (
                 <span className="inline-flex items-center gap-1 text-[11px] font-semibold px-2 py-0.5 rounded-full bg-orange-50 text-orange-600 border border-orange-200">
                   Búsqueda: "{skuSearch}" · {filteredSkus.length} SKUs
                 </span>

@@ -132,7 +132,7 @@ function exportPDF(rows: ProductoPivot[], almacenes: string[], fecha: string) {
       [almacenes.length + 3]: { cellWidth: 28, halign: "right" as const },
     },
     margin: { left: 14, right: 14 },
-    didDrawPage: (data) => {
+    didDrawPage: (data: any) => {
       const pageCount = (doc as any).internal.getNumberOfPages();
       doc.setFontSize(7);
       doc.setTextColor(150);
