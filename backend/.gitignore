@@ -40,8 +40,9 @@ nosetests.xml
 coverage.xml
 *.cover
 
-# ── Scripts de parche temporales ─────────────────────────────────────────────
+# ── Scripts de parche temporales y utilidades locales ───────────────────────
 _patch_*.py
+switch-dw.ps1
 
 # ── IDEs y editores ──────────────────────────────────────────────────────────
 .vscode/

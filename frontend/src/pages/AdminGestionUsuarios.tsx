@@ -10,7 +10,7 @@ import { useAuth } from '../context/AuthContext'
 import type { ManagedUser } from '../types'
 import {
   CARGOS, REGIONALES, CARGOS_CON_CANAL, DASHBOARD_GROUPS,
-  ALL_DASHBOARD_IDS, PERMISOS_POR_CARGO,
+  ALL_DASHBOARD_IDS, PERMISOS_POR_CARGO, CANAL_LISTA_MAP,
   CARGO_COLOR, type Cargo,
 } from '../constants/adminConstants'
 
@@ -177,6 +177,24 @@ function EditModal({ user, onClose, onSaved, onDeleted, onToast }: EditModalProp
   // ── Tab: Accesos ─────────────────────────────────────────────────────────
   const [perms, setPerms] = useState<string[]>(user.dashboard_permissions)
   const [savingPerms, setSavingPerms] = useState(false)
+  const [listasDisponibles, setListasDisponibles] = useState<string[]>([])
+  const [listasAsignadas,   setListasAsignadas]   = useState<string[]>(() => {
+    const asignadas = user.listas_precios ?? []
+    if (asignadas.length > 0) return asignadas
+    const listaDefault = CANAL_LISTA_MAP[user.canal ?? '']
+    return listaDefault ? [listaDefault] : []
+  })
+
+  useEffect(() => {
+    if (datos.cargo === 'Vendedor' && listasDisponibles.length === 0) {
+      apiFetch<{ success: boolean; listas: string[] }>('/admin/listas-precios/')
+        .then(j => { if (j.success) setListasDisponibles(j.listas) })
+        .catch(() => {})
+    }
+  }, [datos.cargo]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  const toggleLista = (l: string) =>
+    setListasAsignadas(p => p.includes(l) ? p.filter(x => x !== l) : [...p, l])
 
   const togglePerm = (id: string) =>
     setPerms(p => p.includes(id) ? p.filter(x => x !== id) : [...p, id])
@@ -197,7 +215,7 @@ function EditModal({ user, onClose, onSaved, onDeleted, onToast }: EditModalProp
     try {
       const updated = await apiFetch<ManagedUser>(`/admin/users/${user.id}/permissions/`, {
         method: 'PATCH',
-        body: JSON.stringify({ dashboard_permissions: perms }),
+        body: JSON.stringify({ dashboard_permissions: perms, listas_precios: listasAsignadas }),
       })
       onSaved(updated)
       onToast({ msg: 'Permisos actualizados correctamente.', type: 'ok' })
@@ -483,6 +501,36 @@ function EditModal({ user, onClose, onSaved, onDeleted, onToast }: EditModalProp
                   )
                 })}
               </div>
+
+              {datos.cargo === 'Vendedor' && (
+                <div className="mt-4 p-3 rounded-xl border border-brand-100 bg-brand-50/40">
+                  <p className="text-xs font-semibold text-brand-700 uppercase tracking-wide mb-2">
+                    Listas de Precios Asignadas
+                  </p>
+                  {listasDisponibles.length === 0 ? (
+                    <p className="text-xs text-slate-400">Cargando listas disponibles…</p>
+                  ) : (
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-1">
+                      {listasDisponibles.map(l => (
+                        <label key={l} className="flex items-center gap-2 cursor-pointer">
+                          <input
+                            type="checkbox"
+                            checked={listasAsignadas.includes(l)}
+                            onChange={() => toggleLista(l)}
+                            className="w-3.5 h-3.5 rounded accent-brand-600 cursor-pointer"
+                          />
+                          <span className="text-sm text-slate-600">{l}</span>
+                        </label>
+                      ))}
+                    </div>
+                  )}
+                  {listasAsignadas.length === 0 && (
+                    <p className="text-xs text-amber-600 mt-1.5">
+                      Sin lista asignada — se usará la de su canal por defecto.
+                    </p>
+                  )}
+                </div>
+              )}
             </div>
           )}
 

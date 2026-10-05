@@ -41,6 +41,7 @@ export interface ManagedUser {
   vendedor_nombre_dw:    string
   is_active:             boolean
   dashboard_permissions: string[]
+  listas_precios:        string[]
   date_joined?:          string
   last_seen?:            string | null
 }

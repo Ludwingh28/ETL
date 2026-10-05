@@ -8,7 +8,7 @@ import DashboardLayout from '../components/DashboardLayout'
 import { useAuth } from '../context/AuthContext'
 import {
   CARGOS, REGIONALES, CARGOS_CON_CANAL, DASHBOARD_GROUPS,
-  ALL_DASHBOARD_IDS, PERMISOS_POR_CARGO,
+  ALL_DASHBOARD_IDS, PERMISOS_POR_CARGO, CANAL_LISTA_MAP,
   type Cargo,
 } from '../constants/adminConstants'
 
@@ -79,16 +79,24 @@ export default function AdminCrearUsuario() {
 
   // Búsqueda de vendedor en DW
   interface DwVendedor { nombre: string; canal: string; regional: string }
-  const [dwVendedores,   setDwVendedores]   = useState<DwVendedor[]>([])
-  const [dwSearch,       setDwSearch]       = useState('')
-  const [dwOpen,         setDwOpen]         = useState(false)
+  const [dwVendedores,     setDwVendedores]     = useState<DwVendedor[]>([])
+  const [dwSearch,         setDwSearch]         = useState('')
+  const [dwOpen,           setDwOpen]           = useState(false)
+  const [listasDisponibles, setListasDisponibles] = useState<string[]>([])
+  const [listasAsignadas,   setListasAsignadas]   = useState<string[]>([])
   const dwRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
     apiFetch<{ success: boolean; data: DwVendedor[] }>('/admin/dw-vendedores/')
       .then(j => { if (j.success) setDwVendedores(j.data) })
       .catch(() => {})
+    apiFetch<{ success: boolean; listas: string[] }>('/admin/listas-precios/')
+      .then(j => { if (j.success) setListasDisponibles(j.listas) })
+      .catch(() => {})
   }, []) // eslint-disable-line react-hooks/exhaustive-deps
+
+  const toggleLista = (l: string) =>
+    setListasAsignadas(p => p.includes(l) ? p.filter(x => x !== l) : [...p, l])
 
   useEffect(() => {
     const h = (e: MouseEvent) => {
@@ -113,6 +121,9 @@ export default function AdminCrearUsuario() {
     }))
     setDwSearch(v.nombre)
     setDwOpen(false)
+    // Pre-seleccionar lista del canal si no hay ninguna asignada aún
+    const listaDefault = CANAL_LISTA_MAP[v.canal ?? '']
+    if (listaDefault) setListasAsignadas(prev => prev.length === 0 ? [listaDefault] : prev)
   }
 
   const clearDwVendedor = () => {
@@ -214,6 +225,7 @@ export default function AdminCrearUsuario() {
           vendedor_nombre_dw:    form.vendedor_nombre_dw,
           password:              form.password,
           dashboard_permissions: form.dashboard_permissions,
+          listas_precios:        form.cargo === 'Vendedor' ? listasAsignadas : [],
         }),
       })
       setSuccess(true)
@@ -633,6 +645,38 @@ export default function AdminCrearUsuario() {
             })}
           </div>
         </section>
+
+        {/* ─── Listas de Precios (solo Vendedor) ────────────────────────── */}
+        {form.cargo === 'Vendedor' && (
+          <section className="bg-white rounded-2xl border border-slate-200 p-6 space-y-4">
+            <h2 className="text-base font-semibold text-slate-800 flex items-center gap-2">
+              <Shield size={16} className="text-brand-500" />
+              Listas de Precios
+            </h2>
+            {listasDisponibles.length === 0 ? (
+              <p className="text-sm text-slate-400">Cargando listas disponibles…</p>
+            ) : (
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                {listasDisponibles.map(l => (
+                  <label key={l} className="flex items-center gap-2 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={listasAsignadas.includes(l)}
+                      onChange={() => toggleLista(l)}
+                      className="w-3.5 h-3.5 rounded accent-brand-600 cursor-pointer"
+                    />
+                    <span className="text-sm text-slate-600">{l}</span>
+                  </label>
+                ))}
+              </div>
+            )}
+            {listasAsignadas.length === 0 && (
+              <p className="text-xs text-amber-600">
+                Sin lista asignada — se usará la de su canal por defecto.
+              </p>
+            )}
+          </section>
+        )}
 
         {/* ─── Acciones ─────────────────────────────────────────────────── */}
         <div className="flex items-center gap-3">

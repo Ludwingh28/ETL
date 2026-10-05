@@ -13,6 +13,7 @@ urlpatterns = [
     path('admin/users/',                          views.admin_list_users,        name='admin-list-users'),
     path('admin/users/create/',                   views.admin_create_user,       name='admin-create-user'),
     path('admin/dw-vendedores/',                  views.admin_dw_vendedores,          name='admin-dw-vendedores'),
+    path('admin/listas-precios/',                 views.admin_listas_precios,         name='admin-listas-precios'),
     path('dashboard/vendedores-nombres/',         views.dashboard_vendedores_nombres, name='dashboard-vendedores-nombres'),
     path('admin/users/<int:user_id>/',            views.admin_update_user,       name='admin-update-user'),
     path('admin/users/<int:user_id>/permissions/', views.admin_update_permissions, name='admin-update-permissions'),
@@ -152,7 +153,12 @@ urlpatterns = [
     path('dashboard/comportamiento-productos/grafico2/',  views.dashboard_comportamiento_grafico2,           name='comportamiento-grafico2'),
     path('dashboard/comportamiento-productos/tabla/',     views.dashboard_comportamiento_tabla,              name='comportamiento-tabla'),
 
+    # Dashboard Lista de Precios
+    path('dashboard/lista-precios/datos/', views.dashboard_lista_precios_datos, name='lista-precios-datos'),
+
     # Exportaciones XLSX
-    path('exportar/ventas-combo-armado/',    views.exportar_ventas_combo_armado,    name='exportar-ventas-combo-armado'),
-    path('exportar/clientes-sin-compra/',    views.exportar_clientes_sin_compra,    name='exportar-clientes-sin-compra'),
+    path('exportar/ventas-combo-armado/',          views.exportar_ventas_combo_armado,          name='exportar-ventas-combo-armado'),
+    path('exportar/ventas-combo-desarmado/',       views.exportar_ventas_combo_desarmado,       name='exportar-ventas-combo-desarmado'),
+    path('exportar/ventas-combo-armado-filtros/',  views.exportar_ventas_combo_armado_filtros,  name='exportar-ventas-combo-armado-filtros'),
+    path('exportar/clientes-sin-compra/',          views.exportar_clientes_sin_compra,          name='exportar-clientes-sin-compra'),
 ]
