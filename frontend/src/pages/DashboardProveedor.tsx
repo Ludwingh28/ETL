@@ -21,7 +21,7 @@ interface KPIData {
 }
 
 interface MarcaData {
-  marca:    string | null
+  canal:    string | null
   total:    number
   cantidad: number
 }
@@ -489,7 +489,7 @@ export default function DashboardProveedor({ perm, nombre }: Props) {
                 <BarChart data={marcas} margin={{ top: 5, right: 20, left: 10, bottom: 60 }}>
                   <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" />
                   <XAxis
-                    dataKey="marca"
+                    dataKey="canal"
                     tick={{ fontSize: 11, fill: '#64748b' }}
                     angle={-35}
                     textAnchor="end"

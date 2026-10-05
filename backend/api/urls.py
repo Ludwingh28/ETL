@@ -157,6 +157,8 @@ urlpatterns = [
     path('dashboard/lista-precios/datos/', views.dashboard_lista_precios_datos, name='lista-precios-datos'),
 
     # Exportaciones XLSX
-    path('exportar/ventas-combo-armado/',    views.exportar_ventas_combo_armado,    name='exportar-ventas-combo-armado'),
-    path('exportar/clientes-sin-compra/',    views.exportar_clientes_sin_compra,    name='exportar-clientes-sin-compra'),
+    path('exportar/ventas-combo-armado/',          views.exportar_ventas_combo_armado,          name='exportar-ventas-combo-armado'),
+    path('exportar/ventas-combo-desarmado/',       views.exportar_ventas_combo_desarmado,       name='exportar-ventas-combo-desarmado'),
+    path('exportar/ventas-combo-armado-filtros/',  views.exportar_ventas_combo_armado_filtros,  name='exportar-ventas-combo-armado-filtros'),
+    path('exportar/clientes-sin-compra/',          views.exportar_clientes_sin_compra,          name='exportar-clientes-sin-compra'),
 ]

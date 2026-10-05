@@ -48,7 +48,7 @@ def _fmt_barcodes(raw) -> str:
     codes = []
     for code in str(raw).split(','):
         code = code.strip()
-        if code.endswith('.0'):
+        if code.endswith('.0') and code[:-2].isdigit():
             code = code[:-2]
         if code:
             codes.append(code)
@@ -725,6 +725,34 @@ def dashboard_nacional_kpis(request):
             logger.exception("Error al cargar presupuesto")
 
         data['presupuesto'] = presupuestos
+
+        # Cartera regional: clientes asignados en planificación actual, por ciudad del vendedor
+        try:
+            sql_cartera_reg = f"""
+                SELECT
+                    COUNT(DISTINCT dc.codigo_cliente)                                           AS cartera_total,
+                    COUNT(DISTINCT CASE WHEN {scz}  THEN dc.codigo_cliente END)                AS cartera_santa_cruz,
+                    COUNT(DISTINCT CASE WHEN {cbba} THEN dc.codigo_cliente END)                AS cartera_cochabamba,
+                    COUNT(DISTINCT CASE WHEN {lpz}  THEN dc.codigo_cliente END)                AS cartera_la_paz
+                FROM dual.fact_planificacion fp_car
+                JOIN dw.dim_vendedor dv
+                    ON  dv.vendedor_codigo_erp = SPLIT_PART(fp_car.codigo_erp, '.', 1)
+                    AND dv.es_vendedor_actual  = true
+                LEFT JOIN dual.dim_clientes dc ON dc.ruta = fp_car.ruta
+                WHERE fp_car.es_actual = true
+                  {canal_cond} {vend_cond}
+            """
+            _, car_rows = _run_dw_query(sql_cartera_reg, canal_param + vend_param)
+            if car_rows:
+                cr = car_rows[0]
+                data['cartera_total']      = int(cr.get('cartera_total', 0)      or 0)
+                data['cartera_santa_cruz'] = int(cr.get('cartera_santa_cruz', 0) or 0)
+                data['cartera_cochabamba'] = int(cr.get('cartera_cochabamba', 0) or 0)
+                data['cartera_la_paz']     = int(cr.get('cartera_la_paz', 0)     or 0)
+        except Exception:
+            logger.exception("Error al cargar cartera regional")
+            data.update({'cartera_total': None, 'cartera_santa_cruz': None,
+                         'cartera_cochabamba': None, 'cartera_la_paz': None})
 
         # Cartera del vendedor
         if vendedor:
@@ -1488,14 +1516,14 @@ def admin_update_permissions(request, user_id):
         return JsonResponse({'success': False, 'error': 'Usuario no encontrado'}, status=404)
 
     perms = request.data.get('dashboard_permissions', [])
-    if not isinstance(perms, list):
-        return JsonResponse({'success': False, 'error': 'dashboard_permissions debe ser una lista'}, status=400)
+    if not isinstance(perms, list) or not all(isinstance(p, str) for p in perms):
+        return JsonResponse({'success': False, 'error': 'dashboard_permissions debe ser una lista de strings'}, status=400)
 
     profile = _get_or_create_profile(target)
     profile.dashboard_permissions = perms
     if 'listas_precios' in request.data:
         listas = request.data['listas_precios']
-        if isinstance(listas, list):
+        if isinstance(listas, list) and all(isinstance(l, str) for l in listas):
             profile.listas_precios = listas
     profile.save()
     logger.warning("ADMIN_UPDATE_PERMS actor=%s target=%s perms=%s", request.user.username, target.username, perms)
@@ -2183,7 +2211,7 @@ def dashboard_canales_por_categoria(request):
                   AND fp.version_sk = (SELECT MAX(version_sk) FROM dw.dim_presupuesto WHERE anho = %s AND mes = %s AND activa = TRUE)
                 GROUP BY {_CATEGORIA_CASE}
             """
-            _, ppto_rows = _run_dw_query(sql_ppto, params + [anho, mes])
+            _, ppto_rows = _run_dw_query(sql_ppto, ([canal] if canal else []) + [anho, mes])
             ppto_map = {r['categoria']: float(r['presupuesto'] or 0) for r in ppto_rows}
         except Exception:
             logger.exception("Error al cargar presupuesto")
@@ -2295,7 +2323,7 @@ def dashboard_canales_por_sku(request):
                   AND fp.version_sk = (SELECT MAX(version_sk) FROM dw.dim_presupuesto WHERE anho = %s AND mes = %s AND activa = TRUE)
                 GROUP BY dp.producto_codigo_erp
             """
-            _, ppto_rows = _run_dw_query(sql_ppto, params + [anho, mes])
+            _, ppto_rows = _run_dw_query(sql_ppto, ([canal] if canal else []) + [anho, mes])
             ppto_map = {r['codigo']: r for r in ppto_rows}
         except Exception:
             logger.exception("Error al cargar presupuesto")
@@ -2734,7 +2762,7 @@ def dashboard_softys_canales_por_sku(request):
                   AND fp.version_sk = (SELECT MAX(version_sk) FROM dw.dim_presupuesto WHERE anho = %s AND mes = %s AND activa = TRUE)
                 GROUP BY dp.producto_codigo_erp
             """
-            _, ppto_rows = _run_dw_query(sql_ppto, sub_params + cat_params + [anho, mes])
+            _, ppto_rows = _run_dw_query(sql_ppto, sub_params[2:] + cat_params + [anho, mes])
             ppto_map = {r['codigo']: r for r in ppto_rows}
         except Exception:
             logger.exception("Error al cargar presupuesto")
@@ -3734,9 +3762,60 @@ _REGIONAL_NAME_TO_KEY = {
     'Nacional':   'nacional',
 }
 
+# ── Vendedores activos desde Google Sheets (fuente de verdad externa) ──────────
+import urllib.request as _urllib_req
+import csv as _csv_mod
+import io as _io_mod
+
+_ACTIVE_VENDORS_CSV_URLS = {
+    'santa_cruz': 'https://docs.google.com/spreadsheets/d/e/2PACX-1vSDyWMrij6ONVAK8I-Q0v8xdHvK1ta5W0eXL3CBBNF_uUuk5ybddC6QsYvnGxXaMVfhiy1WaxKHnZS6/pub?gid=0&single=true&output=csv',
+    'cochabamba': 'https://docs.google.com/spreadsheets/d/e/2PACX-1vSDyWMrij6ONVAK8I-Q0v8xdHvK1ta5W0eXL3CBBNF_uUuk5ybddC6QsYvnGxXaMVfhiy1WaxKHnZS6/pub?gid=1120226127&single=true&output=csv',
+    'la_paz':     'https://docs.google.com/spreadsheets/d/e/2PACX-1vSDyWMrij6ONVAK8I-Q0v8xdHvK1ta5W0eXL3CBBNF_uUuk5ybddC6QsYvnGxXaMVfhiy1WaxKHnZS6/pub?gid=133982311&single=true&output=csv',
+}
+_ACTIVE_VENDORS_CACHE = {}   # {regional_key: {'codes': set[str], 'ts': float}}
+_ACTIVE_VENDORS_TTL   = 3600  # 1 hora
+
+
+def _fetch_active_vendor_codes(regional_key):
+    """Retorna set de CODIGO_ERP strings para vendedores activos en esa regional.
+    Usa cache de 1 hora. Para 'nacional' combina las tres regionales."""
+    import time as _time
+    now = _time.time()
+
+    if regional_key == 'nacional':
+        result = set()
+        for rk in ('santa_cruz', 'cochabamba', 'la_paz'):
+            result |= _fetch_active_vendor_codes(rk)
+        return result
+
+    cached = _ACTIVE_VENDORS_CACHE.get(regional_key)
+    if cached and (now - cached['ts']) < _ACTIVE_VENDORS_TTL:
+        return cached['codes']
+
+    url = _ACTIVE_VENDORS_CSV_URLS.get(regional_key)
+    if not url:
+        return cached['codes'] if cached else set()
+
+    try:
+        req = _urllib_req.Request(url, headers={'User-Agent': 'Mozilla/5.0'})
+        with _urllib_req.urlopen(req, timeout=10) as resp:
+            content = resp.read().decode('utf-8-sig')
+        reader = _csv_mod.DictReader(_io_mod.StringIO(content))
+        codes = set()
+        for row in reader:
+            code = (row.get('CODIGO_ERP') or '').strip()
+            if code and code.isdigit():
+                codes.add(code)
+        _ACTIVE_VENDORS_CACHE[regional_key] = {'codes': codes, 'ts': now}
+        return codes
+    except Exception:
+        logger.warning("No se pudo obtener CSV de vendedores activos para %s", regional_key)
+        return cached['codes'] if cached else set()
+
+
 # Condiciones SQL por categoría en el nuevo DW (grupo_descripcion / clase_descripcion)
 _LINEA_ALIMENTOS = "dp.grupo_descripcion IN ('ALIMENTOS','BEBIDAS CARBONATADAS','BEBIDAS REFRESCANTES','MEZCLADOR','NO PERECIBLES') AND dp.clase_descripcion != 'APEGO'"
-_LINEA_APEGO     = "dp.clase_descripcion = 'APEGO'"
+_LINEA_APEGO     = "dp.proveedor = 'APEGO'"
 _LINEA_LICORES   = "dp.grupo_descripcion = 'BEBIDAS ALCOHOLICAS'"
 _LINEA_HPC       = "dp.grupo_descripcion IN ('CUIDADO PERSONAL','LIMPIEZA')"
 
@@ -3851,7 +3930,7 @@ def dashboard_supervisores_vendedores(request):
                   AND fp.version_sk = (SELECT MAX(version_sk) FROM dw.dim_presupuesto WHERE anho = %s AND mes = %s AND activa = TRUE)
                 GROUP BY dv.vendedor_nombre
             """
-            _, ppto_rows = _run_dw_query(sql_ppto, params_base + [anho, mes])
+            _, ppto_rows = _run_dw_query(sql_ppto, params_base[2:] + [anho, mes])
             ppto_map = {r['vendedor_sk']: r for r in ppto_rows}
         except Exception:
             logger.exception("Error al cargar presupuesto")
@@ -3863,6 +3942,33 @@ def dashboard_supervisores_vendedores(request):
         def _pct_uds(cant, ppto_uds):
             c, pu = int(cant or 0), float(ppto_uds or 0)
             return round(c / pu * 100, 1) if pu > 0 else None
+
+        # Completar con vendedores activos sin ventas del mes (CSV fuente de verdad)
+        active_codes = _fetch_active_vendor_codes(regional_key)
+        if active_codes:
+            try:
+                sql_active = f"""
+                    SELECT dv.vendedor_sk, dv.vendedor_nombre AS vendedor
+                    FROM dw.dim_vendedor dv
+                    WHERE dv.vendedor_codigo_erp = ANY(%s)
+                      AND dv.es_vendedor_actual = TRUE
+                      AND ({ciudad_cond}) {canal_cond} {supervisor_cond}
+                    ORDER BY dv.vendedor_nombre
+                """
+                _, active_rows = _run_dw_query(
+                    sql_active,
+                    [list(active_codes)] + ([canal] if canal else []) + ([supervisor_filter] if supervisor_filter else [])
+                )
+                names_with_sales = {row['vendedor'] for row in ventas_rows}
+                zero_row_template = {
+                    'alimentos': 0, 'apego': 0, 'licores': 0, 'hpc': 0, 'sin_clasificar': 0, 'total': 0,
+                    'alimentos_cant': 0, 'apego_cant': 0, 'licores_cant': 0, 'hpc_cant': 0, 'sin_clasificar_cant': 0, 'total_cant': 0,
+                }
+                for ar in active_rows:
+                    if ar['vendedor'] not in names_with_sales:
+                        ventas_rows.append({**zero_row_template, 'vendedor_sk': ar['vendedor_sk'], 'vendedor': ar['vendedor']})
+            except Exception:
+                logger.warning("No se pudo completar vendedores activos sin ventas")
 
         result = []
         for row in ventas_rows:
@@ -4111,13 +4217,13 @@ def dashboard_preventas_kpis(request):
         params = [fecha_desde, fecha_hasta] + ([canal] if canal else []) + ([supervisor] if supervisor else [])
         sql = f"""
             SELECT
-                COUNT(DISTINCT dp.nro_transaccion)                             AS total_pedidos,
-                ROUND(COALESCE(SUM(dp.importe_total), 0)::NUMERIC, 2)          AS total_importe,
-                MAX(dp.fecha_actualizacion)                                     AS ultima_actualizacion
-            FROM dual.dim_preventa dp
-            JOIN dw.dim_vendedor dv ON dv.vendedor_codigo_erp = dp.codigo_usuario
+                COUNT(DISTINCT fdp.pedido_sk)                                   AS total_pedidos,
+                ROUND(COALESCE(SUM(fdp.importe_total), 0)::NUMERIC, 2)          AS total_importe,
+                MAX(fdp.fecha_actualizacion)                                     AS ultima_actualizacion
+            FROM dual.fact_detalle_pedidos fdp
+            JOIN dw.dim_vendedor dv ON dv.vendedor_codigo_erp = fdp.codigo_vendedor
                 AND dv.es_vendedor_actual = TRUE
-            WHERE dp.fecha_transaccion::date BETWEEN %s AND %s
+            WHERE fdp.fecha_transaccion::date BETWEEN %s AND %s
               AND ({ciudad_cond}) {canal_cond} {supervisor_cond}
         """
         _, rows = _run_dw_query(sql, params)
@@ -4173,7 +4279,7 @@ def dashboard_preventas_por_canal(request):
         supervisor_cond = "AND UPPER(dv.supervisor) = UPPER(%s)" if supervisor else ""
         # supervisor activo â†' agrupa por vendedor; canal activo â†' por supervisor; sin filtros â†' por canal
         if supervisor:
-            grupo_col        = "dp.nombre_usuario"
+            grupo_col        = "dv.vendedor_nombre"
             agrupado_por_val = "vendedor"
         elif canal:
             grupo_col        = "dv.supervisor"
@@ -4185,12 +4291,12 @@ def dashboard_preventas_por_canal(request):
         sql = f"""
             SELECT
                 COALESCE({grupo_col}, 'Sin Asignar')                           AS grupo,
-                COUNT(DISTINCT dp.nro_transaccion)                             AS pedidos,
-                ROUND(COALESCE(SUM(dp.importe_total), 0)::NUMERIC, 2)          AS monto
-            FROM dual.dim_preventa dp
-            JOIN dw.dim_vendedor dv ON dv.vendedor_codigo_erp = dp.codigo_usuario
+                COUNT(DISTINCT fdp.pedido_sk)                                  AS pedidos,
+                ROUND(COALESCE(SUM(fdp.importe_total), 0)::NUMERIC, 2)         AS monto
+            FROM dual.fact_detalle_pedidos fdp
+            JOIN dw.dim_vendedor dv ON dv.vendedor_codigo_erp = fdp.codigo_vendedor
                 AND dv.es_vendedor_actual = TRUE
-            WHERE dp.fecha_transaccion::date BETWEEN %s AND %s
+            WHERE fdp.fecha_transaccion::date BETWEEN %s AND %s
               AND ({ciudad_cond}) {canal_cond} {supervisor_cond}
             GROUP BY {grupo_col}
             ORDER BY monto DESC
@@ -4242,78 +4348,146 @@ def dashboard_preventas_por_vendedor(request):
         ciudad_cond     = _regional_filter(regional_key, campo='dv.ciudad')
         canal_cond      = "AND dv.canal_rrhh = %s" if canal else ""
         supervisor_cond = "AND UPPER(dv.supervisor) = UPPER(%s)" if supervisor else ""
-        # params: [fd,fh] for rutas CTE, [fd,fh] for clientes CTE inner, [fd,fh] for main WHERE + filters
+        # params: rutas, clientes_total, visitados, top_motivos, facturas, main WHERE + filters
         params = (
-            [fecha_desde, fecha_hasta]
-            + [fecha_desde, fecha_hasta]
-            + [fecha_desde, fecha_hasta]
+            [fecha_desde, fecha_hasta]    # vendedor_rutas
+            + [fecha_desde, fecha_hasta]  # vendedor_visitados
+            + [fecha_desde, fecha_hasta]  # top_motivos
+            + [fecha_desde, fecha_hasta]  # vendedor_facturas
+            + [fecha_desde, fecha_hasta]  # main WHERE
             + ([canal] if canal else [])
             + ([supervisor] if supervisor else [])
         )
         sql = f"""
-            WITH ruta_clientes AS (
-                SELECT ruta, COUNT(*) AS total_clientes
-                FROM dual.dim_clientes
-                GROUP BY ruta
-            ),
-            vendedor_rutas AS (
+            WITH vendedor_rutas AS (
                 SELECT
-                    nombre_usuario,
-                    STRING_AGG(DISTINCT ruta, ' / ' ORDER BY ruta) AS rutas_concat
-                FROM dual.dim_preventa
-                WHERE fecha_transaccion::date BETWEEN %s AND %s
-                GROUP BY nombre_usuario
+                    dv_r.vendedor_nombre,
+                    STRING_AGG(DISTINCT dr_r.nombre, ' / ' ORDER BY dr_r.nombre) AS rutas_concat
+                FROM dual.fact_detalle_pedidos fdp_r
+                JOIN dw.dim_vendedor dv_r ON dv_r.vendedor_codigo_erp = fdp_r.codigo_vendedor
+                    AND dv_r.es_vendedor_actual = TRUE
+                JOIN dual.dim_rutas dr_r ON dr_r.ruta_sk = fdp_r.ruta_sk
+                WHERE fdp_r.fecha_transaccion::date BETWEEN %s AND %s
+                GROUP BY dv_r.vendedor_nombre
             ),
             vendedor_clientes_total AS (
+                SELECT dv_c.vendedor_nombre, COUNT(DISTINCT dc_c.codigo_cliente) AS total_clientes
+                FROM dual.fact_planificacion fp_c
+                JOIN dw.dim_vendedor dv_c
+                    ON dv_c.vendedor_codigo_erp = SPLIT_PART(fp_c.codigo_erp, '.', 1)
+                    AND dv_c.es_vendedor_actual = TRUE
+                LEFT JOIN dual.dim_clientes dc_c ON dc_c.ruta = fp_c.ruta
+                WHERE fp_c.es_actual = true
+                GROUP BY dv_c.vendedor_nombre
+            ),
+            vendedor_visitados AS (
+                SELECT dv_v.vendedor_nombre, COUNT(DISTINCT fv.codigo_cliente) AS visitados
+                FROM dual.fact_visitas fv
+                JOIN dw.dim_vendedor dv_v ON dv_v.vendedor_codigo_erp = fv.codigo_vendedor
+                    AND dv_v.es_vendedor_actual = TRUE
+                WHERE fv.fecha::date BETWEEN %s AND %s
+                GROUP BY dv_v.vendedor_nombre
+            ),
+            top_motivos AS (
                 SELECT
-                    sub.nombre_usuario,
-                    COALESCE(SUM(rc.total_clientes), 0) AS total_clientes
-                FROM (
-                    SELECT DISTINCT nombre_usuario, ruta
-                    FROM dual.dim_preventa
-                    WHERE fecha_transaccion::date BETWEEN %s AND %s
-                ) sub
-                LEFT JOIN ruta_clientes rc ON rc.ruta = sub.ruta
-                GROUP BY sub.nombre_usuario
+                    dv_m.vendedor_nombre,
+                    fv.descripcion AS motivo,
+                    COUNT(DISTINCT fv.codigo_cliente) AS cant,
+                    ROW_NUMBER() OVER (
+                        PARTITION BY dv_m.vendedor_nombre
+                        ORDER BY COUNT(DISTINCT fv.codigo_cliente) DESC
+                    ) AS rn
+                FROM dual.fact_visitas fv
+                JOIN dw.dim_vendedor dv_m ON dv_m.vendedor_codigo_erp = fv.codigo_vendedor
+                    AND dv_m.es_vendedor_actual = TRUE
+                WHERE fv.fecha::date BETWEEN %s AND %s
+                  AND fv.descripcion IS NOT NULL AND fv.descripcion != ''
+                GROUP BY dv_m.vendedor_nombre, fv.descripcion
+            ),
+            vendedor_motivos AS (
+                SELECT
+                    vendedor_nombre,
+                    STRING_AGG(cant::TEXT || ' - ' || motivo, E'\\n' ORDER BY rn) AS motivos
+                FROM top_motivos
+                WHERE rn <= 3
+                GROUP BY vendedor_nombre
+            ),
+            vendedor_facturas AS (
+                SELECT
+                    fdp_f.codigo_vendedor,
+                    COUNT(DISTINCT CASE
+                        WHEN dp_f.nombre_facturar IS DISTINCT FROM dc_f.nombre_factura
+                         AND dc_f.nombre_factura NOT ILIKE '%%VARIOS%%'
+                        THEN dp_f.pedido_sk END) AS ped_prest,
+                    COUNT(DISTINCT CASE
+                        WHEN dc_f.nombre_factura ILIKE '%%VARIOS%%'
+                        THEN dp_f.pedido_sk END)  AS ped_var
+                FROM dual.fact_detalle_pedidos fdp_f
+                JOIN dual.dim_pedidos dp_f ON dp_f.pedido_sk = fdp_f.pedido_sk
+                JOIN dual.dim_clientes dc_f ON dc_f.codigo_cliente = dp_f.cod_cliente
+                WHERE fdp_f.fecha_transaccion::date BETWEEN %s AND %s
+                GROUP BY fdp_f.codigo_vendedor
             )
             SELECT
-                dp.nombre_usuario                                                       AS vendedor,
-                vr.rutas_concat                                                         AS ruta,
+                dv.vendedor_nombre                                                      AS vendedor,
                 MAX(dv.supervisor)                                                      AS supervisor,
-                COALESCE(vtc.total_clientes, 0)                                         AS total_clientes,
-                COUNT(DISTINCT dp.cod_cliente)                                          AS pedidos,
+                vr.rutas_concat                                                         AS ruta,
+                COALESCE(vtc.total_clientes, 0)                                         AS clientes_asignados,
+                TO_CHAR(MIN(fdp.fecha_transaccion), 'HH24:MI')                          AS hora_inicio,
+                TO_CHAR(MAX(fdp.fecha_transaccion), 'HH24:MI')                          AS hora_fin,
+                ROUND(EXTRACT(EPOCH FROM (MAX(fdp.fecha_transaccion)
+                    - MIN(fdp.fecha_transaccion))) / 60)                                AS minutos_trabajados,
+                COALESCE(vv.visitados, 0)                                               AS visitados,
                 ROUND(
-                    COUNT(DISTINCT dp.cod_cliente)::NUMERIC
+                    COALESCE(vv.visitados, 0)::NUMERIC
+                    / NULLIF(COALESCE(vtc.total_clientes, 0), 0) * 100
+                , 1)                                                                    AS pct_cumplimiento,
+                COUNT(DISTINCT CASE WHEN fdp.estado_detalle_pedido = 'True' THEN fdp.cod_cliente END) AS clientes_con_pedido,
+                ROUND(
+                    COUNT(DISTINCT CASE WHEN fdp.estado_detalle_pedido = 'True' THEN fdp.cod_cliente END)::NUMERIC
                     / NULLIF(COALESCE(vtc.total_clientes, 0), 0) * 100
                 , 1)                                                                    AS pct_efectividad,
-                ROUND(COALESCE(SUM(dp.importe_total), 0)::NUMERIC, 2)                  AS monto_total,
-                TO_CHAR(MIN(dp.fecha_transaccion), 'HH24:MI')                          AS hora_inicio,
-                TO_CHAR(MAX(dp.fecha_transaccion), 'HH24:MI')                          AS hora_ultimo,
-                ROUND(EXTRACT(EPOCH FROM (MAX(dp.fecha_transaccion)
-                    - MIN(dp.fecha_transaccion))) / 60)                                AS minutos_trabajados
-            FROM dual.dim_preventa dp
-            JOIN dw.dim_vendedor dv ON dv.vendedor_codigo_erp = dp.codigo_usuario
+                COUNT(DISTINCT CASE WHEN fdp.estado_detalle_pedido = 'True' THEN fdp.pedido_sk END) AS nro_pedidos,
+                COALESCE(vm.motivos, '-')                                               AS motivos,
+                COALESCE(vf.ped_prest, 0)                                              AS ped_prest,
+                COALESCE(vf.ped_var,   0)                                              AS ped_var,
+                0                                                                       AS objetivo,
+                CEIL(COALESCE(SUM(fdp.importe_total), 0))                               AS monto_final
+            FROM dual.fact_detalle_pedidos fdp
+            JOIN dw.dim_vendedor dv ON dv.vendedor_codigo_erp = fdp.codigo_vendedor
                 AND dv.es_vendedor_actual = TRUE
-            LEFT JOIN vendedor_rutas vr ON vr.nombre_usuario = dp.nombre_usuario
-            LEFT JOIN vendedor_clientes_total vtc ON vtc.nombre_usuario = dp.nombre_usuario
-            WHERE dp.fecha_transaccion::date BETWEEN %s AND %s
+            LEFT JOIN vendedor_rutas          vr  ON vr.vendedor_nombre   = dv.vendedor_nombre
+            LEFT JOIN vendedor_clientes_total vtc ON vtc.vendedor_nombre  = dv.vendedor_nombre
+            LEFT JOIN vendedor_visitados       vv  ON vv.vendedor_nombre  = dv.vendedor_nombre
+            LEFT JOIN vendedor_motivos         vm  ON vm.vendedor_nombre  = dv.vendedor_nombre
+            LEFT JOIN vendedor_facturas        vf  ON vf.codigo_vendedor  = fdp.codigo_vendedor
+            WHERE fdp.fecha_transaccion::date BETWEEN %s AND %s
               AND ({ciudad_cond}) {canal_cond} {supervisor_cond}
-            GROUP BY dp.nombre_usuario, vr.rutas_concat, vtc.total_clientes
-            ORDER BY monto_total DESC
+            GROUP BY
+                dv.vendedor_nombre, vr.rutas_concat, vtc.total_clientes,
+                vv.visitados, vm.motivos, vf.ped_prest, vf.ped_var
+            ORDER BY monto_final DESC
         """
         _, rows = _run_dw_query(sql, params)
         data = [
             {
-                'vendedor':           r['vendedor'],
-                'ruta':               r['ruta'],
-                'supervisor':         r['supervisor'],
-                'total_clientes':     r['total_clientes'] or 0,
-                'pedidos':            r['pedidos'],
-                'pct_efectividad':    float(r['pct_efectividad']) if r.get('pct_efectividad') is not None else None,
-                'monto_total':        float(r['monto_total'] or 0),
-                'hora_inicio':        r.get('hora_inicio'),
-                'hora_ultimo':        r.get('hora_ultimo'),
-                'minutos_trabajados': int(r['minutos_trabajados']) if r.get('minutos_trabajados') is not None else None,
+                'vendedor':            r['vendedor'],
+                'supervisor':          r.get('supervisor'),
+                'ruta':                r.get('ruta') or '-',
+                'clientes_asignados':  int(r['clientes_asignados'] or 0),
+                'hora_inicio':         r.get('hora_inicio') or '-',
+                'hora_fin':            r.get('hora_fin') or '-',
+                'minutos_trabajados':  int(r['minutos_trabajados']) if r.get('minutos_trabajados') is not None else None,
+                'visitados':           int(r['visitados'] or 0),
+                'pct_cumplimiento':    float(r['pct_cumplimiento']) if r.get('pct_cumplimiento') is not None else None,
+                'clientes_con_pedido': int(r['clientes_con_pedido'] or 0),
+                'pct_efectividad':     float(r['pct_efectividad']) if r.get('pct_efectividad') is not None else None,
+                'nro_pedidos':         int(r['nro_pedidos'] or 0),
+                'motivos':             r.get('motivos') or '-',
+                'ped_prest':           int(r['ped_prest'] or 0),
+                'ped_var':             int(r['ped_var'] or 0),
+                'objetivo':            int(r['objetivo'] or 0),
+                'monto_final':         int(r['monto_final'] or 0),
             }
             for r in rows
         ]
@@ -4347,22 +4521,22 @@ def dashboard_preventas_top_faltantes(request):
         params = [fecha_desde, fecha_hasta] + ([canal] if canal else []) + ([supervisor] if supervisor else [])
         sql = f"""
             SELECT
-                dp.cod_producto                                                    AS codigo,
-                dp.nombre_producto                                                 AS producto,
-                COALESCE(SUM(dp.cantidad), 0)                                      AS cant_pedida,
-                COALESCE(SUM(CASE WHEN dp.estado = true  THEN dp.cantidad ELSE 0 END), 0) AS cant_atendida,
-                COALESCE(SUM(CASE WHEN dp.estado = false THEN dp.cantidad ELSE 0 END), 0) AS cant_faltante,
+                fdp.cod_producto                                                   AS codigo,
+                fdp.nombre_producto                                                AS producto,
+                COALESCE(SUM(fdp.cantidad), 0)                                     AS cant_pedida,
+                COALESCE(SUM(CASE WHEN fdp.estado_detalle_pedido = 'True'  THEN fdp.cantidad ELSE 0 END), 0) AS cant_atendida,
+                COALESCE(SUM(CASE WHEN fdp.estado_detalle_pedido = 'False' THEN fdp.cantidad ELSE 0 END), 0) AS cant_faltante,
                 ROUND(
-                    SUM(CASE WHEN dp.estado = true THEN dp.cantidad ELSE 0 END)
-                    / NULLIF(SUM(dp.cantidad), 0) * 100
+                    SUM(CASE WHEN fdp.estado_detalle_pedido = 'True' THEN fdp.cantidad ELSE 0 END)
+                    / NULLIF(SUM(fdp.cantidad), 0) * 100
                 , 1) AS ns_pct
-            FROM dual.dim_preventa dp
-            JOIN dw.dim_vendedor dv ON dv.vendedor_codigo_erp = dp.codigo_usuario
+            FROM dual.fact_detalle_pedidos fdp
+            JOIN dw.dim_vendedor dv ON dv.vendedor_codigo_erp = fdp.codigo_vendedor
                 AND dv.es_vendedor_actual = TRUE
-            WHERE dp.fecha_transaccion::date BETWEEN %s AND %s
+            WHERE fdp.fecha_transaccion::date BETWEEN %s AND %s
               AND ({ciudad_cond}) {canal_cond} {supervisor_cond}
-            GROUP BY dp.cod_producto, dp.nombre_producto
-            HAVING SUM(CASE WHEN dp.estado = false THEN dp.cantidad ELSE 0 END) > 0
+            GROUP BY fdp.cod_producto, fdp.nombre_producto
+            HAVING SUM(CASE WHEN fdp.estado_detalle_pedido = 'False' THEN fdp.cantidad ELSE 0 END) > 0
             ORDER BY cant_faltante DESC
             LIMIT 20
         """
@@ -4407,10 +4581,10 @@ def dashboard_preventas_supervisores_lista(request):
         params      = [fecha_desde, fecha_hasta] + ([canal] if canal else [])
         sql = f"""
             SELECT DISTINCT dv.supervisor
-            FROM dual.dim_preventa dp
-            JOIN dw.dim_vendedor dv ON dv.vendedor_codigo_erp = dp.codigo_usuario
+            FROM dual.fact_detalle_pedidos fdp
+            JOIN dw.dim_vendedor dv ON dv.vendedor_codigo_erp = fdp.codigo_vendedor
                 AND dv.es_vendedor_actual = TRUE
-            WHERE dp.fecha_transaccion::date BETWEEN %s AND %s
+            WHERE fdp.fecha_transaccion::date BETWEEN %s AND %s
               AND ({ciudad_cond}) {canal_cond}
               AND dv.supervisor IS NOT NULL AND dv.supervisor != ''
             ORDER BY dv.supervisor
@@ -4462,11 +4636,11 @@ def _multi_cat_cond(categorias):
 
 
 def _multi_prov_cond(proveedores):
-    """Multi-select proveedor → UPPER(dp.subgrupo_descripcion) IN (...)."""
+    """Multi-select proveedor → dp.proveedor IN (...)."""
     if not proveedores:
         return "", []
     phs = ", ".join(["%s"] * len(proveedores))
-    return f"AND UPPER(dp.subgrupo_descripcion) IN ({phs})", [p.upper() for p in proveedores]
+    return f"AND dp.proveedor IN ({phs})", list(proveedores)
 
 
 def _multi_sub_cond(subgrupos):
@@ -4567,7 +4741,7 @@ def dashboard_unidades_kpis(request):
         """
         p_rows = []
         try:
-            _, p_rows = _run_dw_query(sql_p, params_pp + extra + [anho, mes])
+            _, p_rows = _run_dw_query(sql_p, params_pp[2:] + extra + [anho, mes])
         except Exception:
             logger.exception("Error al cargar presupuesto")
 
@@ -4668,7 +4842,7 @@ def dashboard_unidades_por_subgrupo(request):
                   AND fp.version_sk = (SELECT MAX(version_sk) FROM dw.dim_presupuesto WHERE anho = %s AND mes = %s AND activa = TRUE)
                 GROUP BY dp.subgrupo_descripcion
             """
-            _, p_rows = _run_dw_query(sql_p, params_p + [anho, mes])
+            _, p_rows = _run_dw_query(sql_p, params_p[2:] + [anho, mes])
             ppto_map = {
                 r['subgrupo']: (float(r['presupuesto'] or 0), float(r['presupuesto_uds'] or 0))
                 for r in p_rows
@@ -4811,7 +4985,7 @@ def dashboard_unidades_por_sku(request):
                   AND fp.version_sk = (SELECT MAX(version_sk) FROM dw.dim_presupuesto WHERE anho = %s AND mes = %s AND activa = TRUE)
                 GROUP BY dp.producto_codigo_erp
             """
-            _, p_rows = _run_dw_query(sql_p, params_ppto + [anho, mes])
+            _, p_rows = _run_dw_query(sql_p, params_ppto[2:] + [anho, mes])
             ppto_map = {r['codigo']: r for r in p_rows}
         except Exception:
             logger.exception("Error al cargar presupuesto")
@@ -4887,9 +5061,9 @@ def dashboard_new_nacional_opciones(request):
         """
         _, sub_rows = _run_dw_query(sql_sub, base_params + vend_param + cat_params)
 
-        # 2) Proveedor — filtrado por categorías + sub-categoría (usa subgrupo_descripcion en nuevo DW)
+        # 2) Proveedor — filtrado por categorías + sub-categoría
         sql_prov = f"""
-            SELECT DISTINCT UPPER(dp.subgrupo_descripcion) AS proveedor
+            SELECT DISTINCT dp.proveedor
             FROM dw.fact_ventas fv
             JOIN dw.dim_fecha    df ON fv.fecha_sk    = df.fecha_sk
             JOIN dw.dim_vendedor dv ON fv.vendedor_sk = dv.vendedor_sk
@@ -4897,8 +5071,8 @@ def dashboard_new_nacional_opciones(request):
             WHERE df.anho = %s AND df.mes_numero = %s
               AND fv.es_anulado = FALSE AND fv.venta_neta > 0
               AND ({ciudad_cond}) {vend_cond} {cat_cond} {sub_cond}
-              AND dp.subgrupo_descripcion IS NOT NULL AND dp.subgrupo_descripcion <> ''
-            ORDER BY proveedor
+              AND dp.proveedor IS NOT NULL AND dp.proveedor <> ''
+            ORDER BY dp.proveedor
         """
         _, prov_rows = _run_dw_query(sql_prov, base_params + vend_param + cat_params + sub_params)
 
@@ -5450,6 +5624,28 @@ def dashboard_new_nacional_vendedores(request):
         except Exception:
             logger.exception("Error al cargar presupuesto")
 
+        # Completar con vendedores activos sin ventas del mes (CSV fuente de verdad)
+        # Solo aplica cuando no hay filtros de producto/SKU activos (para no distorsionar drills)
+        if not has_prod and not sku_drills:
+            active_codes = _fetch_active_vendor_codes(regional)
+            if active_codes:
+                try:
+                    sql_active = f"""
+                        SELECT dv.vendedor_nombre AS vendedor
+                        FROM dw.dim_vendedor dv
+                        WHERE dv.vendedor_codigo_erp = ANY(%s)
+                          AND dv.es_vendedor_actual = TRUE
+                          AND ({ciudad_cond}) {canal_cond}
+                        ORDER BY dv.vendedor_nombre
+                    """
+                    _, active_rows = _run_dw_query(sql_active, [list(active_codes)] + canal_param)
+                    names_with_sales = {row['vendedor'] for row in v_rows}
+                    for ar in active_rows:
+                        if ar['vendedor'] and ar['vendedor'] not in names_with_sales:
+                            v_rows.append({'vendedor': ar['vendedor'], 'venta_neta': 0, 'cantidad': 0})
+                except Exception:
+                    logger.warning("No se pudo completar vendedores activos sin ventas (new nacional)")
+
         result = []
         for row in v_rows:
             nombre   = row['vendedor']
@@ -5826,7 +6022,124 @@ def dashboard_new_nacional_cliente_fechas(request):
         q_cond     = "AND (dc.cliente_codigo_erp ILIKE %s OR UPPER(dc.cliente_nombre) ILIKE %s)" if q_search else ""
         q_params   = [f'%{q_search}%', f'%{q_search.upper()}%'] if q_search else []
 
-        base_params = [anho, mes] + canal_param + vend_param + ruta_params + filter_params + sku_drill_param + q_params
+        # Cadena filter (SPM only)
+        _CADENA_PATTERNS = {
+            'hipermaxi':    '%hipermaxi%',
+            'farmahiper':   '%farmahiper%',
+            'macrofidalga': '%macro%fidalga%',
+            'surfidalga':   '%sur%fidalga%',
+            'fidasur':      '%fidasur%',
+            'delicor':      '%delicor%',
+            'farmacorp':    '%farmacorp%',
+            'tia':          '% tia%',
+            'ic norte':     '%ic norte%',
+        }
+        cadena = _safe_str(request.GET.get('cadena', '')).lower().strip()
+        if cadena and cadena in _CADENA_PATTERNS:
+            cadena_cond   = "AND dc.cliente_nombre ILIKE %s"
+            cadena_params = [_CADENA_PATTERNS[cadena]]
+        elif cadena == 'otros':
+            not_clauses   = " AND ".join(["dc.cliente_nombre NOT ILIKE %s"] * len(_CADENA_PATTERNS))
+            cadena_cond   = f"AND ({not_clauses})"
+            cadena_params = list(_CADENA_PATTERNS.values())
+        else:
+            cadena_cond   = ""
+            cadena_params = []
+
+        page      = max(1, _safe_int(request.GET.get('page'), 1))
+        page_size = min(200, max(10, _safe_int(request.GET.get('page_size'), 100)))
+        offset    = (page - 1) * page_size
+
+        filter_base = [anho, mes] + canal_param + vend_param + ruta_params + filter_params + sku_drill_param + q_params + cadena_params
+
+        # Count total distinct clients (without pagination)
+        count_sql = f"""
+            SELECT COUNT(DISTINCT dc.cliente_codigo_erp) AS total
+            FROM dw.fact_ventas fv
+            JOIN dw.dim_fecha    df ON fv.fecha_sk    = df.fecha_sk
+            JOIN dw.dim_vendedor dv ON fv.vendedor_sk = dv.vendedor_sk
+            JOIN dw.dim_cliente  dc ON fv.cliente_sk  = dc.cliente_sk
+            {prod_join}
+            WHERE df.anho = %s AND df.mes_numero = %s
+              AND fv.es_anulado = FALSE AND fv.venta_neta > 0
+              AND ({ciudad_cond}) {canal_cond} {vend_cond} {ruta_cond}
+              AND dc.cliente_codigo_erp IS NOT NULL
+              {filter_cond} {sku_drill_cond} {q_cond} {cadena_cond}
+        """
+        _, count_rows = _run_dw_query(count_sql, filter_base)
+        total = int(count_rows[0]['total']) if count_rows else 0
+        import math
+        pages = math.ceil(total / page_size) if page_size else 1
+
+        # Grand totals (all matching clients, no pagination)
+        total_agg_sql = f"""
+            SELECT COALESCE(SUM(fv.venta_neta), 0)  AS total_bs,
+                   COALESCE(SUM(fv.cantidad)::BIGINT, 0) AS total_uds
+            FROM dw.fact_ventas fv
+            JOIN dw.dim_fecha    df ON fv.fecha_sk    = df.fecha_sk
+            JOIN dw.dim_vendedor dv ON fv.vendedor_sk = dv.vendedor_sk
+            JOIN dw.dim_cliente  dc ON fv.cliente_sk  = dc.cliente_sk
+            {prod_join}
+            WHERE df.anho = %s AND df.mes_numero = %s
+              AND fv.es_anulado = FALSE AND fv.venta_neta > 0
+              AND ({ciudad_cond}) {canal_cond} {vend_cond} {ruta_cond}
+              AND dc.cliente_codigo_erp IS NOT NULL
+              {filter_cond} {sku_drill_cond} {q_cond} {cadena_cond}
+        """
+        _, agg_rows = _run_dw_query(total_agg_sql, filter_base)
+        grand_total_bs  = float(agg_rows[0]['total_bs'])        if agg_rows else 0.0
+        grand_total_uds = int(agg_rows[0]['total_uds'] or 0)   if agg_rows else 0
+
+        # Totals per date (for the tfoot date columns)
+        date_agg_sql = f"""
+            SELECT df.fecha_completa::text AS fecha,
+                   COALESCE(SUM(fv.venta_neta), 0)         AS total_bs,
+                   COALESCE(SUM(fv.cantidad)::BIGINT, 0)   AS total_uds
+            FROM dw.fact_ventas fv
+            JOIN dw.dim_fecha    df ON fv.fecha_sk    = df.fecha_sk
+            JOIN dw.dim_vendedor dv ON fv.vendedor_sk = dv.vendedor_sk
+            JOIN dw.dim_cliente  dc ON fv.cliente_sk  = dc.cliente_sk
+            {prod_join}
+            WHERE df.anho = %s AND df.mes_numero = %s
+              AND fv.es_anulado = FALSE AND fv.venta_neta > 0
+              AND ({ciudad_cond}) {canal_cond} {vend_cond} {ruta_cond}
+              AND dc.cliente_codigo_erp IS NOT NULL
+              {filter_cond} {sku_drill_cond} {q_cond} {cadena_cond}
+            GROUP BY df.fecha_completa
+            ORDER BY df.fecha_completa
+        """
+        _, date_rows = _run_dw_query(date_agg_sql, filter_base)
+        totals_by_date = {
+            str(r['fecha'])[:10]: {'bs': float(r['total_bs']), 'uds': int(r['total_uds'] or 0)}
+            for r in date_rows
+        }
+
+        # Disponibilidad de cadenas — mismos filtros base sin cadena_cond (para pills dinámicos)
+        _cadena_keys = list(_CADENA_PATTERNS.keys())
+        _cadena_cases = ",\n                    ".join(
+            f"COUNT(DISTINCT CASE WHEN dc.cliente_nombre ILIKE %s THEN dc.cliente_codigo_erp END) AS c{i}"
+            for i in range(len(_cadena_keys))
+        )
+        cadena_avail_sql = f"""
+            SELECT {_cadena_cases}
+            FROM dw.fact_ventas fv
+            JOIN dw.dim_fecha    df ON fv.fecha_sk    = df.fecha_sk
+            JOIN dw.dim_vendedor dv ON fv.vendedor_sk = dv.vendedor_sk
+            JOIN dw.dim_cliente  dc ON fv.cliente_sk  = dc.cliente_sk
+            {prod_join}
+            WHERE df.anho = %s AND df.mes_numero = %s
+              AND fv.es_anulado = FALSE AND fv.venta_neta > 0
+              AND ({ciudad_cond}) {canal_cond} {vend_cond} {ruta_cond}
+              AND dc.cliente_codigo_erp IS NOT NULL
+              {filter_cond} {sku_drill_cond}
+        """
+        _avail_params = list(_CADENA_PATTERNS.values()) + [anho, mes] + canal_param + vend_param + ruta_params + filter_params + sku_drill_param
+        _, avail_rows = _run_dw_query(cadena_avail_sql, _avail_params)
+        if avail_rows:
+            _ar = avail_rows[0]
+            cadenas_disponibles = [k for i, k in enumerate(_cadena_keys) if int(_ar.get(f'c{i}', 0) or 0) > 0]
+        else:
+            cadenas_disponibles = _cadena_keys
 
         sql = f"""
             WITH top_cli AS (
@@ -5840,9 +6153,10 @@ def dashboard_new_nacional_cliente_fechas(request):
                   AND fv.es_anulado = FALSE AND fv.venta_neta > 0
                   AND ({ciudad_cond}) {canal_cond} {vend_cond} {ruta_cond}
                   AND dc.cliente_codigo_erp IS NOT NULL
-                  {filter_cond} {sku_drill_cond} {q_cond}
+                  {filter_cond} {sku_drill_cond} {q_cond} {cadena_cond}
                 GROUP BY dc.cliente_codigo_erp
                 ORDER BY SUM(fv.venta_neta) DESC
+                LIMIT %s OFFSET %s
             )
             SELECT
                 dc.cliente_codigo_erp                              AS codigo,
@@ -5863,7 +6177,8 @@ def dashboard_new_nacional_cliente_fechas(request):
             GROUP BY dc.cliente_codigo_erp, dc.cliente_nombre, df.fecha_completa
             ORDER BY dc.cliente_nombre, df.fecha_completa
         """
-        _, rows = _run_dw_query(sql, base_params + [anho, mes] + canal_param + vend_param + ruta_params + filter_params + sku_drill_param)
+        data_params = filter_base + [page_size, offset] + [anho, mes] + canal_param + vend_param + ruta_params + filter_params + sku_drill_param
+        _, rows = _run_dw_query(sql, data_params)
 
         result = [
             {
@@ -5875,7 +6190,7 @@ def dashboard_new_nacional_cliente_fechas(request):
             }
             for r in rows
         ]
-        return JsonResponse({'success': True, 'data': result})
+        return JsonResponse({'success': True, 'data': result, 'total': total, 'page': page, 'page_size': page_size, 'pages': pages, 'cadenas_disponibles': cadenas_disponibles, 'total_bs': grand_total_bs, 'total_uds': grand_total_uds, 'totals_by_date': totals_by_date})
     except Exception:
         logger.exception("Error interno")
         return JsonResponse({'success': False, 'error': 'Error interno del servidor'}, status=500)
@@ -6029,7 +6344,7 @@ def dashboard_unidades_vendedor_sku(request):
                   AND fp.version_sk = (SELECT MAX(version_sk) FROM dw.dim_presupuesto WHERE anho = %s AND mes = %s AND activa = TRUE)
                 GROUP BY dp.producto_codigo_erp
             """
-            _, p_rows = _run_dw_query(sql_p, [anho, mes, int(vendedor_sk), anho, mes])
+            _, p_rows = _run_dw_query(sql_p, [int(vendedor_sk), anho, mes])
             ppto_map = {
                 r['codigo']: (float(r['presupuesto'] or 0), float(r['presupuesto_uds'] or 0))
                 for r in p_rows
@@ -6131,6 +6446,25 @@ _PROV_PERM_MAP = {
     'COLHER':  'colher',
 }
 
+# Lineas de marca conocidas por proveedor (fallback cuando dp.proveedor no está cargado)
+_PROV_LINEAS: dict[str, list[str]] = {
+    'PEPSICO': ['CHEETOS', 'QUAKER', 'QUACKER', 'SALTY'],
+    'SOFTYS':  ['BABYSEC', 'COTIDIAN', 'ELITE', 'LADYSOFT', 'NOBLE', 'HIGIENOL'],
+    'DMUJER':  ['DMUJER'],
+    'APEGO':   ['APEGO', 'DEZERO', 'MIO'],
+    'COLHER':  ['GENOMMA'],
+}
+
+
+def _prov_filter(proveedor: str) -> tuple[str, list]:
+    """Devuelve (condición SQL, params) para filtrar por proveedor incluyendo linea_proveedor."""
+    lineas = _PROV_LINEAS.get(proveedor.upper(), [])
+    if lineas:
+        phs = ', '.join(['%s'] * len(lineas))
+        cond = f"(UPPER(dp.proveedor) = %s OR dp.linea_proveedor IN ({phs}))"
+        return cond, [proveedor.upper()] + lineas
+    return "UPPER(dp.proveedor) = %s", [proveedor.upper()]
+
 
 def _check_proveedor_perm(request, proveedor):
     """Verifica que el usuario tenga permiso para el dashboard del proveedor."""
@@ -6157,7 +6491,7 @@ def dashboard_proveedor_kpis(request):
         if not _check_proveedor_perm(request, proveedor):
             return JsonResponse({'success': False, 'error': 'Sin acceso a este dashboard'}, status=403)
 
-        prov_filter = "UPPER(dp.subgrupo_descripcion) = UPPER(%s)"
+        prov_cond, prov_params = _prov_filter(proveedor)
 
         sql_total = f"""
             SELECT COALESCE(SUM(fv.venta_neta), 0)         AS total,
@@ -6166,10 +6500,10 @@ def dashboard_proveedor_kpis(request):
             FROM dw.fact_ventas fv
             JOIN dw.dim_producto dp ON dp.producto_sk = fv.producto_sk
             JOIN dw.dim_fecha    df ON df.fecha_sk    = fv.fecha_sk
-            WHERE df.anho = %s AND df.mes_numero = %s AND {prov_filter}
+            WHERE df.anho = %s AND df.mes_numero = %s AND {prov_cond}
               AND fv.es_anulado = FALSE AND fv.venta_neta > 0
         """
-        _, rows_total = _run_dw_query(sql_total, [anho, mes, proveedor])
+        _, rows_total = _run_dw_query(sql_total, [anho, mes] + prov_params)
 
         scz  = _ciudad_case('dv.ciudad', 'santa_cruz')
         cbba = _ciudad_case('dv.ciudad', 'cochabamba')
@@ -6187,11 +6521,11 @@ def dashboard_proveedor_kpis(request):
             JOIN dw.dim_producto dp ON dp.producto_sk = fv.producto_sk
             JOIN dw.dim_fecha    df ON df.fecha_sk    = fv.fecha_sk
             JOIN dw.dim_vendedor dv ON dv.vendedor_sk = fv.vendedor_sk
-            WHERE df.anho = %s AND df.mes_numero = %s AND {prov_filter}
+            WHERE df.anho = %s AND df.mes_numero = %s AND {prov_cond}
               AND fv.es_anulado = FALSE AND fv.venta_neta > 0
             GROUP BY regional ORDER BY total DESC
         """
-        _, rows_reg = _run_dw_query(sql_reg, [anho, mes, proveedor])
+        _, rows_reg = _run_dw_query(sql_reg, [anho, mes] + prov_params)
 
         kpis = rows_total[0] if rows_total else {'total': 0, 'pedidos': 0, 'clientes': 0}
         return JsonResponse({'success': True, 'data': {
@@ -6222,22 +6556,22 @@ def dashboard_proveedor_por_marca(request):
         if not _check_proveedor_perm(request, proveedor):
             return JsonResponse({'success': False, 'error': 'Sin acceso a este dashboard'}, status=403)
 
-        sql = """
-            SELECT dv.canal_rrhh                       AS marca,
-                   COALESCE(SUM(fv.venta_neta), 0)     AS total,
-                   COALESCE(SUM(fv.cantidad), 0)       AS cantidad
+        prov_cond, prov_params = _prov_filter(proveedor)
+        sql = f"""
+            SELECT COALESCE(dv.canal_rrhh, 'SIN CANAL')      AS canal,
+                   COALESCE(SUM(fv.venta_neta), 0)            AS total,
+                   COALESCE(SUM(fv.cantidad), 0)              AS cantidad
             FROM dw.fact_ventas fv
             JOIN dw.dim_producto dp ON dp.producto_sk = fv.producto_sk
             JOIN dw.dim_fecha    df ON df.fecha_sk    = fv.fecha_sk
             JOIN dw.dim_vendedor dv ON dv.vendedor_sk = fv.vendedor_sk
             WHERE df.anho = %s AND df.mes_numero = %s
               AND fv.es_anulado = FALSE AND fv.venta_neta > 0
-              AND UPPER(dp.subgrupo_descripcion) = UPPER(%s)
-              AND dv.canal_rrhh IS NOT NULL
+              AND {prov_cond}
             GROUP BY dv.canal_rrhh
             ORDER BY total DESC
         """
-        _, rows = _run_dw_query(sql, [anho, mes, proveedor])
+        _, rows = _run_dw_query(sql, [anho, mes] + prov_params)
         return JsonResponse({'success': True, 'data': rows})
     except Exception:
         logger.exception("Error interno")
@@ -6269,7 +6603,7 @@ def _get_softys_presupuesto(anho: int, mes: int) -> list:
                 WHERE anho = %s AND mes = %s AND activa = TRUE
             )
         LEFT JOIN dw.dim_vendedor dv ON dv.vendedor_sk = fp.vendedor_sk
-        WHERE dp.proveedor = 'SOFTYS'
+        WHERE (dp.proveedor = 'SOFTYS' OR dp.linea_proveedor IN ('BABYSEC', 'COTIDIAN', 'ELITE', 'LADYSOFT', 'NOBLE', 'HIGIENOL'))
         GROUP BY dp.linea_proveedor, dp.clase_descripcion, dp.producto_nombre,
                  dv.canal_rrhh,
                  CASE
@@ -6322,13 +6656,14 @@ def dashboard_proveedor_tabla(request):
         if not _check_proveedor_perm(request, proveedor):
             return JsonResponse({'success': False, 'error': 'Sin acceso a este dashboard'}, status=403)
 
-        sql = """
+        prov_cond, prov_params = _prov_filter(proveedor)
+        sql = f"""
             SELECT
-                dv.canal_rrhh AS canal,
+                dv.canal_rrhh                              AS canal,
                 da.ciudad,
                 df.mes_nombre,
-                dp.subgrupo_descripcion AS proveedor,
-                dp.clase_descripcion    AS marca,
+                dp.proveedor,
+                COALESCE(dp.linea_proveedor, '')           AS marca,
                 fv.numero_venta,
                 df.fecha_completa,
                 dc.cliente_codigo_erp,
@@ -6348,10 +6683,10 @@ def dashboard_proveedor_tabla(request):
             JOIN dw.dim_fecha    df ON df.fecha_sk    = fv.fecha_sk
             WHERE df.anho = %s AND df.mes_numero = %s
               AND fv.es_anulado = FALSE AND fv.venta_neta > 0
-              AND UPPER(dp.subgrupo_descripcion) = UPPER(%s)
+              AND {prov_cond}
             ORDER BY fv.numero_venta, dp.producto_nombre
         """
-        _, rows = _run_dw_query(sql, [anho, mes, proveedor])
+        _, rows = _run_dw_query(sql, [anho, mes] + prov_params)
 
         response: dict = {'success': True, 'data': rows}
 
@@ -6431,16 +6766,16 @@ def exportar_ventas_combo_armado(request):
     sql = """
         SELECT
             fv.numero_venta,
-            fv.fecha_venta,
+            TO_CHAR(df.fecha_completa, 'DD/MM/YYYY'),
             dc.cliente_codigo_erp,
             COALESCE(dc.cliente_nombre, ''),
-            COALESCE(dp.grupo_codigo::INTEGER, NULL),
+            dp.grupo_codigo,
             COALESCE(dp.grupo_descripcion, ''),
-            COALESCE(dp.subgrupo_codigo::INTEGER, NULL),
+            dp.subgrupo_codigo,
             COALESCE(dp.subgrupo_descripcion, ''),
-            COALESCE(dp.clase_codigo::INTEGER, NULL),
+            dp.clase_codigo,
             COALESCE(dp.clase_descripcion, ''),
-            COALESCE(dp.subclase_codigo::INTEGER, NULL),
+            dp.subclase_codigo,
             COALESCE(dp.subclase_descripcion, ''),
             dp.producto_codigo_erp,
             COALESCE(dp.producto_nombre, ''),
@@ -6450,32 +6785,34 @@ def exportar_ventas_combo_armado(request):
             fv.subtotal,
             fv.descuento,
             fv.total,
-            COALESCE(dl.local_codigo_erp::INTEGER, NULL),
-            COALESCE(dl.local_nombre, ''),
-            COALESCE(da.almacen_codigo_erp::INTEGER, NULL),
-            COALESCE(da.almacen_nombre, ''),
-            COALESCE(fv.ruta_codigo::INTEGER, NULL),
+            dl.local_codigo_erp,
+            dl.local_nombre,
+            da.almacen_sk,
+            da.almacen_nombre,
+            COALESCE(fv.ruta_codigo, ''),
             COALESCE(fv.ruta_descripcion, ''),
             COALESCE(dv.vendedor_codigo_erp::INTEGER, NULL),
             COALESCE(dv.vendedor_nombre, ''),
-            COALESCE(ddi.distribuidor_codigo_erp::INTEGER, NULL),
-            COALESCE(ddi.distribuidor_nombre, ''),
-            COALESCE(dz.zona_codigo_erp::INTEGER, NULL),
-            COALESCE(dz.zona_descripcion, ''),
-            COALESCE(dp.componente, ''),
+            dd.distribuidor_codigo_erp,
+            dd.distribuidor_nombre,
+            CASE WHEN fv.zona_sk IS NULL THEN '0' ELSE COALESCE(dz.zona_codigo_erp, '0') END,
+            CASE WHEN fv.zona_sk IS NULL THEN 'SIN ZONA' ELSE COALESCE(dz.zona_descripcion, 'SIN ZONA') END,
+            dp.componente,
             fv.ice,
             fv.venta_neta,
-            fv.pago
-        FROM dw.fact_ventas                  fv
-        JOIN      dw.dim_fecha           df  ON fv.fecha_sk        = df.fecha_sk
-        JOIN      dw.dim_producto        dp  ON fv.producto_sk     = dp.producto_sk
-        JOIN      dw.dim_cliente         dc  ON fv.cliente_sk      = dc.cliente_sk
-        LEFT JOIN dw.dim_vendedor        dv  ON fv.vendedor_sk     = dv.vendedor_sk
-        LEFT JOIN dw.dim_local           dl  ON fv.local_sk        = dl.local_sk
-        LEFT JOIN dw.dim_almacen         da  ON fv.almacen_sk      = da.almacen_sk
-        LEFT JOIN dw.dim_distribuidor   ddi  ON fv.distribuidor_sk = ddi.distribuidor_sk
-        LEFT JOIN dw.dim_zona            dz  ON fv.zona_sk         = dz.zona_sk
+            COALESCE(fv.pago, '')
+        FROM dw.fact_ventas                     fv
+        JOIN      dw.dim_fecha           df  ON fv.fecha_sk         = df.fecha_sk
+        JOIN      dw.dim_producto        dp  ON fv.producto_sk      = dp.producto_sk
+        JOIN      dw.dim_cliente         dc  ON fv.cliente_sk       = dc.cliente_sk
+        LEFT JOIN dw.dim_vendedor        dv  ON fv.vendedor_sk      = dv.vendedor_sk
+        LEFT JOIN dw.dim_almacen         da  ON fv.almacen_sk       = da.almacen_sk
+        LEFT JOIN dw.dim_local           dl  ON fv.local_sk         = dl.local_sk
+        LEFT JOIN dw.dim_distribuidor    dd  ON fv.distribuidor_sk  = dd.distribuidor_sk
+        LEFT JOIN dw.dim_zona            dz  ON fv.zona_sk          = dz.zona_sk
         WHERE df.fecha_completa BETWEEN %s::date AND %s::date
+          AND fv.es_anulado = FALSE
+          AND fv.precio_unitario > 0
         ORDER BY df.fecha_completa, fv.numero_venta
     """
 
@@ -6525,9 +6862,163 @@ def exportar_ventas_combo_armado(request):
     return response
 
 
-# â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€
+def _exportar_xlsx_ventas(request, precio_cond, canal_filter=False):
+    """Helper compartido para exports de combo. precio_cond: SQL fragment para WHERE."""
+    token_str = ""
+    auth_header = request.META.get("HTTP_AUTHORIZATION", "")
+    if auth_header.startswith("Token "):
+        token_str = auth_header[6:]
+    else:
+        token_str = request.GET.get("_t", "")
+
+    if not token_str:
+        return JsonResponse({"error": "No autorizado"}, status=401)
+
+    try:
+        from rest_framework.authtoken.models import Token as DRFToken
+        token_obj = DRFToken.objects.select_related("user").get(key=token_str)
+        if not token_obj.user.is_active:
+            return JsonResponse({"error": "Usuario inactivo"}, status=401)
+    except Exception:
+        return JsonResponse({"error": "Token inválido"}, status=401)
+
+    if not _has_dashboard_perm(token_obj.user, 'descargas'):
+        return JsonResponse({"error": "Sin acceso a descargas"}, status=403)
+
+    fecha_desde = request.GET.get("fecha_desde", "")
+    fecha_hasta = request.GET.get("fecha_hasta", "")
+    if not fecha_desde or not fecha_hasta:
+        return JsonResponse({"success": False, "error": "Parámetros fecha_desde y fecha_hasta requeridos"}, status=400)
+    try:
+        datetime.strptime(fecha_desde, "%Y-%m-%d")
+        datetime.strptime(fecha_hasta, "%Y-%m-%d")
+    except ValueError:
+        return JsonResponse({"success": False, "error": "Formato de fecha inválido. Use YYYY-MM-DD"}, status=400)
+
+    canal    = _safe_str(request.GET.get("canal", "")) if canal_filter else ""
+    regional = request.GET.get("regional", "nacional").lower().replace(" ", "_") if canal_filter else "nacional"
+    if regional not in REGIONALES_VALID:
+        regional = "nacional"
+
+    canal_cond  = "AND dv.canal_rrhh = %s" if canal else ""
+    ciudad_cond = _regional_filter(regional) if regional != "nacional" else "TRUE"
+    extra_params = [canal] if canal else []
+
+    sql = f"""
+        SELECT
+            fv.numero_venta,
+            TO_CHAR(df.fecha_completa, 'DD/MM/YYYY'),
+            dc.cliente_codigo_erp,
+            COALESCE(dc.cliente_nombre, ''),
+            dp.grupo_codigo,
+            COALESCE(dp.grupo_descripcion, ''),
+            dp.subgrupo_codigo,
+            COALESCE(dp.subgrupo_descripcion, ''),
+            dp.clase_codigo,
+            COALESCE(dp.clase_descripcion, ''),
+            dp.subclase_codigo,
+            COALESCE(dp.subclase_descripcion, ''),
+            dp.producto_codigo_erp,
+            COALESCE(dp.producto_nombre, ''),
+            COALESCE(dp.unidad_medida, ''),
+            fv.cantidad,
+            fv.precio_unitario,
+            fv.subtotal,
+            fv.descuento,
+            fv.total,
+            dl.local_codigo_erp,
+            dl.local_nombre,
+            da.almacen_sk,
+            da.almacen_nombre,
+            COALESCE(fv.ruta_codigo, ''),
+            COALESCE(fv.ruta_descripcion, ''),
+            COALESCE(dv.vendedor_codigo_erp::INTEGER, NULL),
+            COALESCE(dv.vendedor_nombre, ''),
+            dd.distribuidor_codigo_erp,
+            dd.distribuidor_nombre,
+            CASE WHEN fv.zona_sk IS NULL THEN '0' ELSE COALESCE(dz.zona_codigo_erp, '0') END,
+            CASE WHEN fv.zona_sk IS NULL THEN 'SIN ZONA' ELSE COALESCE(dz.zona_descripcion, 'SIN ZONA') END,
+            dp.componente,
+            fv.ice,
+            fv.venta_neta,
+            COALESCE(fv.pago, '')
+        FROM dw.fact_ventas                     fv
+        JOIN      dw.dim_fecha           df  ON fv.fecha_sk         = df.fecha_sk
+        JOIN      dw.dim_producto        dp  ON fv.producto_sk      = dp.producto_sk
+        JOIN      dw.dim_cliente         dc  ON fv.cliente_sk       = dc.cliente_sk
+        LEFT JOIN dw.dim_vendedor        dv  ON fv.vendedor_sk      = dv.vendedor_sk
+        LEFT JOIN dw.dim_almacen         da  ON fv.almacen_sk       = da.almacen_sk
+        LEFT JOIN dw.dim_local           dl  ON fv.local_sk         = dl.local_sk
+        LEFT JOIN dw.dim_distribuidor    dd  ON fv.distribuidor_sk  = dd.distribuidor_sk
+        LEFT JOIN dw.dim_zona            dz  ON fv.zona_sk          = dz.zona_sk
+        WHERE df.fecha_completa BETWEEN %s::date AND %s::date
+          AND fv.es_anulado = FALSE
+          AND {precio_cond}
+          AND ({ciudad_cond}) {canal_cond}
+        ORDER BY df.fecha_completa, fv.numero_venta
+    """
+    params = [fecha_desde, fecha_hasta] + extra_params
+
+    wb = openpyxl.Workbook(write_only=True)
+    ws = wb.create_sheet(title="Ventas")
+    bold = Font(bold=True)
+    header_row = []
+    for h in _XLSX_HEADERS:
+        c = openpyxl.cell.WriteOnlyCell(ws, value=h)
+        c.font = bold
+        header_row.append(c)
+    ws.append(header_row)
+
+    try:
+        with connections['dw'].cursor() as cursor:
+            cursor.execute(sql, params)
+            while True:
+                batch = cursor.fetchmany(2000)
+                if not batch:
+                    break
+                for row in batch:
+                    ws.append(list(row) + ["", "", "", ""])
+    except Exception:
+        logger.exception("Error interno en exportación")
+        return JsonResponse({"success": False, "error": "Error interno del servidor"}, status=500)
+
+    buffer = io.BytesIO()
+    wb.save(buffer)
+    file_size = buffer.tell()
+    buffer.seek(0)
+
+    def _chunks(buf, size=65536):
+        chunk = buf.read(size)
+        while chunk:
+            yield chunk
+            chunk = buf.read(size)
+
+    base_name = "combo_desarmado" if ">= 0" in precio_cond else ("combo_armado_filtros" if canal_filter else "combo_armado")
+    tag = f"_{canal}_{regional}" if canal else (f"_{regional}" if canal_filter and regional != "nacional" else "")
+    filename = f"ventas_{base_name}{tag}_{fecha_desde}_{fecha_hasta}.xlsx"
+    resp = StreamingHttpResponse(
+        _chunks(buffer),
+        content_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    )
+    resp["Content-Disposition"] = f'attachment; filename="{filename}"'
+    resp["Content-Encoding"] = "identity"
+    resp["X-File-Size"] = str(file_size)
+    return resp
+
+
+def exportar_ventas_combo_desarmado(request):
+    """Exporta ventas con precio_unitario >= 0 (incluye precio cero)."""
+    return _exportar_xlsx_ventas(request, precio_cond="fv.precio_unitario >= 0")
+
+
+def exportar_ventas_combo_armado_filtros(request):
+    """Exporta ventas combo armado (precio_unitario > 0) con filtros de canal y regional."""
+    return _exportar_xlsx_ventas(request, precio_cond="fv.precio_unitario > 0", canal_filter=True)
+
+
+# ─────────────────────────────────────────────────────────────────────────────
 #  CANALES DISPONIBLES (lista para selectores)
-# â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€
+# ─────────────────────────────────────────────────────────────────────────────
 
 @api_view(['GET'])
 @authentication_classes([ExpiringTokenAuthentication])
@@ -7512,6 +8003,7 @@ def dashboard_tendencia_estacional(request):
                 JOIN dw.dim_vendedor dv ON fp.vendedor_sk = dv.vendedor_sk
                 {ppto_prod_join}
                 WHERE (pv.anho * 100 + pv.mes) BETWEEN %s AND %s
+                  AND pv.activa = TRUE
                   AND ({ciudad_cond})
                   {canal_cond_p}
                   {prod_cond}
@@ -7796,14 +8288,14 @@ def dashboard_ficha_sku_precios(request):
             lp.lista_nombre                         AS lista,
             fp.precio_venta                         AS precio,
             fp.precio_con_ice                       AS precio_ice,
-            fp.fecha_desde_precio::TEXT             AS fecha_desde,
-            fp.fecha_hasta_precio::TEXT             AS fecha_hasta,
-            fp.es_precio_actual                     AS es_actual
+            fp.fecha_precio::date::TEXT             AS fecha_desde,
+            fp.es_precio_actual                     AS es_actual,
+            fp.version_precio                       AS version
         FROM dw.fact_precio_producto fp
         JOIN dw.dim_lista_precios    lp  ON lp.lista_precios_sk = fp.lista_precios_sk
         JOIN dw.dim_producto         dp  ON dp.producto_sk      = fp.producto_sk
         WHERE dp.producto_codigo_erp = %s
-        ORDER BY fp.fecha_desde_precio, lp.lista_nombre
+        ORDER BY fp.fecha_precio DESC, lp.lista_nombre
     """
     try:
         _, rows = _run_dw_query(sql, [codigo])
@@ -7813,7 +8305,7 @@ def dashboard_ficha_sku_precios(request):
                 'precio':     float(r['precio']),
                 'precio_ice': float(r['precio_ice']) if r.get('precio_ice') is not None else None,
                 'fecha_desde':r['fecha_desde'],
-                'fecha_hasta':r['fecha_hasta'],
+                'fecha_hasta': None,
                 'es_actual':  r['es_actual'],
             }
             for r in rows
@@ -8407,7 +8899,7 @@ def dashboard_comportamiento_opciones(request):
         params_m.append(proveedor)
     where_m = ' AND '.join(conds_m)
     sql_m = f"""
-        SELECT DISTINCT dp.clase_descripcion
+        SELECT DISTINCT dp.clase_descripcion AS marca
         FROM dw.dim_producto dp
         WHERE {where_m}
         ORDER BY dp.clase_descripcion
@@ -8972,7 +9464,7 @@ def dashboard_new_nacional_rutas_mapa(request):
     try:
         with connections["dw"].cursor() as cursor:
             cursor.execute(sql, params)
-            cols = [c.description[0] for c in cursor.description]
+            cols = [c[0] for c in cursor.description]
             rutas = [dict(zip(cols, row)) for row in cursor.fetchall()]
         for r in rutas:
             r["venta_acumulada"] = float(r["venta_acumulada"])
@@ -9142,26 +9634,35 @@ def dashboard_lista_precios_datos(request):
 
     # Listas disponibles en el DW (para poblar selector)
     try:
-        _, lista_rows = _run_dw_query(
-            """
-            SELECT DISTINCT lp.lista_nombre
-            FROM dw.dim_lista_precios lp
-            JOIN dw.fact_precio_producto fp ON fp.lista_precios_sk = lp.lista_precios_sk
-            WHERE fp.es_precio_actual = true
-            ORDER BY lp.lista_nombre
-            """,
-            [],
-        )
-        listas_dw = [r['lista_nombre'] for r in lista_rows]
+        if listas_permitidas:
+            phs_l = ", ".join(["%s"] * len(listas_permitidas))
+            _, lista_rows = _run_dw_query(
+                f"""
+                SELECT DISTINCT lp.lista_nombre
+                FROM dw.dim_lista_precios lp
+                JOIN dw.fact_precio_producto fp ON fp.lista_precios_sk = lp.lista_precios_sk
+                WHERE fp.es_precio_actual = true
+                  AND lp.lista_nombre IN ({phs_l})
+                ORDER BY lp.lista_nombre
+                """,
+                listas_permitidas,
+            )
+            listas = [r['lista_nombre'] for r in lista_rows] or listas_permitidas
+        else:
+            _, lista_rows = _run_dw_query(
+                """
+                SELECT DISTINCT lp.lista_nombre
+                FROM dw.dim_lista_precios lp
+                JOIN dw.fact_precio_producto fp ON fp.lista_precios_sk = lp.lista_precios_sk
+                WHERE fp.es_precio_actual = true
+                ORDER BY lp.lista_nombre
+                """,
+                [],
+            )
+            listas = [r['lista_nombre'] for r in lista_rows]
     except Exception:
         logger.exception("Error obteniendo listas de precios disponibles")
-        listas_dw = []
-
-    # Las listas que el usuario puede ver: si hay restricción, intersectar con DW
-    if listas_permitidas:
-        listas = [l for l in listas_permitidas if l in listas_dw] or listas_permitidas
-    else:
-        listas = listas_dw
+        listas = listas_permitidas if listas_permitidas else []
 
     # Determinar lista activa: la solicitada (si está permitida) o la primera disponible
     if lista_solicitada:

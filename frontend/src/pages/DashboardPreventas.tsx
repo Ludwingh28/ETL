@@ -26,16 +26,23 @@ interface CanalRow {
 }
 
 interface VendedorRow {
-  vendedor:           string;
-  ruta:               string;
-  supervisor:         string | null;
-  total_clientes:     number;
-  pedidos:            number;
-  pct_efectividad:    number | null;
-  monto_total:        number;
-  hora_inicio:        string | null;
-  hora_ultimo:        string | null;
-  minutos_trabajados: number | null;
+  vendedor:            string;
+  supervisor:          string | null;
+  ruta:                string | null;
+  clientes_asignados:  number;
+  hora_inicio:         string | null;
+  hora_fin:            string | null;
+  minutos_trabajados:  number | null;
+  visitados:           number;
+  pct_cumplimiento:    number | null;
+  clientes_con_pedido: number;
+  pct_efectividad:     number | null;
+  nro_pedidos:         number;
+  motivos:             string | null;
+  ped_prest:           number;
+  ped_var:             number;
+  objetivo:            number;
+  monto_final:         number;
 }
 
 type AgrupadoPor = "canal" | "supervisor" | "vendedor";
@@ -106,18 +113,16 @@ function fmtRangoLabel(desde: string, hasta: string) {
 
 // ─── Monto color helpers ──────────────────────────────────────────────────────
 
-function montoRowCls(monto: number) {
-  if (monto >= 1500) return "bg-emerald-50 hover:bg-emerald-100";
-  if (monto >= 1000) return "bg-amber-50 hover:bg-amber-100";
-  if (monto >= 500)  return "bg-orange-50 hover:bg-orange-100";
-  return "bg-red-50 hover:bg-red-100";
+function rowCls(i: number, total: number) {
+  if (i < 3)          return "bg-emerald-50 hover:bg-emerald-100";
+  if (i >= total - 3) return "bg-red-50 hover:bg-red-100";
+  return "hover:bg-slate-50";
 }
 
-function montoTextCls(monto: number) {
-  if (monto >= 1500) return "text-emerald-700 font-bold";
-  if (monto >= 1000) return "text-amber-700 font-semibold";
-  if (monto >= 500)  return "text-orange-700";
-  return "text-red-700";
+function montoTextCls(i: number, total: number) {
+  if (i < 3)          return "text-emerald-700 font-bold";
+  if (i >= total - 3) return "text-red-600 font-bold";
+  return "text-slate-700 font-semibold";
 }
 
 // ─── Canal colors ─────────────────────────────────────────────────────────────
@@ -378,7 +383,7 @@ export default function DashboardPreventas() {
       : [...vendedores];
     return rows.sort((a, b) =>
       vendSort === "monto"
-        ? b.monto_total - a.monto_total
+        ? b.monto_final - a.monto_final
         : (b.pct_efectividad ?? -1) - (a.pct_efectividad ?? -1)
     );
   }, [vendedores, vendSearch, vendSort]);
@@ -543,10 +548,8 @@ export default function DashboardPreventas() {
             <h2 className="text-base font-bold text-slate-800">Detalle por Vendedor</h2>
             {/* leyenda colores */}
             <div className="hidden sm:flex items-center gap-2 text-[10px] font-semibold">
-              <span className="px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-700">≥ Bs 1.500</span>
-              <span className="px-2 py-0.5 rounded-full bg-amber-100  text-amber-700">≥ Bs 1.000</span>
-              <span className="px-2 py-0.5 rounded-full bg-orange-100 text-orange-700">≥ Bs 500</span>
-              <span className="px-2 py-0.5 rounded-full bg-red-100    text-red-700">&lt; Bs 500</span>
+              <span className="px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-700">Top 3 monto</span>
+              <span className="px-2 py-0.5 rounded-full bg-red-100    text-red-700">Bottom 3 monto</span>
             </div>
           </div>
           <div className="flex items-center gap-2">
@@ -569,42 +572,66 @@ export default function DashboardPreventas() {
         ) : filteredVend.length === 0 ? (
           <div className="flex items-center justify-center h-24 text-slate-400 text-sm">Sin resultados</div>
         ) : (
-          <div className="overflow-x-auto overflow-y-auto" style={{ maxHeight: 500 }}>
+          <div className="overflow-x-auto overflow-y-auto" style={{ maxHeight: 560 }}>
             <table className="w-full text-sm">
               <thead className="sticky top-0 bg-white z-10">
                 <tr className="border-b border-slate-100">
-                  <th className="text-left py-2 px-3 text-[10px] font-semibold text-slate-400 uppercase tracking-widest min-w-36">Vendedor</th>
-                  <th className="text-left py-2 px-3 text-[10px] font-semibold text-slate-400 uppercase tracking-widest min-w-20">Ruta</th>
-                  <th className="text-left py-2 px-3 text-[10px] font-semibold text-slate-400 uppercase tracking-widest min-w-28">Supervisor</th>
-                  <th className="text-center py-2 px-3 text-[10px] font-semibold text-slate-400 uppercase tracking-widest">H. Inicio</th>
-                  <th className="text-center py-2 px-3 text-[10px] font-semibold text-slate-400 uppercase tracking-widest">Últ. Mov.</th>
-                  <th className="text-center py-2 px-3 text-[10px] font-semibold text-slate-400 uppercase tracking-widest">T. Trabajado</th>
-                  <th className="text-right py-2 px-3 text-[10px] font-semibold text-slate-400 uppercase tracking-widest">Clientes Ruta</th>
-                  <th className="text-right py-2 px-3 text-[10px] font-semibold text-slate-400 uppercase tracking-widest">Visitados</th>
-                  <th className="text-right py-2 px-3 text-[10px] font-semibold text-slate-400 uppercase tracking-widest">Pedidos</th>
-                  <th className="text-center py-2 px-3 text-[10px] font-semibold text-slate-400 uppercase tracking-widest">% Cumplimt.</th>
-                  <th className="text-center py-2 px-3 text-[10px] font-semibold text-slate-400 uppercase tracking-widest">% Efectividad</th>
-                  <th className="text-right py-2 px-3 text-[10px] font-semibold text-slate-400 uppercase tracking-widest">Monto Bs</th>
+                  <th className="text-left py-1.5 px-2 text-[10px] font-semibold text-slate-400 uppercase tracking-wide whitespace-normal leading-tight min-w-28">Vendedor</th>
+                  <th className="text-left py-1.5 px-2 text-[10px] font-semibold text-slate-400 uppercase tracking-wide whitespace-normal leading-tight min-w-20">Ruta</th>
+                  <th className="text-right py-1.5 px-2 text-[10px] font-semibold text-slate-400 uppercase tracking-wide whitespace-normal leading-tight min-w-10">Cli. Asig.</th>
+                  <th className="text-center py-1.5 px-2 text-[10px] font-semibold text-slate-400 uppercase tracking-wide whitespace-normal leading-tight min-w-12">Inicio</th>
+                  <th className="text-center py-1.5 px-2 text-[10px] font-semibold text-slate-400 uppercase tracking-wide whitespace-normal leading-tight min-w-12">Ult. Mov.</th>
+                  <th className="text-center py-1.5 px-2 text-[10px] font-semibold text-slate-400 uppercase tracking-wide whitespace-normal leading-tight min-w-12">T. Trab.</th>
+                  <th className="text-right py-1.5 px-2 text-[10px] font-semibold text-slate-400 uppercase tracking-wide whitespace-normal leading-tight min-w-10">Visitas</th>
+                  <th className="text-center py-1.5 px-2 text-[10px] font-semibold text-slate-400 uppercase tracking-wide whitespace-normal leading-tight min-w-12">% Cumpl.</th>
+                  <th className="text-right py-1.5 px-2 text-[10px] font-semibold text-slate-400 uppercase tracking-wide whitespace-normal leading-tight min-w-10">Cli. Ped.</th>
+                  <th className="text-center py-1.5 px-2 text-[10px] font-semibold text-slate-400 uppercase tracking-wide whitespace-normal leading-tight min-w-12">% Efect.</th>
+                  <th className="text-right py-1.5 px-2 text-[10px] font-semibold text-slate-400 uppercase tracking-wide whitespace-normal leading-tight min-w-10">Pedidos</th>
+                  <th className="text-left py-1.5 px-2 text-[10px] font-semibold text-slate-400 uppercase tracking-wide whitespace-normal leading-tight min-w-32">Motivos de No Compra</th>
+                  <th className="text-right py-1.5 px-2 text-[10px] font-semibold text-slate-400 uppercase tracking-wide whitespace-normal leading-tight min-w-20">Total Bs.</th>
                 </tr>
               </thead>
               <tbody>
                 {filteredVend.map((v, i) => (
-                  <tr key={i} className={`border-b border-slate-100 transition-colors ${montoRowCls(v.monto_total)}`}>
-                    <td className="py-2 px-3 font-medium text-slate-700 wrap-break-word leading-snug">{v.vendedor}</td>
-                    <td className="py-2 px-3 text-slate-600 text-xs font-mono wrap-break-word leading-snug">{v.ruta ?? "—"}</td>
-                    <td className="py-2 px-3 text-slate-500 text-xs wrap-break-word leading-snug">{v.supervisor ?? "—"}</td>
-                    <td className="py-2 px-3 text-center text-slate-600 text-xs tabular-nums">{v.hora_inicio ?? "—"}</td>
-                    <td className="py-2 px-3 text-center text-slate-600 text-xs tabular-nums">{v.hora_ultimo ?? "—"}</td>
-                    <td className="py-2 px-3 text-center text-slate-600 text-xs tabular-nums">{fmtTrabajado(v.minutos_trabajados)}</td>
-                    <td className="py-2 px-3 text-right tabular-nums text-slate-600">{fmtN(v.total_clientes)}</td>
-                    <td className="py-2 px-3 text-center text-slate-300 text-xs">—</td>
-                    <td className="py-2 px-3 text-right tabular-nums text-slate-700 font-medium">{fmtN(v.pedidos)}</td>
-                    <td className="py-2 px-3 text-center text-slate-300 text-xs">—</td>
-                    <td className="py-2 px-3 text-center">
+                  <tr key={i} className={`border-b border-slate-100 transition-colors ${rowCls(i, filteredVend.length)}`}>
+                    {/* Vendedor + supervisor */}
+                    <td className="py-1.5 px-2 leading-snug">
+                      <p className="font-medium text-slate-700 text-xs">{v.vendedor}</p>
+                      {v.supervisor && <p className="text-[9px] text-slate-400 mt-0.5">{v.supervisor}</p>}
+                    </td>
+                    {/* Ruta */}
+                    <td className="py-1.5 px-2 text-slate-600 text-[10px] font-mono leading-snug">{v.ruta ?? "—"}</td>
+                    {/* Clientes asignados */}
+                    <td className="py-1.5 px-2 text-right tabular-nums text-slate-600 text-xs">{fmtN(v.clientes_asignados)}</td>
+                    {/* Inicio */}
+                    <td className="py-1.5 px-2 text-center text-slate-600 text-xs tabular-nums">{v.hora_inicio ?? "—"}</td>
+                    {/* Fin */}
+                    <td className="py-1.5 px-2 text-center text-slate-400 text-xs tabular-nums">{v.hora_fin ?? "—"}</td>
+                    {/* Tiempo trabajado */}
+                    <td className="py-1.5 px-2 text-center text-slate-600 text-xs tabular-nums">{fmtTrabajado(v.minutos_trabajados)}</td>
+                    {/* Visitados */}
+                    <td className="py-1.5 px-2 text-right tabular-nums text-slate-700 text-xs">{fmtN(v.visitados)}</td>
+                    {/* % Cumplimiento */}
+                    <td className="py-1.5 px-2 text-center">
+                      <span className="text-xs font-semibold text-slate-600">{fmtPct(v.pct_cumplimiento)}</span>
+                    </td>
+                    {/* Clientes con pedido */}
+                    <td className="py-1.5 px-2 text-right tabular-nums text-slate-700 text-xs">{fmtN(v.clientes_con_pedido)}</td>
+                    {/* % Efectividad */}
+                    <td className="py-1.5 px-2 text-center">
                       <span className="text-xs font-bold text-slate-700">{fmtPct(v.pct_efectividad)}</span>
                     </td>
-                    <td className={`py-2 px-3 text-right tabular-nums font-semibold ${montoTextCls(v.monto_total)}`}>
-                      {fmtBs(v.monto_total)}
+                    {/* Nro pedidos */}
+                    <td className="py-1.5 px-2 text-right tabular-nums text-slate-700 font-medium text-xs">{fmtN(v.nro_pedidos)}</td>
+                    {/* Motivos */}
+                    <td className="py-1.5 px-2 text-xs text-slate-500 leading-snug">
+                      {v.motivos && v.motivos !== "-"
+                        ? v.motivos.split("\n").map((m, mi) => <p key={mi}>{m}</p>)
+                        : <span className="text-slate-300">—</span>}
+                    </td>
+                    {/* Total Bs. */}
+                    <td className={`py-1.5 px-2 text-right tabular-nums ${montoTextCls(i, filteredVend.length)}`}>
+                      {fmtBs(v.monto_final)}
                     </td>
                   </tr>
                 ))}
