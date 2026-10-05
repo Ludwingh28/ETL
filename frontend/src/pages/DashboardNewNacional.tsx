@@ -1338,7 +1338,7 @@ export default function DashboardNewNacional() {
                             paddingAngle={2}
                             label={(props: any) => { // eslint-disable-line @typescript-eslint/no-explicit-any
                               const { cx, cy, midAngle, outerRadius: or, name, impactoPpto } = props as { cx: number; cy: number; midAngle: number; outerRadius: number; name: string; impactoPpto: number };
-                              if (impactoPpto < 5) return null;
+                              if (impactoPpto == null || impactoPpto < 5) return null;
                               const R = Math.PI / 180;
                               const x1 = cx + (or + 4) * Math.cos(-midAngle * R);
                               const y1 = cy + (or + 4) * Math.sin(-midAngle * R);
@@ -1350,7 +1350,7 @@ export default function DashboardNewNacional() {
                                   <line x1={x1} y1={y1} x2={x} y2={y} stroke="#cbd5e1" strokeWidth={1} />
                                   <text x={x} y={y} textAnchor={anchor} dominantBaseline="central" fontSize={9} fontWeight={700} fill="#475569">
                                     <tspan x={x} dy="-5">{name}</tspan>
-                                    <tspan x={x} dy="12" fill="#3b82f6">{impactoPpto.toFixed(0)}%</tspan>
+                                    <tspan x={x} dy="12" fill="#3b82f6">{(impactoPpto ?? 0).toFixed(0)}%</tspan>
                                   </text>
                                 </g>
                               );
@@ -1372,7 +1372,7 @@ export default function DashboardNewNacional() {
                                   <div style={{ fontWeight: 700, marginBottom: 2 }}>{d.name}</div>
                                   <div style={{ color: "#64748b" }}>
                                     Ppto: <b>{canalViewUds ? fmtN(d.value) : fmt(d.value)}</b>
-                                    {" · "}<b style={{ color: "#3b82f6" }}>{d.impactoPpto.toFixed(1)}% del total</b>
+                                    {" · "}<b style={{ color: "#3b82f6" }}>{(d.impactoPpto ?? 0).toFixed(1)}% del total</b>
                                   </div>
                                   <div style={{ color: "#64748b" }}>
                                     Avance: <b>{canalViewUds ? fmtN(d.avance) : fmt(d.avance)}</b>
@@ -1407,7 +1407,7 @@ export default function DashboardNewNacional() {
                         {pieData.map((d, i) => d.impactoPpto < 5 ? (
                           <span key={d.name} className="flex items-center gap-1 text-[9px] text-slate-500">
                             <span className="w-2 h-2 rounded-full shrink-0" style={{ background: CANAL_COLORS[i % CANAL_COLORS.length] }} />
-                            {d.name} <span className="text-blue-500 font-semibold">{d.impactoPpto.toFixed(0)}%</span>
+                            {d.name} <span className="text-blue-500 font-semibold">{(d.impactoPpto ?? 0).toFixed(0)}%</span>
                           </span>
                         ) : null)}
                       </div>

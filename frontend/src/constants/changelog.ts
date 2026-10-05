@@ -1,4 +1,4 @@
-export const CURRENT_VERSION = "1.2.9.4";
+export const CURRENT_VERSION = "2.0.0.0";
 
 export interface ChangelogVersion {
   version: string;
@@ -12,6 +12,27 @@ export interface ChangelogVersion {
 // Descripciones simplificadas para usuarios finales.
 // El detalle técnico completo está en CHANGELOG.md en la raíz del proyecto.
 export const CHANGELOG: ChangelogVersion[] = [
+  {
+    version: "2.0.0.0",
+    date: "Octubre 2026",
+    fixes: [
+      "Ventas Nacional — el presupuesto en el gráfico Evolutivo ya no se inflaba al filtrar por canal; ahora siempre muestra la versión vigente del presupuesto para cada período",
+      "Ventas Nacional — el número central del gráfico de dona de canales ya no se desbordaba del anillo en montos grandes",
+      "Sistema — todos los cálculos de ventas, presupuesto y clientes internos fueron migrados al nuevo Data Warehouse; los datos son ahora más precisos y las consultas más rápidas",
+    ],
+    features: [
+      "Ventas Nacional — nuevo gráfico de dona 'Impacto por Canal': muestra el porcentaje de ventas que concentra cada canal en el mes seleccionado; los segmentos menores al 5% se agrupan en una leyenda compacta",
+      "Ventas Nacional — tabla de clientes: filtros de Canal y Regional ahora son chips (pastillas) independientes — se pueden activar y combinar al mismo tiempo",
+      "Ventas Nacional — tabla de clientes: la fila de totales al pie ahora muestra el consolidado de TODOS los clientes (no solo la página visible)",
+      "Ventas Nacional — tabla de clientes: nueva fila de totales por semana al pie de la tabla, con el monto acumulado de todos los clientes en cada período",
+      "Dashboard Preventas — mejoras en la visualización de pedidos y nuevas opciones de filtro",
+      "Dashboard Proveedor — rediseño interno de la estructura de datos para mayor precisión en los cálculos de ventas por canal",
+      "Descarga de Archivos — nuevas opciones de filtro y mensajes de error más claros al generar reportes",
+      "Administración — soporte para asignar listas de precios específicas a cada perfil de usuario",
+    ],
+    newDashboardPerms: [],
+    newDashboardNames: {},
+  },
   {
     version: "1.2.9.4",
     date: "Septiembre 2026",
