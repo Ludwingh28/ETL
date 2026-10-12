@@ -587,7 +587,7 @@ export default function DashboardNewNacional() {
   const [selectedVend, setSelectedVend] = useState<string | null>(null);
   const [compDrill,    setCompDrill]    = useState<{ field: string; value: string } | null>(null);
   const [selectedSku,  setSelectedSku]  = useState<SkuRow[]>([]);
-  const [impactoView,  setImpactoView]  = useState<"ppto" | "ventas">("ppto");
+
   const [clientesFlat,     setClientesFlat]     = useState<ClienteFechaFlat[]>([]);
   const [loadingCliFechas, setLoadingCliFechas] = useState(false);
   const [cliSearch,        setCliSearch]        = useState("");
@@ -630,6 +630,11 @@ export default function DashboardNewNacional() {
 
   function onCompDrillClick(row: ComparacionRow) {
     if (!groupBy || groupBy === "total") return;
+    if (groupBy === 'categoria') {
+      const isActive = fCats.includes(row.name);
+      onCats(isActive ? fCats.filter(c => c !== row.name) : [...fCats, row.name]);
+      return;
+    }
     const isActive = compDrill?.field === groupBy && compDrill?.value === row.name;
     setCompDrill(isActive ? null : { field: groupBy, value: row.name });
     setSelectedSku([]); setSelectedVend(null); setSelectedCli(null);
@@ -638,6 +643,10 @@ export default function DashboardNewNacional() {
     setSelectedSku(prev => {
       const isActive = prev.some(s => s.codigo === sku.codigo);
       return isActive ? prev.filter(s => s.codigo !== sku.codigo) : [...prev, sku];
+    });
+    setFProductos(prev => {
+      const isActive = prev.includes(sku.producto);
+      return isActive ? prev.filter(p => p !== sku.producto) : [...prev, sku.producto];
     });
     setSelectedVend(null); setSelectedCli(null); setSelectedCliFecha(null);
   }
@@ -950,14 +959,14 @@ export default function DashboardNewNacional() {
     if (!selectedCli) { setCliSkus([]); setCliSkuSearch(""); return; }
     setCliSkuSearch("");
     setLoadingCliSkus(true);
-    const qs         = buildQS(selectedRegional, canal, anho, mes, fCats, fProvs, fSubs, fMarcs, fProductos);
+    const qs         = buildDrillQS(selectedRegional, canal, anho, mes, fCats, fProvs, fSubs, fMarcs, fProductos, compDrill);
     const fechaParam = selectedCliFecha ? `&fecha=${encodeURIComponent(selectedCliFecha)}` : "";
     apiFetchRef.current<{ success: boolean; data: ClienteSkuRow[] }>(
-      `/dashboard/new-nacional/cliente-skus/?cliente_codigo=${encodeURIComponent(selectedCli.codigo)}&${qs}${fechaParam}`
+      `/dashboard/new-nacional/cliente-skus/?cliente_codigo=${encodeURIComponent(selectedCli.codigo)}&${qs}${skuDrillParam}${fechaParam}`
     ).then((j) => { if (j.success) setCliSkus(j.data); else setCliSkus([]); })
      .catch(() => setCliSkus([]))
      .finally(() => setLoadingCliSkus(false));
-  }, [selectedCli, selectedCliFecha, selectedRegional, canal, fCats, fProvs, fSubs, fMarcs, fProductos, anho, mes]);
+  }, [selectedCli, selectedCliFecha, selectedRegional, canal, fCats, fProvs, fSubs, fMarcs, fProductos, compDrill, skuDrillParam, anho, mes]);
 
   // ── Limpiar filtros operacionales al cambiar regional ─────────────────────────
 
@@ -1239,60 +1248,39 @@ export default function DashboardNewNacional() {
                     })}
                   </div>
 
-                  {/* Donut / Bar toggle */}
-                  <div className="flex-1 min-w-0 flex flex-col items-center">
-                    <div className="flex items-center justify-between w-full mb-2">
-                      <p className="text-[11px] font-semibold text-slate-500">
-                        {impactoView === "ppto" ? "Impacto al presupuesto por canal" : "Ventas por canal (Bs)"} · {REGIONALES.find(r => r.key === selectedRegional)?.label}
-                      </p>
-                      <div className="flex rounded-lg overflow-hidden border border-slate-200 text-[10px] font-semibold shrink-0">
-                        <button onClick={() => setImpactoView("ppto")}
-                          className={`px-2.5 py-1 transition-colors ${impactoView === "ppto" ? "bg-brand-600 text-white" : "bg-white text-slate-500 hover:bg-slate-50"}`}>
-                          Presupuesto
-                        </button>
-                        <button onClick={() => setImpactoView("ventas")}
-                          className={`px-2.5 py-1 transition-colors border-l border-slate-200 ${impactoView === "ventas" ? "bg-brand-600 text-white" : "bg-white text-slate-500 hover:bg-slate-50"}`}>
-                          Ventas
-                        </button>
-                      </div>
-                    </div>
-                    {impactoView === "ventas" ? (() => {
-                      const totalVentas = canales.reduce((s, c) => s + (canalViewUds ? c.cantidad : c.avance), 0);
-                      const ventasPieData = canales.map(c => ({
-                        name: c.canal,
-                        value: canalViewUds ? c.cantidad : c.avance,
-                        pct: totalVentas > 0 ? ((canalViewUds ? c.cantidad : c.avance) / totalVentas * 100) : 0,
-                      }));
-                      return (
-                        <div className="relative w-full" style={{ height: 230 }}>
+                  {/* Dos donuts lado a lado: Presupuesto + Ventas */}
+                  <div className="flex-1 min-w-0 flex flex-col">
+                    <div className="flex gap-4">
+
+                      {/* Donut Presupuesto */}
+                      <div className="flex-1 min-w-0 flex flex-col items-center">
+                        <p className="text-[10px] font-semibold text-slate-500 mb-1 self-start">
+                          Presupuesto · {REGIONALES.find(r => r.key === selectedRegional)?.label}
+                        </p>
+                        <div className="relative w-full" style={{ height: 200 }}>
                           <ResponsiveContainer width="100%" height="100%">
                             <PieChart>
                               <Pie
-                                data={ventasPieData}
+                                data={pieData}
                                 cx="50%" cy="50%"
-                                innerRadius={52} outerRadius={78}
+                                innerRadius={40} outerRadius={60}
                                 dataKey="value" paddingAngle={2}
                                 label={(props: any) => { // eslint-disable-line @typescript-eslint/no-explicit-any
-                                  const { cx, cy, midAngle, outerRadius: or, name, pct } = props as { cx: number; cy: number; midAngle: number; outerRadius: number; name: string; pct: number };
-                                  if (pct < 5) return null;
+                                  const { cx, cy, midAngle, outerRadius: or, name, impactoPpto } = props as { cx: number; cy: number; midAngle: number; outerRadius: number; name: string; impactoPpto: number };
+                                  if (!impactoPpto || impactoPpto < 5) return null;
                                   const R = Math.PI / 180;
-                                  const x1 = cx + (or + 4) * Math.cos(-midAngle * R);
-                                  const y1 = cy + (or + 4) * Math.sin(-midAngle * R);
-                                  const x  = cx + (or + 26) * Math.cos(-midAngle * R);
-                                  const y  = cy + (or + 26) * Math.sin(-midAngle * R);
+                                  const x = cx + (or + 20) * Math.cos(-midAngle * R);
+                                  const y = cy + (or + 20) * Math.sin(-midAngle * R);
                                   return (
-                                    <g>
-                                      <line x1={x1} y1={y1} x2={x} y2={y} stroke="#cbd5e1" strokeWidth={1} />
-                                      <text x={x} y={y} textAnchor={x > cx ? "start" : "end"} dominantBaseline="central" fontSize={9} fontWeight={700} fill="#475569">
-                                        <tspan x={x} dy="-5">{name}</tspan>
-                                        <tspan x={x} dy="12" fill="#10b981">{pct.toFixed(0)}%</tspan>
-                                      </text>
-                                    </g>
+                                    <text x={x} y={y} textAnchor={x > cx ? "start" : "end"} dominantBaseline="central" fontSize={8} fontWeight={700} fill="#475569">
+                                      <tspan x={x} dy="-4">{name}</tspan>
+                                      <tspan x={x} dy="11" fill="#3b82f6">{impactoPpto.toFixed(0)}%</tspan>
+                                    </text>
                                   );
                                 }}
                                 labelLine={false}
                               >
-                                {ventasPieData.map((_, i) => <Cell key={i} fill={CANAL_COLORS[i % CANAL_COLORS.length]} />)}
+                                {pieData.map((_, i) => <Cell key={i} fill={CANAL_COLORS[i % CANAL_COLORS.length]} />)}
                               </Pie>
                               <Tooltip
                                 wrapperStyle={{ zIndex: 50 }}
@@ -1303,8 +1291,16 @@ export default function DashboardNewNacional() {
                                     <div style={{ fontSize: 11, borderRadius: 8, border: "1px solid #e2e8f0", background: "#fff", padding: "8px 12px", lineHeight: "1.6" }}>
                                       <div style={{ fontWeight: 700, marginBottom: 2 }}>{d.name}</div>
                                       <div style={{ color: "#64748b" }}>
-                                        Ventas: <b>{canalViewUds ? fmtN(d.value) : fmt(d.value)}</b>
-                                        {" · "}<b style={{ color: "#10b981" }}>{d.pct.toFixed(1)}% del total</b>
+                                        Ppto: <b>{canalViewUds ? fmtN(d.value) : fmt(d.value)}</b>
+                                        {" · "}<b style={{ color: "#3b82f6" }}>{(d.impactoPpto ?? 0).toFixed(1)}% del total</b>
+                                      </div>
+                                      <div style={{ color: "#64748b" }}>
+                                        Avance: <b>{canalViewUds ? fmtN(d.avance) : fmt(d.avance)}</b>
+                                        {d.pct != null && (
+                                          <span style={{ color: d.pct >= 100 ? "#10b981" : d.pct >= 80 ? "#f59e0b" : "#ef4444", marginLeft: 4 }}>
+                                            ({d.pct.toFixed(1)}% cumpl.)
+                                          </span>
+                                        )}
                                       </div>
                                     </div>
                                   );
@@ -1314,104 +1310,114 @@ export default function DashboardNewNacional() {
                           </ResponsiveContainer>
                           <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
                             <div className="text-center">
-                              <div className="text-[11px] font-black tabular-nums text-emerald-600 leading-tight">
-                                {fmtN(totalVentas)}
+                              <div className={`text-base font-black tabular-nums ${totalPctColor}`}>
+                                {totalPct.toFixed(1)}%
                               </div>
                               <div className="text-[9px] text-slate-400 leading-tight">
-                                {canalViewUds ? "uds." : "Bs."} total
+                                cumpl.<br />{canalViewUds ? "uds." : "Bs."}
                               </div>
                             </div>
                           </div>
                         </div>
-                      );
-                    })() : (
-                    <div className="relative w-full" style={{ height: 230 }}>
-                      <ResponsiveContainer width="100%" height="100%">
-                        <PieChart>
-                          <Pie
-                            data={pieData}
-                            cx="50%"
-                            cy="50%"
-                            innerRadius={52}
-                            outerRadius={78}
-                            dataKey="value"
-                            paddingAngle={2}
-                            label={(props: any) => { // eslint-disable-line @typescript-eslint/no-explicit-any
-                              const { cx, cy, midAngle, outerRadius: or, name, impactoPpto } = props as { cx: number; cy: number; midAngle: number; outerRadius: number; name: string; impactoPpto: number };
-                              if (impactoPpto == null || impactoPpto < 5) return null;
-                              const R = Math.PI / 180;
-                              const x1 = cx + (or + 4) * Math.cos(-midAngle * R);
-                              const y1 = cy + (or + 4) * Math.sin(-midAngle * R);
-                              const x  = cx + (or + 26) * Math.cos(-midAngle * R);
-                              const y  = cy + (or + 26) * Math.sin(-midAngle * R);
-                              const anchor = x > cx ? "start" : "end";
-                              return (
-                                <g>
-                                  <line x1={x1} y1={y1} x2={x} y2={y} stroke="#cbd5e1" strokeWidth={1} />
-                                  <text x={x} y={y} textAnchor={anchor} dominantBaseline="central" fontSize={9} fontWeight={700} fill="#475569">
-                                    <tspan x={x} dy="-5">{name}</tspan>
-                                    <tspan x={x} dy="12" fill="#3b82f6">{(impactoPpto ?? 0).toFixed(0)}%</tspan>
-                                  </text>
-                                </g>
-                              );
-                            }}
-                            labelLine={false}
+                        {/* Canales pequeños (<5%) — presupuesto */}
+                        {pieData.some(d => d.impactoPpto < 5) && (
+                          <div className="grid grid-cols-3 gap-x-2 gap-y-1 mt-2 w-full">
+                            {pieData.map((d, i) => d.impactoPpto < 5 ? (
+                              <span key={d.name} className="flex items-center gap-1 text-[9px] text-slate-500 truncate">
+                                <span className="w-2 h-2 rounded-full shrink-0" style={{ background: CANAL_COLORS[i % CANAL_COLORS.length] }} />
+                                <span className="truncate">{d.name}</span>
+                                <span className="text-blue-500 font-semibold shrink-0">{(d.impactoPpto ?? 0).toFixed(0)}%</span>
+                              </span>
+                            ) : null)}
+                          </div>
+                        )}
+                      </div>
 
-                          >
-                            {pieData.map((_, i) => (
-                              <Cell key={i} fill={CANAL_COLORS[i % CANAL_COLORS.length]} />
-                            ))}
-                          </Pie>
-                          <Tooltip
-                            wrapperStyle={{ zIndex: 50 }}
-                            content={({ active, payload }) => {
-                              if (!active || !payload?.length) return null;
-                              const d = payload[0].payload;
-                              return (
-                                <div style={{ fontSize: 11, borderRadius: 8, border: "1px solid #e2e8f0", background: "#fff", padding: "8px 12px", lineHeight: "1.6" }}>
-                                  <div style={{ fontWeight: 700, marginBottom: 2 }}>{d.name}</div>
-                                  <div style={{ color: "#64748b" }}>
-                                    Ppto: <b>{canalViewUds ? fmtN(d.value) : fmt(d.value)}</b>
-                                    {" · "}<b style={{ color: "#3b82f6" }}>{(d.impactoPpto ?? 0).toFixed(1)}% del total</b>
+                      {/* Donut Ventas */}
+                      {(() => {
+                        const totalVentas = canales.reduce((s, c) => s + (canalViewUds ? c.cantidad : c.avance), 0);
+                        const ventasPieData = canales.map(c => ({
+                          name: c.canal,
+                          value: canalViewUds ? c.cantidad : c.avance,
+                          pct: totalVentas > 0 ? ((canalViewUds ? c.cantidad : c.avance) / totalVentas * 100) : 0,
+                        }));
+                        return (
+                          <div className="flex-1 min-w-0 flex flex-col items-center">
+                            <p className="text-[10px] font-semibold text-slate-500 mb-1 self-start">
+                              Ventas por canal · {REGIONALES.find(r => r.key === selectedRegional)?.label}
+                            </p>
+                            <div className="relative w-full" style={{ height: 200 }}>
+                              <ResponsiveContainer width="100%" height="100%">
+                                <PieChart>
+                                  <Pie
+                                    data={ventasPieData}
+                                    cx="50%" cy="50%"
+                                    innerRadius={40} outerRadius={60}
+                                    dataKey="value" paddingAngle={2}
+                                    label={(props: any) => { // eslint-disable-line @typescript-eslint/no-explicit-any
+                                      const { cx, cy, midAngle, outerRadius: or, name, pct } = props as { cx: number; cy: number; midAngle: number; outerRadius: number; name: string; pct: number };
+                                      if (pct < 5) return null;
+                                      const R = Math.PI / 180;
+                                      const x = cx + (or + 20) * Math.cos(-midAngle * R);
+                                      const y = cy + (or + 20) * Math.sin(-midAngle * R);
+                                      return (
+                                        <text x={x} y={y} textAnchor={x > cx ? "start" : "end"} dominantBaseline="central" fontSize={8} fontWeight={700} fill="#475569">
+                                          <tspan x={x} dy="-4">{name}</tspan>
+                                          <tspan x={x} dy="11" fill="#10b981">{pct.toFixed(0)}%</tspan>
+                                        </text>
+                                      );
+                                    }}
+                                    labelLine={false}
+                                  >
+                                    {ventasPieData.map((_, i) => <Cell key={i} fill={CANAL_COLORS[i % CANAL_COLORS.length]} />)}
+                                  </Pie>
+                                  <Tooltip
+                                    wrapperStyle={{ zIndex: 50 }}
+                                    content={({ active, payload }) => {
+                                      if (!active || !payload?.length) return null;
+                                      const d = payload[0].payload;
+                                      return (
+                                        <div style={{ fontSize: 11, borderRadius: 8, border: "1px solid #e2e8f0", background: "#fff", padding: "8px 12px", lineHeight: "1.6" }}>
+                                          <div style={{ fontWeight: 700, marginBottom: 2 }}>{d.name}</div>
+                                          <div style={{ color: "#64748b" }}>
+                                            Ventas: <b>{canalViewUds ? fmtN(d.value) : fmt(d.value)}</b>
+                                            {" · "}<b style={{ color: "#10b981" }}>{d.pct.toFixed(1)}% del total</b>
+                                          </div>
+                                        </div>
+                                      );
+                                    }}
+                                  />
+                                </PieChart>
+                              </ResponsiveContainer>
+                              <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
+                                <div className="text-center">
+                                  <div className="text-[9px] text-slate-400 leading-none mb-0.5">
+                                    {canalViewUds ? "uds." : "Bs."}
                                   </div>
-                                  <div style={{ color: "#64748b" }}>
-                                    Avance: <b>{canalViewUds ? fmtN(d.avance) : fmt(d.avance)}</b>
-                                    {d.pct != null && (
-                                      <span style={{ color: d.pct >= 100 ? "#10b981" : d.pct >= 80 ? "#f59e0b" : "#ef4444", marginLeft: 4 }}>
-                                        ({d.pct.toFixed(1)}% cumpl.)
-                                      </span>
-                                    )}
+                                  <div className="text-[11px] font-black tabular-nums text-emerald-600 leading-tight">
+                                    {fmtN(totalVentas)}
                                   </div>
+                                  <div className="text-[9px] text-slate-400 leading-tight">total</div>
                                 </div>
-                              );
-                            }}
-                          />
-                        </PieChart>
-                      </ResponsiveContainer>
-                      {/* Label central */}
-                      <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
-                        <div className="text-center">
-                          <div className={`text-lg font-black tabular-nums ${totalPctColor}`}>
-                            {totalPct.toFixed(1)}%
+                              </div>
+                            </div>
+                            {/* Canales pequeños (<5%) — ventas */}
+                            {ventasPieData.some(d => d.pct < 5) && (
+                              <div className="grid grid-cols-3 gap-x-2 gap-y-1 mt-2 w-full">
+                                {ventasPieData.map((d, i) => d.pct < 5 ? (
+                                  <span key={d.name} className="flex items-center gap-1 text-[9px] text-slate-500 truncate">
+                                    <span className="w-2 h-2 rounded-full shrink-0" style={{ background: CANAL_COLORS[i % CANAL_COLORS.length] }} />
+                                    <span className="truncate">{d.name}</span>
+                                    <span className="text-emerald-600 font-semibold shrink-0">{d.pct.toFixed(0)}%</span>
+                                  </span>
+                                ) : null)}
+                              </div>
+                            )}
                           </div>
-                          <div className="text-[9px] text-slate-400 leading-tight">
-                            cumpl.<br />{canalViewUds ? "uds." : "Bs."}
-                          </div>
-                        </div>
-                      </div>
+                        );
+                      })()}
+
                     </div>
-                    )}
-                    {/* Canales pequeños (<5%) — solo en vista presupuesto */}
-                    {impactoView === "ppto" && pieData.some(d => d.impactoPpto < 5) && (
-                      <div className="flex flex-wrap gap-x-3 gap-y-1 mt-2 px-1">
-                        {pieData.map((d, i) => d.impactoPpto < 5 ? (
-                          <span key={d.name} className="flex items-center gap-1 text-[9px] text-slate-500">
-                            <span className="w-2 h-2 rounded-full shrink-0" style={{ background: CANAL_COLORS[i % CANAL_COLORS.length] }} />
-                            {d.name} <span className="text-blue-500 font-semibold">{(d.impactoPpto ?? 0).toFixed(0)}%</span>
-                          </span>
-                        ) : null)}
-                      </div>
-                    )}
                   </div>
 
                 </div>
@@ -1461,7 +1467,9 @@ export default function DashboardNewNacional() {
               </thead>
               <tbody className="divide-y divide-slate-50">
                 {comparacion.map((row) => {
-                  const isDrillActive = compDrill?.field === groupBy && compDrill?.value === row.name;
+                  const isDrillActive = groupBy === 'categoria'
+                    ? fCats.includes(row.name)
+                    : compDrill?.field === groupBy && compDrill?.value === row.name;
                   const isClickable   = groupBy !== "total";
                   return (
                   <tr key={row.name}
@@ -1703,7 +1711,10 @@ export default function DashboardNewNacional() {
                 </button>
               )}
               {selectedSku.map(s => (
-                <button key={s.codigo} onClick={() => setSelectedSku(prev => prev.filter(x => x.codigo !== s.codigo))}
+                <button key={s.codigo} onClick={() => {
+                  setSelectedSku(prev => prev.filter(x => x.codigo !== s.codigo));
+                  setFProductos(prev => prev.filter(p => p !== s.producto));
+                }}
                   className="inline-flex items-center gap-1.5 text-[11px] font-semibold px-2.5 py-1 rounded-full bg-teal-50 text-teal-700 border border-teal-200 hover:bg-teal-100 transition-colors">
                   {s.producto} <span className="opacity-60">✕</span>
                 </button>
@@ -1830,8 +1841,8 @@ export default function DashboardNewNacional() {
               {/* Cadena pills — cuando canal es SPM o hay vendedor seleccionado */}
               {(canal.toLowerCase().includes('spm') || selectedVend !== null) && (() => {
                 const ALL_NAMED = ["Hipermaxi", "Farmahiper", "MacroFidalga", "SurFidalga", "Fidasur", "DeLicor", "Farmacorp", "Tia", "IC Norte"] as const;
-                // Con vendedor: filtrar a cadenas que tienen datos; sin vendedor (canal SPM): mostrar todas
-                const visibles = selectedVend !== null && cadenaDisponibles.length > 0
+                // Mostrar solo cadenas con datos cuando ya se cargaron; antes de la primera carga, mostrar todas
+                const visibles = cadenaDisponibles.length > 0
                   ? ALL_NAMED.filter(c => cadenaDisponibles.includes(c.toLowerCase()))
                   : [...ALL_NAMED];
                 const pills = ["Todos", ...visibles, "Otros"] as const;

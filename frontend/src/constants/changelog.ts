@@ -1,4 +1,4 @@
-export const CURRENT_VERSION = "2.0.0.0";
+export const CURRENT_VERSION = "2.0.0.1";
 
 export interface ChangelogVersion {
   version: string;
@@ -12,6 +12,24 @@ export interface ChangelogVersion {
 // Descripciones simplificadas para usuarios finales.
 // El detalle técnico completo está en CHANGELOG.md en la raíz del proyecto.
 export const CHANGELOG: ChangelogVersion[] = [
+  {
+    version: "2.0.0.1",
+    date: "Octubre 2026",
+    fixes: [
+      "Ventas Nacional — los gráficos de dona de Presupuesto y Ventas ya no mezclaban visualmente sus leyendas de canales; cada leyenda aparece ahora limpiamente bajo su propio gráfico",
+      "Ventas Nacional — al abrir el detalle de un cliente con filtros de producto activos, la tabla de SKUs ahora muestra solo los productos filtrados y no el pedido completo",
+    ],
+    features: [
+      "Ventas Nacional — nueva categoría 'Sin Clasificar': los SKUs sin categoría asignada ya aparecen con su presupuesto en la tabla de SKUs, la comparación por categoría y la tabla de vendedores",
+      "Ventas Nacional — los gráficos de Presupuesto y Ventas por canal ahora se muestran uno al lado del otro en lugar de un botón para alternar entre ellos",
+      "Ventas Nacional — hacer clic en una categoría de la tabla Comparación ahora la selecciona en el filtro de Sección (igual que con vendedores)",
+      "Ventas Nacional — hacer clic en un SKU de la tabla ahora también lo selecciona en el filtro de Productos del panel de Sección",
+      "Inventario Almacén — nuevo filtro por Proveedor en la barra de filtros; permite ver el stock de un solo proveedor sin afectar la búsqueda por nombre",
+      "Lista de Precios — nuevo filtro por Proveedor en la barra de filtros; se combina con el buscador y el toggle de 'sin PVP'",
+    ],
+    newDashboardPerms: [],
+    newDashboardNames: {},
+  },
   {
     version: "2.0.0.0",
     date: "Octubre 2026",

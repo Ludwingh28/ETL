@@ -13,6 +13,7 @@ interface ProductoPrecio {
   cod_interno: string;
   cod_barra:   string | null;
   producto:    string;
+  proveedor:   string;
   costo:       number | null;
   pvp:         number | null;
   margen:      number | null;
@@ -192,8 +193,9 @@ export default function DashboardListaPrecios() {
   const [periodosDisponibles, setPeriodosDisponibles] = useState<PeriodoDisponible[]>([]);
 
   // ── Búsqueda y filtros extra ─────────────────────────────────────────────
-  const [busqueda,      setBusqueda]      = useState("");
-  const [mostrarSinPvp, setMostrarSinPvp] = useState(false);
+  const [busqueda,        setBusqueda]        = useState("");
+  const [mostrarSinPvp,   setMostrarSinPvp]   = useState(false);
+  const [proveedorFiltro, setProveedorFiltro] = useState("");
 
   useEffect(() => {
     setActiveFilters({ anho, mes, lista, busqueda });
@@ -232,9 +234,16 @@ export default function DashboardListaPrecios() {
 
   useEffect(() => { cargar(); }, [cargar]);
 
+  // ── Proveedores disponibles ───────────────────────────────────────────────
+  const proveedores = useMemo(() => {
+    const set = new Set(datos.map(r => r.proveedor).filter(Boolean));
+    return Array.from(set).sort();
+  }, [datos]);
+
   // ── Filtrado local ────────────────────────────────────────────────────────
   const datosFiltrados = useMemo(() => {
     let result = mostrarSinPvp ? datos : datos.filter(r => r.pvp != null);
+    if (proveedorFiltro) result = result.filter(r => r.proveedor === proveedorFiltro);
     if (!busqueda.trim()) return result;
     const q = busqueda.trim().toLowerCase();
     return result.filter(r =>
@@ -242,7 +251,7 @@ export default function DashboardListaPrecios() {
       r.cod_interno.toLowerCase().includes(q) ||
       (r.cod_barra?.toLowerCase().includes(q) ?? false)
     );
-  }, [datos, busqueda, mostrarSinPvp]);
+  }, [datos, busqueda, mostrarSinPvp, proveedorFiltro]);
 
   // ── Exportar ──────────────────────────────────────────────────────────────
   const handleXLSX = async () => {
@@ -336,6 +345,19 @@ export default function DashboardListaPrecios() {
               >
                 {isPrivileged && <option value="">Todas las listas</option>}
                 {listas.map(l => <option key={l} value={l}>{l}</option>)}
+              </select>
+            </div>
+
+            <div className="flex flex-col gap-1">
+              <label className="text-[10px] font-semibold uppercase tracking-wide text-slate-400">Proveedor</label>
+              <select
+                value={proveedorFiltro}
+                onChange={e => setProveedorFiltro(e.target.value)}
+                disabled={!proveedores.length}
+                className={selCls}
+              >
+                <option value="">Todos los proveedores</option>
+                {proveedores.map(p => <option key={p} value={p}>{p}</option>)}
               </select>
             </div>
 

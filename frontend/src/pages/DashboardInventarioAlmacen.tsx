@@ -12,6 +12,7 @@ interface InventarioRow {
   almacen:     string;
   cod_interno: string;
   producto:    string;
+  proveedor:   string;
   u_medida:    string;
   stock_total: number;
 }
@@ -153,13 +154,14 @@ function exportPDF(rows: ProductoPivot[], almacenes: string[], fecha: string) {
 export default function DashboardInventarioAlmacen() {
   const { apiFetch } = useAuth();
 
-  const [almacenes, setAlmacenes] = useState<string[]>([]);
-  const [rows,      setRows]      = useState<InventarioRow[]>([]);
-  const [fecha,     setFecha]     = useState<string | null>(null);
-  const [loading,    setLoading]    = useState(false);
-  const [error,      setError]      = useState<string | null>(null);
-  const [exportando, setExportando] = useState(false);
-  const [busqueda,   setBusqueda]   = useState("");
+  const [almacenes,      setAlmacenes]      = useState<string[]>([]);
+  const [rows,           setRows]           = useState<InventarioRow[]>([]);
+  const [fecha,          setFecha]          = useState<string | null>(null);
+  const [loading,        setLoading]        = useState(false);
+  const [error,          setError]          = useState<string | null>(null);
+  const [exportando,     setExportando]     = useState(false);
+  const [busqueda,       setBusqueda]       = useState("");
+  const [proveedorFiltro, setProveedorFiltro] = useState("");
 
   const cargar = useCallback(async () => {
     setLoading(true);
@@ -179,10 +181,22 @@ export default function DashboardInventarioAlmacen() {
 
   useEffect(() => { cargar(); }, [cargar]);
 
+  // ── Proveedores disponibles ───────────────────────────────────────────────
+  const proveedores = useMemo(() => {
+    const set = new Set(rows.map(r => r.proveedor).filter(Boolean));
+    return Array.from(set).sort();
+  }, [rows]);
+
+  // ── Filas filtradas por proveedor (antes del pivot) ───────────────────────
+  const rowsFiltradas = useMemo(() =>
+    proveedorFiltro ? rows.filter(r => r.proveedor === proveedorFiltro) : rows,
+    [rows, proveedorFiltro]
+  );
+
   // ── Pivot: agrupar filas por producto ────────────────────────────────────
   const pivotRows = useMemo<ProductoPivot[]>(() => {
     const map = new Map<string, ProductoPivot>();
-    for (const r of rows) {
+    for (const r of rowsFiltradas) {
       let p = map.get(r.cod_interno);
       if (!p) {
         p = { cod_interno: r.cod_interno, producto: r.producto, u_medida: r.u_medida, stocks: {}, total: 0 };
@@ -192,7 +206,7 @@ export default function DashboardInventarioAlmacen() {
       p.total += r.stock_total;
     }
     return Array.from(map.values());
-  }, [rows]);
+  }, [rowsFiltradas]);
 
   // ── Filtro por búsqueda ───────────────────────────────────────────────────
   const filtrados = useMemo(() => {
@@ -266,6 +280,20 @@ export default function DashboardInventarioAlmacen() {
                 </div>
               </div>
             )}
+
+            {/* Proveedor */}
+            <div className="flex flex-col gap-1">
+              <label className="text-[10px] font-semibold uppercase tracking-wide text-slate-400">Proveedor</label>
+              <select
+                value={proveedorFiltro}
+                onChange={e => setProveedorFiltro(e.target.value)}
+                disabled={!proveedores.length}
+                className="text-xs border border-slate-200 rounded-lg px-2.5 py-2 bg-white text-slate-700 focus:outline-none focus:ring-2 focus:ring-brand-500 disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                <option value="">Todos los proveedores</option>
+                {proveedores.map(p => <option key={p} value={p}>{p}</option>)}
+              </select>
+            </div>
 
             {/* Buscador */}
             <div className="flex flex-col gap-1 flex-1 min-w-56">

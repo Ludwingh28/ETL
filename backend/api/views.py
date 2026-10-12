@@ -1896,12 +1896,12 @@ def dashboard_regionales_por_canal(request):
 
 _CATEGORIA_CASE = """
     CASE
-        WHEN dp.clase_descripcion = 'APEGO'                                      THEN 'Apego'
+        WHEN dp.proveedor = 'APEGO'                                               THEN 'Apego'
         WHEN dp.grupo_descripcion IN ('ALIMENTOS','BEBIDAS CARBONATADAS',
              'BEBIDAS REFRESCANTES','MEZCLADOR','NO PERECIBLES')                  THEN 'Alimentos'
         WHEN dp.grupo_descripcion = 'BEBIDAS ALCOHOLICAS'                        THEN 'Licores'
         WHEN dp.grupo_descripcion IN ('CUIDADO PERSONAL','LIMPIEZA')             THEN 'Home & Personal Care'
-        ELSE 'Sin clasificar'
+        ELSE NULL
     END
 """
 
@@ -5092,6 +5092,7 @@ def dashboard_new_nacional_opciones(request):
         _, marc_rows = _run_dw_query(sql_marc, base_params + vend_param + cat_params + sub_params + prov_params)
 
         # 4) Productos — filtrados por toda la jerarquía seleccionada
+        #    UNION con fact_presupuesto para incluir productos sin ventas (ej. Sin Clasificar)
         sql_prod = f"""
             SELECT DISTINCT dp.producto_nombre AS producto
             FROM dw.fact_ventas fv
@@ -5102,9 +5103,19 @@ def dashboard_new_nacional_opciones(request):
               AND fv.es_anulado = FALSE AND fv.venta_neta > 0
               AND ({ciudad_cond}) {vend_cond} {cat_cond} {sub_cond} {prov_cond} {marc_cond}
               AND dp.producto_nombre IS NOT NULL AND dp.producto_nombre <> ''
+            UNION
+            SELECT DISTINCT dp.producto_nombre AS producto
+            FROM dw.fact_presupuesto fp
+            JOIN dw.dim_vendedor dv ON fp.vendedor_sk = dv.vendedor_sk
+            JOIN dw.dim_producto dp ON fp.producto_sk = dp.producto_sk
+            WHERE ({ciudad_cond}) {vend_cond} {cat_cond} {sub_cond} {prov_cond} {marc_cond}
+              AND fp.version_sk = (SELECT MAX(version_sk) FROM dw.dim_presupuesto WHERE anho = %s AND mes = %s AND activa = TRUE)
+              AND dp.producto_nombre IS NOT NULL AND dp.producto_nombre <> ''
             ORDER BY producto
         """
-        _, prod_rows = _run_dw_query(sql_prod, base_params + vend_param + cat_params + sub_params + prov_params + marc_params)
+        _, prod_rows = _run_dw_query(sql_prod,
+            base_params + vend_param + cat_params + sub_params + prov_params + marc_params +
+            vend_param + cat_params + sub_params + prov_params + marc_params + base_params)
 
         # Canales — independiente de selecciones
         try:
@@ -5239,7 +5250,7 @@ def dashboard_new_nacional_comparacion(request):
             group_by   = "subgrupo"
         else:
             # Sin filtros → desglosar por categoría como vista general
-            grp_expr = _CATEGORIA_CASE
+            grp_expr   = _CATEGORIA_CASE
             grp_cond   = ""
             grp_params = []
             up_cond    = ""
@@ -5285,7 +5296,8 @@ def dashboard_new_nacional_comparacion(request):
                 {grp_by_clause}
             """
             _, ant_rows = _run_dw_query(sql_ant, [prev_anho, prev_mes] + canal_param + vend_param + ruta_params + all_params)
-            ant_map = {r['name']: r for r in ant_rows}
+            _SIN_CLAS = 'Sin Clasificar' if group_by == 'categoria' else None
+            ant_map = {(r['name'] or _SIN_CLAS): r for r in ant_rows}
         except Exception:
             logger.exception("Error al cargar presupuesto")
 
@@ -5305,13 +5317,16 @@ def dashboard_new_nacional_comparacion(request):
                 {grp_by_clause}
             """
             _, p_rows = _run_dw_query(sql_p, canal_param + vend_param + all_params + [anho, mes])
-            ppto_map = {r['name']: r for r in p_rows}
+            _SIN_CLAS_P = 'Sin Clasificar' if group_by == 'categoria' else None
+            ppto_map = {(r['name'] or _SIN_CLAS_P): r for r in p_rows}
         except Exception:
             logger.exception("Error al cargar presupuesto")
 
         result = []
         for row in v_rows:
-            name     = row['name'] or '—'
+            if not row['name'] and group_by != 'categoria':
+                continue
+            name     = ('Sin Clasificar' if group_by == 'categoria' and not row['name'] else row['name']) or '—'
             cant     = int(row['cantidad'] or 0)
             vn       = float(row['venta_neta'] or 0)
             ant      = ant_map.get(name, {})
@@ -5338,6 +5353,30 @@ def dashboard_new_nacional_comparacion(request):
                 'venta_neta_ant': vn_ant,
                 'pct_camb_bs':   pct_camb_bs,
                 'pct_camb_uds':  pct_camb_uds,
+            })
+
+        # Agregar filas con presupuesto pero sin ventas (ej. Sin Clasificar)
+        result_names = {r['name'] for r in result}
+        for name, pp in ppto_map.items():
+            if name in result_names or not name:
+                continue
+            ppto_bs  = float(pp.get('ppto_bs') or 0)
+            ppto_uds = int(pp.get('ppto_uds') or 0)
+            if ppto_bs <= 0:
+                continue
+            ant = ant_map.get(name, {})
+            result.append({
+                'name':          name,
+                'cantidad':      0,
+                'venta_neta':    0.0,
+                'ppto_bs':       ppto_bs,
+                'ppto_uds':      ppto_uds,
+                'pct_cumpl':     0.0,
+                'gap_bs':        round(-ppto_bs, 0),
+                'cantidad_ant':  int(ant.get('cantidad_ant') or 0),
+                'venta_neta_ant': float(ant.get('venta_neta_ant') or 0),
+                'pct_camb_bs':   None,
+                'pct_camb_uds':  None,
             })
 
         return JsonResponse({
@@ -5438,9 +5477,12 @@ def dashboard_new_nacional_skus(request):
 
         # Presupuesto
         ppto_map = {}
+        p_rows   = []
         try:
             sql_p = f"""
                 SELECT dp.producto_codigo_erp                        AS codigo,
+                       dp.producto_nombre                            AS producto,
+                       ({_CATEGORIA_CASE})                           AS linea,
                        COALESCE(SUM(fp.venta_neta_presupuestada), 0) AS presupuesto,
                        COALESCE(SUM(fp.cantidad_presupuestada), 0)   AS presupuesto_uds
                 FROM dw.fact_presupuesto fp
@@ -5449,7 +5491,7 @@ def dashboard_new_nacional_skus(request):
                 WHERE 1=1
                   AND ({ciudad_cond}) {canal_cond} {vend_cond} {filter_cond}
                   AND fp.version_sk = (SELECT MAX(version_sk) FROM dw.dim_presupuesto WHERE anho = %s AND mes = %s AND activa = TRUE)
-                GROUP BY dp.producto_codigo_erp
+                GROUP BY dp.producto_codigo_erp, dp.producto_nombre, ({_CATEGORIA_CASE})
             """
             _, p_rows = _run_dw_query(sql_p, canal_param + vend_param + filter_params + [anho, mes])
             ppto_map = {r['codigo']: r for r in p_rows}
@@ -5488,6 +5530,30 @@ def dashboard_new_nacional_skus(request):
                 'pct_camb_bs':    pct_camb_bs,
                 'pct_camb_uds':   pct_camb_uds,
             })
+
+        # Cuando hay filtros activos, incluir SKUs presupuestados sin ventas
+        if filter_cond.strip() and p_rows:
+            codigos_con_venta = {r['codigo'] for r in v_rows}
+            for pp in p_rows:
+                if pp['codigo'] in codigos_con_venta:
+                    continue
+                ppto_bs  = float(pp.get('presupuesto') or 0)
+                ppto_uds = int(pp.get('presupuesto_uds') or 0)
+                result.append({
+                    'codigo':          pp['codigo'],
+                    'producto':        pp.get('producto') or pp['codigo'],
+                    'linea':           pp.get('linea') or 'Sin Clasificar',
+                    'cantidad':        0,
+                    'venta_neta':      0.0,
+                    'presupuesto':     ppto_bs,
+                    'presupuesto_uds': ppto_uds,
+                    'pct_cumpl':       None,
+                    'gap_pct':         None,
+                    'cantidad_ant':    0,
+                    'venta_neta_ant':  0.0,
+                    'pct_camb_bs':     None,
+                    'pct_camb_uds':    None,
+                })
 
         return JsonResponse({
             'success':   True,
@@ -5601,6 +5667,7 @@ def dashboard_new_nacional_vendedores(request):
             _, v_rows = _run_dw_query(sql_v, [anho, mes] + canal_param + filter_params)
 
         ppto_map = {}
+        p_rows   = []
         try:
             ppto_join_sku  = "JOIN dw.dim_producto dp ON fp.producto_sk = dp.producto_sk" if sku_drills else ppto_prod_join
             sql_p = f"""
@@ -5663,6 +5730,25 @@ def dashboard_new_nacional_vendedores(request):
                 'pct_cumpl':       round(vn / ppto_bs * 100, 1) if ppto_bs > 0 else None,
             })
 
+        # Cuando hay filtros activos, incluir vendedores con presupuesto pero sin ventas
+        if has_prod and p_rows:
+            names_with_result = {r['vendedor'] for r in result}
+            for pp in p_rows:
+                if pp['vendedor'] in names_with_result:
+                    continue
+                ppto_bs  = float(pp.get('presupuesto_bs')  or 0)
+                ppto_uds = int(pp.get('presupuesto_uds') or 0)
+                if ppto_bs <= 0:
+                    continue
+                result.append({
+                    'vendedor':        pp['vendedor'],
+                    'venta_neta':      0.0,
+                    'cantidad':        0,
+                    'presupuesto_bs':  ppto_bs,
+                    'presupuesto_uds': ppto_uds,
+                    'pct_cumpl':       0.0,
+                })
+
         return JsonResponse({'success': True, 'data': result})
     except Exception:
         logger.exception("Error interno")
@@ -5717,7 +5803,7 @@ def dashboard_new_nacional_vendedores_cat(request):
             COALESCE(SUM(CASE WHEN ({_CATEGORIA_CASE}) = 'Apego'              THEN {{col}} ELSE 0 END), 0) AS apego{{suf}},
             COALESCE(SUM(CASE WHEN ({_CATEGORIA_CASE}) = 'Licores'            THEN {{col}} ELSE 0 END), 0) AS licores{{suf}},
             COALESCE(SUM(CASE WHEN ({_CATEGORIA_CASE}) = 'Home & Personal Care' THEN {{col}} ELSE 0 END), 0) AS hpc{{suf}},
-            COALESCE(SUM(CASE WHEN ({_CATEGORIA_CASE}) = 'Sin clasificar'     THEN {{col}} ELSE 0 END), 0) AS sin_clasificar{{suf}}
+            COALESCE(SUM(CASE WHEN ({_CATEGORIA_CASE}) IS NULL               THEN {{col}} ELSE 0 END), 0) AS sin_clasificar{{suf}}
         """
 
         if sku_drills:
@@ -6026,8 +6112,8 @@ def dashboard_new_nacional_cliente_fechas(request):
         _CADENA_PATTERNS = {
             'hipermaxi':    '%hipermaxi%',
             'farmahiper':   '%farmahiper%',
-            'macrofidalga': '%macro%fidalga%',
-            'surfidalga':   '%sur%fidalga%',
+            'macrofidalga': '%(macro)%',
+            'surfidalga':   '%(super sur)%',
             'fidasur':      '%fidasur%',
             'delicor':      '%delicor%',
             'farmacorp':    '%farmacorp%',
@@ -6220,6 +6306,7 @@ def dashboard_new_nacional_cliente_skus(request):
             regional = 'nacional'
 
         rutas       = [s for s in request.GET.getlist('ruta') if s]
+        sku_drills  = [s for s in request.GET.getlist('sku_drill') if s]
         ciudad_cond = _regional_filter(regional)
         canal_cond  = "AND dv.canal_rrhh = %s" if canal else ""
         canal_param = [canal] if canal else []
@@ -6234,6 +6321,14 @@ def dashboard_new_nacional_cliente_skus(request):
         prod_cond, prod_params = _multi_prod_cond(productos)
         filter_cond   = f"{cat_cond} {prov_cond} {sub_cond} {marc_cond} {prod_cond}"
         filter_params = cat_params + prov_params + sub_params + marc_params + prod_params
+
+        if sku_drills:
+            _phs = ", ".join(["%s"] * len(sku_drills))
+            sku_drill_cond   = f"AND dp.producto_nombre IN ({_phs})"
+            sku_drill_params = sku_drills
+        else:
+            sku_drill_cond   = ""
+            sku_drill_params = []
 
         sql = f"""
             SELECT
@@ -6250,11 +6345,11 @@ def dashboard_new_nacional_cliente_skus(request):
               AND fv.es_anulado = FALSE AND fv.venta_neta > 0
               AND ({ciudad_cond}) {canal_cond} {fecha_cond} {ruta_cond}
               AND dc.cliente_codigo_erp = %s
-              {filter_cond}
+              {filter_cond} {sku_drill_cond}
             GROUP BY dp.producto_codigo_erp, dp.producto_nombre
             ORDER BY venta_neta DESC
         """
-        _, rows = _run_dw_query(sql, [anho, mes] + canal_param + fecha_param + ruta_params + [cliente_codigo] + filter_params)
+        _, rows = _run_dw_query(sql, [anho, mes] + canal_param + fecha_param + ruta_params + [cliente_codigo] + filter_params + sku_drill_params)
 
         result = [
             {
@@ -8448,6 +8543,7 @@ def dashboard_inventario_almacen(request):
                 da.almacen_nombre                                           AS almacen,
                 dp.producto_codigo_erp                                      AS cod_interno,
                 INITCAP(dp.producto_nombre)                                 AS producto,
+                dp.proveedor                                                AS proveedor,
                 fi.u_medida                                                 AS u_medida,
                 COALESCE(SUM(fi.stock_buenos), 0)                           AS stock_total
             FROM dw.fact_inventario fi
@@ -8455,7 +8551,7 @@ def dashboard_inventario_almacen(request):
             JOIN dw.dim_almacen  da ON da.almacen_sk  = fi.almacen_sk
             WHERE fi.fecha_inventario::date = %s::date
               AND fi.estado = true
-            GROUP BY da.almacen_nombre, dp.producto_codigo_erp, dp.producto_nombre, fi.u_medida
+            GROUP BY da.almacen_nombre, dp.producto_codigo_erp, dp.producto_nombre, dp.proveedor, fi.u_medida
             ORDER BY dp.producto_nombre, da.almacen_nombre
             """,
             [fecha],
@@ -8466,6 +8562,7 @@ def dashboard_inventario_almacen(request):
                 'almacen':     r['almacen'] or '',
                 'cod_interno': r['cod_interno'] or '',
                 'producto':    r['producto'] or '',
+                'proveedor':   r['proveedor'] or '',
                 'u_medida':    r['u_medida'] or '',
                 'stock_total': float(r['stock_total'] or 0),
             }
@@ -9710,6 +9807,7 @@ def dashboard_lista_precios_datos(request):
             dp.producto_codigo_erp      AS cod_interno,
             fp.codigo_barra             AS cod_barra,
             dp.producto_nombre          AS producto,
+            dp.proveedor                AS proveedor,
             fp.precio_venta             AS costo,
             fp.precio_venta_publico     AS pvp,
             fp.margen                   AS margen,
@@ -9733,6 +9831,7 @@ def dashboard_lista_precios_datos(request):
                 'cod_interno': r.get('cod_interno') or '',
                 'cod_barra':   _fmt_barcodes(r.get('cod_barra')),
                 'producto':    r.get('producto') or '',
+                'proveedor':   r.get('proveedor') or '',
                 'costo':       _f(r.get('costo')),
                 'pvp':         _f(r.get('pvp')),
                 'margen':      _f(r.get('margen')),
