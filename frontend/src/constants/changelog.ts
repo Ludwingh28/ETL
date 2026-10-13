@@ -22,6 +22,7 @@ export const CHANGELOG: ChangelogVersion[] = [
     features: [
       "Administración — nueva sección 'Acceso Inventario' en el panel de gestión de usuarios: permite asignar a un usuario Proveedor su proveedor específico y los almacenes que puede consultar",
       "Inventario Almacén — los usuarios Proveedor con acceso habilitado ven únicamente los productos de su proveedor y los almacenes autorizados en su perfil; el filtro es forzado desde el servidor y no puede ser modificado por el usuario",
+      "Administración — los usuarios Vendedor también pueden tener almacenes restringidos en inventario; el admin elige qué almacenes puede consultar cada vendedor desde la misma sección de accesos",
       "Nuevo Dashboard — Johns Pop: visualización de ventas por período, desglose por regional y tabla de productos, bajo el mismo modelo que los dashboards de Pepsico, Apego y Colher",
     ],
     newDashboardPerms: ['johnspop'],

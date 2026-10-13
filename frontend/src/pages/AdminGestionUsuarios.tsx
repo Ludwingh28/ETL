@@ -556,19 +556,23 @@ function EditModal({ user, onClose, onSaved, onDeleted, onToast }: EditModalProp
                 </div>
               )}
 
-              {/* Acceso proveedor a inventario */}
+              {/* Acceso a inventario — proveedor o vendedor */}
               <div className="p-3 rounded-xl border border-slate-100 bg-slate-50">
                 <div className="flex items-center justify-between">
-                  <p className="text-sm font-medium text-slate-700">Acceso a inventario de proveedor</p>
+                  <p className="text-sm font-medium text-slate-700">
+                    {datos.cargo === 'Vendedor' ? 'Restricción de almacenes en inventario' : 'Acceso a inventario de proveedor'}
+                  </p>
                   <button
                     type="button"
                     onClick={() => {
                       const next = !habilitarInventario
                       setHabilitarInventario(next)
                       if (!next) { setProveedorAsignado(''); setProvSearch(''); setAlmacenesHabilitados([]) }
-                      if (next && dwProveedores.length === 0) {
-                        apiFetch<{ success: boolean; data: string[] }>('/admin/dw-proveedores/')
-                          .then(j => { if (j.success) setDwProveedores(j.data) }).catch(() => {})
+                      if (next && dwAlmacenes.length === 0) {
+                        if (datos.cargo !== 'Vendedor' && dwProveedores.length === 0) {
+                          apiFetch<{ success: boolean; data: string[] }>('/admin/dw-proveedores/')
+                            .then(j => { if (j.success) setDwProveedores(j.data) }).catch(() => {})
+                        }
                         apiFetch<{ success: boolean; data: string[] }>('/admin/dw-almacenes/')
                           .then(j => { if (j.success) setDwAlmacenes(j.data) }).catch(() => {})
                       }
@@ -585,8 +589,8 @@ function EditModal({ user, onClose, onSaved, onDeleted, onToast }: EditModalProp
 
                 {habilitarInventario && (
                   <div className="mt-3 space-y-3">
-                    {/* Proveedor — autocomplete */}
-                    <div ref={provRef}>
+                    {/* Proveedor — autocomplete (solo para cargo Proveedor) */}
+                    {datos.cargo !== 'Vendedor' && <div ref={provRef}>
                       <label className="block text-xs font-medium text-slate-600 mb-1">Proveedor asignado</label>
                       {proveedorAsignado ? (
                         <div className="flex items-center gap-3 px-4 py-3 bg-brand-50 border border-brand-200 rounded-xl">
@@ -625,7 +629,7 @@ function EditModal({ user, onClose, onSaved, onDeleted, onToast }: EditModalProp
                           )}
                         </div>
                       )}
-                    </div>
+                    </div>}
 
                     {/* Almacenes — checkboxes */}
                     <div>
