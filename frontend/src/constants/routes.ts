@@ -34,7 +34,6 @@ const ADMIN_CARGOS = new Set(['Administrador de Sistema', 'Subadministrador de S
 
 // Orden de prioridad: softys-nuevo antes que softys (legacy)
 const PROVEEDOR_PERM_PRIORITY = ['pepsico', 'softys-nuevo', 'dmujer', 'apego', 'colher', 'johnspop']
-const PROVEEDOR_PERMS = new Set(PROVEEDOR_PERM_PRIORITY)
 
 export function getFirstDashboardRoute(user: {
   is_staff?: boolean
