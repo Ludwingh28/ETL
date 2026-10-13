@@ -24,6 +24,8 @@ class UserProfile(models.Model):
     # ej. ["nacional", "regionales", "canales"]
     dashboard_permissions = models.JSONField(default=list, blank=True)
     listas_precios        = models.JSONField(default=list, blank=True)
+    proveedor_asignado    = models.CharField(max_length=200, blank=True, default='')
+    almacenes_habilitados = models.JSONField(default=list, blank=True)
 
     last_seen             = models.DateTimeField(null=True, blank=True)
     reports_last_checked  = models.DateTimeField(null=True, blank=True)

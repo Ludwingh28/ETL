@@ -42,6 +42,8 @@ export interface ManagedUser {
   is_active:             boolean
   dashboard_permissions: string[]
   listas_precios:        string[]
+  proveedor_asignado:    string
+  almacenes_habilitados: string[]
   date_joined?:          string
   last_seen?:            string | null
 }

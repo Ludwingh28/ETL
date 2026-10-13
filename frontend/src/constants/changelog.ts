@@ -1,4 +1,4 @@
-export const CURRENT_VERSION = "2.0.0.1";
+export const CURRENT_VERSION = "2.0.0.2";
 
 export interface ChangelogVersion {
   version: string;
@@ -12,6 +12,21 @@ export interface ChangelogVersion {
 // Descripciones simplificadas para usuarios finales.
 // El detalle técnico completo está en CHANGELOG.md en la raíz del proyecto.
 export const CHANGELOG: ChangelogVersion[] = [
+  {
+    version: "2.0.0.2",
+    date: "Octubre 2026",
+    fixes: [
+      "Sistema — el botón del logo en la barra de navegación también respeta el cargo del usuario al volver al inicio",
+      "Ventas Nacional — la columna 'vs mes pasado' en la tabla de comparación ahora compara exactamente los mismos días en ambos meses (en base a la última fecha con datos); una leyenda bajo el título indica el rango comparado",
+    ],
+    features: [
+      "Administración — nueva sección 'Acceso Inventario' en el panel de gestión de usuarios: permite asignar a un usuario Proveedor su proveedor específico y los almacenes que puede consultar",
+      "Inventario Almacén — los usuarios Proveedor con acceso habilitado ven únicamente los productos de su proveedor y los almacenes autorizados en su perfil; el filtro es forzado desde el servidor y no puede ser modificado por el usuario",
+      "Nuevo Dashboard — Johns Pop: visualización de ventas por período, desglose por regional y tabla de productos, bajo el mismo modelo que los dashboards de Pepsico, Apego y Colher",
+    ],
+    newDashboardPerms: ['johnspop'],
+    newDashboardNames: { johnspop: 'Dashboard Johns Pop' },
+  },
   {
     version: "2.0.0.1",
     date: "Octubre 2026",
@@ -151,9 +166,7 @@ export const CHANGELOG: ChangelogVersion[] = [
       "Gráficos de tendencia — la proyección ahora refleja el ritmo de ventas real, sin distorsión por días sin actividad",
       "Dashboard Nacional — al seleccionar un SKU, la tabla de vendedores muestra a todos incluyendo quienes no vendieron ese producto",
     ],
-    features: [
-      "Dashboard Nacional — nueva vista de vendedores desglosada por categoría de producto",
-    ],
+    features: ["Dashboard Nacional — nueva vista de vendedores desglosada por categoría de producto"],
     newDashboardPerms: [],
     newDashboardNames: {},
   },
@@ -174,24 +187,16 @@ export const CHANGELOG: ChangelogVersion[] = [
   {
     version: "1.2.8.4",
     date: "Julio 2026",
-    fixes: [
-      "Ventas Nacional — las tablas de vendedores y clientes ya no se extienden indefinidamente; tienen scroll interno con encabezado fijo",
-    ],
-    features: [
-      "Ventas Nacional — buscador de SKUs por cliente con contador de resultados; se reinicia al seleccionar otro cliente",
-    ],
+    fixes: ["Ventas Nacional — las tablas de vendedores y clientes ya no se extienden indefinidamente; tienen scroll interno con encabezado fijo"],
+    features: ["Ventas Nacional — buscador de SKUs por cliente con contador de resultados; se reinicia al seleccionar otro cliente"],
     newDashboardPerms: [],
     newDashboardNames: {},
   },
   {
     version: "1.2.8.3",
     date: "Julio 2026",
-    fixes: [
-      "Ventas Nacional — el filtro de Proveedor ahora muestra proveedores correctamente (antes mostraba los mismos valores que Marca)",
-    ],
-    features: [
-      "Ventas Nacional — tabla de SKUs: nueva opción de ordenar por ventas en Bs",
-    ],
+    fixes: ["Ventas Nacional — el filtro de Proveedor ahora muestra proveedores correctamente (antes mostraba los mismos valores que Marca)"],
+    features: ["Ventas Nacional — tabla de SKUs: nueva opción de ordenar por ventas en Bs"],
     newDashboardPerms: [],
     newDashboardNames: {},
   },
@@ -254,10 +259,7 @@ export const CHANGELOG: ChangelogVersion[] = [
   {
     version: "1.2.6",
     date: "Junio 2026",
-    fixes: [
-      "Dashboard Softys — corregidos varios errores de carga en KPIs y filtros para usuarios Proveedor",
-      "Dashboard Softys — tabla comparativa de clientes ahora muestra hasta 500 resultados",
-    ],
+    fixes: ["Dashboard Softys — corregidos varios errores de carga en KPIs y filtros para usuarios Proveedor", "Dashboard Softys — tabla comparativa de clientes ahora muestra hasta 500 resultados"],
     features: [
       "Dashboard Softys — rediseño completo con dos modos: 'SKUs por Canal' y 'Clientes × Vendedor'",
       "Dashboard Softys — buscador de vendedor con sugerencias; tabla de clientes semanal con detalle de SKUs",
@@ -296,10 +298,7 @@ export const CHANGELOG: ChangelogVersion[] = [
   {
     version: "1.2.4",
     date: "Mayo 2026",
-    fixes: [
-      "Preventas — la lista de vendedores ahora muestra solo los registrados en el sistema",
-      "Preventas / Información Rutas — los montos se muestran con decimales reales",
-    ],
+    fixes: ["Preventas — la lista de vendedores ahora muestra solo los registrados en el sistema", "Preventas / Información Rutas — los montos se muestran con decimales reales"],
     features: [
       "Dashboard Supervisores — fila de totales diarios al pie de la tabla de liquidaciones",
       "Dashboard Matriz — datos reales desde el sistema en lugar de datos de ejemplo",
@@ -315,19 +314,14 @@ export const CHANGELOG: ChangelogVersion[] = [
       "Gerente Regional — los filtros de regional ahora se bloquean correctamente al perfil del usuario en todos los dashboards",
       "Supervisores — los nombres de vendedor ahora aparecen en formato normal (no en MAYÚSCULAS)",
     ],
-    features: [
-      "Tendencia Estacional — nuevo filtro de supervisor",
-      "Dashboard Supervisores — Gerente Regional puede filtrar por canal y supervisor dentro de su regional",
-    ],
+    features: ["Tendencia Estacional — nuevo filtro de supervisor", "Dashboard Supervisores — Gerente Regional puede filtrar por canal y supervisor dentro de su regional"],
     newDashboardPerms: [],
     newDashboardNames: {},
   },
   {
     version: "1.2.2",
     date: "Mayo 2026",
-    features: [
-      "Preventas — columnas de hora de inicio, último movimiento y tiempo trabajado por vendedor",
-    ],
+    features: ["Preventas — columnas de hora de inicio, último movimiento y tiempo trabajado por vendedor"],
     fixes: [],
     newDashboardPerms: [],
     newDashboardNames: {},
@@ -362,23 +356,15 @@ export const CHANGELOG: ChangelogVersion[] = [
   {
     version: "1.1.4",
     date: "Mayo 2026",
-    fixes: [
-      "Proveedores — nombres de canal corregidos en tabla y Excel (WHS, DTS, PROV, SPM)",
-      "Global — los dashboards ya no muestran ceros al inicio de un mes nuevo",
-    ],
-    features: [
-      "Nuevo dashboard 'Tendencia Estacional': compara ventas del mes actual contra meses anteriores o los últimos 6 meses; filtros por regional, canal y toggle Bs / Unidades",
-    ],
+    fixes: ["Proveedores — nombres de canal corregidos en tabla y Excel (WHS, DTS, PROV, SPM)", "Global — los dashboards ya no muestran ceros al inicio de un mes nuevo"],
+    features: ["Nuevo dashboard 'Tendencia Estacional': compara ventas del mes actual contra meses anteriores o los últimos 6 meses; filtros por regional, canal y toggle Bs / Unidades"],
     newDashboardPerms: ["tendencia-estacional"],
     newDashboardNames: { "tendencia-estacional": "Tendencia Estacional" },
   },
   {
     version: "1.1.3",
     date: "Abril 2026",
-    fixes: [
-      "Global — ya no aparece pantalla en blanco al ocurrir un error; se muestra un mensaje claro",
-      "Descarga Excel — corregidos errores que corrompían el archivo al descargar rangos grandes",
-    ],
+    fixes: ["Global — ya no aparece pantalla en blanco al ocurrir un error; se muestra un mensaje claro", "Descarga Excel — corregidos errores que corrompían el archivo al descargar rangos grandes"],
     features: [
       "Nueva sección 'Documentos': Dashboard Matriz y Descargar Archivos",
       "Exportación de Ventas Efectivas con Combo Armado a Excel",
@@ -402,14 +388,8 @@ export const CHANGELOG: ChangelogVersion[] = [
   {
     version: "1.1.0",
     date: "Abril 2026",
-    fixes: [
-      "Unidades Vendedor-SKU — gráfico de avance vs presupuesto con escala correcta",
-      "Cambio de proveedor ya no mantiene los datos del proveedor anterior en pantalla",
-    ],
-    features: [
-      "Nueva sección 'Proveedores': dashboards para Pepsico, Softys, DMujer, Apego y COLHER con KPIs, gráficos y exportación Excel",
-      "Número de versión visible en el pie de página",
-    ],
+    fixes: ["Unidades Vendedor-SKU — gráfico de avance vs presupuesto con escala correcta", "Cambio de proveedor ya no mantiene los datos del proveedor anterior en pantalla"],
+    features: ["Nueva sección 'Proveedores': dashboards para Pepsico, Softys, DMujer, Apego y COLHER con KPIs, gráficos y exportación Excel", "Número de versión visible en el pie de página"],
     newDashboardPerms: ["pepsico", "softys", "dmujer", "apego", "colher"],
     newDashboardNames: {
       pepsico: "Dashboard Pepsico",

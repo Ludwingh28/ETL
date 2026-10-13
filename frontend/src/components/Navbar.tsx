@@ -24,6 +24,7 @@ import {
   KeyRound,
   UserCheck,
   Popcorn,
+  Cookie,
   PersonStanding,
   BookHeart,
   Milk,
@@ -36,6 +37,7 @@ import {
   type LucideIcon,
 } from "lucide-react";
 import { useAuth } from "../context/AuthContext";
+import { getFirstDashboardRoute } from "../constants/routes";
 
 interface NavItem {
   to: string;
@@ -108,11 +110,12 @@ const NAV_GROUPS: NavGroup[] = [
   {
     label: "Proveedores",
     items: [
-      { to: "/dashboard/pepsico",          icon: Popcorn,            label: "Dashboard Pepsico",  perm: "pepsico"      },
+      { to: "/dashboard/pepsico",          icon: Cookie,             label: "Dashboard Pepsico",  perm: "pepsico"      },
       { to: "/dashboard/softys-revision",  icon: PersonStanding,     label: "Dashboard Softys",   perm: "softys-nuevo" },
       { to: "/dashboard/dmujer",           icon: BookHeart,          label: "Dashboard DMujer",   perm: "dmujer"       },
       { to: "/dashboard/apego",            icon: Milk,               label: "Dashboard Apego",    perm: "apego"        },
-      { to: "/dashboard/colher",           icon: SoapDispenserDroplet, label: "Dashboard COLHER", perm: "colher"       },
+      { to: "/dashboard/colher",           icon: SoapDispenserDroplet, label: "Dashboard COLHER",    perm: "colher"    },
+      { to: "/dashboard/johnspop",         icon: Popcorn,              label: "Dashboard Johns Pop", perm: "johnspop"  },
     ],
   },
   {
@@ -306,7 +309,7 @@ export default function Navbar() {
   const userIsAdmin = user?.is_staff === true || ADMIN_CARGOS_NAV.includes(user?.cargo ?? "");
   const visibleGroups = filterGroups(NAV_GROUPS, userPerms, userIsAdmin);
 
-  const homePath = visibleGroups[0]?.items[0]?.to ?? "/";
+  const homePath = user ? getFirstDashboardRoute(user) : "/";
   const { regular: userMenuItems, legacy: legacyItems } = buildUserMenuItems(user?.is_staff, user?.cargo, unreadReports);
 
   const handleLogout = () => {

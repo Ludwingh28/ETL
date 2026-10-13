@@ -127,7 +127,8 @@ function EditModal({ user, onClose, onSaved, onDeleted, onToast }: EditModalProp
 
   useEffect(() => {
     const h = (e: MouseEvent) => {
-      if (dwRef.current && !dwRef.current.contains(e.target as Node)) setDwOpen(false)
+      if (dwRef.current  && !dwRef.current.contains(e.target as Node))  setDwOpen(false)
+      if (provRef.current && !provRef.current.contains(e.target as Node)) setProvOpen(false)
     }
     document.addEventListener('mousedown', h)
     return () => document.removeEventListener('mousedown', h)
@@ -184,6 +185,14 @@ function EditModal({ user, onClose, onSaved, onDeleted, onToast }: EditModalProp
     const listaDefault = CANAL_LISTA_MAP[user.canal ?? '']
     return listaDefault ? [listaDefault] : []
   })
+  const [proveedorAsignado,        setProveedorAsignado]        = useState(user.proveedor_asignado ?? '')
+  const [almacenesHabilitados,     setAlmacenesHabilitados]     = useState<string[]>(user.almacenes_habilitados ?? [])
+  const [dwProveedores,            setDwProveedores]            = useState<string[]>([])
+  const [dwAlmacenes,              setDwAlmacenes]              = useState<string[]>([])
+  const [habilitarInventario,      setHabilitarInventario]      = useState(!!(user.proveedor_asignado || (user.almacenes_habilitados?.length ?? 0) > 0))
+  const [provSearch,               setProvSearch]               = useState(user.proveedor_asignado ?? '')
+  const [provOpen,                 setProvOpen]                 = useState(false)
+  const provRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
     if (datos.cargo === 'Vendedor' && listasDisponibles.length === 0) {
@@ -192,6 +201,16 @@ function EditModal({ user, onClose, onSaved, onDeleted, onToast }: EditModalProp
         .catch(() => {})
     }
   }, [datos.cargo]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Si ya viene con inventario habilitado al abrir el modal, pre-carga las listas del DW
+  useEffect(() => {
+    if (habilitarInventario && dwProveedores.length === 0) {
+      apiFetch<{ success: boolean; data: string[] }>('/admin/dw-proveedores/')
+        .then(j => { if (j.success) setDwProveedores(j.data) }).catch(() => {})
+      apiFetch<{ success: boolean; data: string[] }>('/admin/dw-almacenes/')
+        .then(j => { if (j.success) setDwAlmacenes(j.data) }).catch(() => {})
+    }
+  }, []) // eslint-disable-line react-hooks/exhaustive-deps
 
   const toggleLista = (l: string) =>
     setListasAsignadas(p => p.includes(l) ? p.filter(x => x !== l) : [...p, l])
@@ -215,7 +234,12 @@ function EditModal({ user, onClose, onSaved, onDeleted, onToast }: EditModalProp
     try {
       const updated = await apiFetch<ManagedUser>(`/admin/users/${user.id}/permissions/`, {
         method: 'PATCH',
-        body: JSON.stringify({ dashboard_permissions: perms, listas_precios: listasAsignadas }),
+        body: JSON.stringify({
+          dashboard_permissions: perms,
+          listas_precios:        listasAsignadas,
+          proveedor_asignado:    habilitarInventario ? proveedorAsignado.trim() : '',
+          almacenes_habilitados: habilitarInventario ? almacenesHabilitados : [],
+        }),
       })
       onSaved(updated)
       onToast({ msg: 'Permisos actualizados correctamente.', type: 'ok' })
@@ -531,6 +555,111 @@ function EditModal({ user, onClose, onSaved, onDeleted, onToast }: EditModalProp
                   )}
                 </div>
               )}
+
+              {/* Acceso proveedor a inventario */}
+              <div className="p-3 rounded-xl border border-slate-100 bg-slate-50">
+                <div className="flex items-center justify-between">
+                  <p className="text-sm font-medium text-slate-700">Acceso a inventario de proveedor</p>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const next = !habilitarInventario
+                      setHabilitarInventario(next)
+                      if (!next) { setProveedorAsignado(''); setProvSearch(''); setAlmacenesHabilitados([]) }
+                      if (next && dwProveedores.length === 0) {
+                        apiFetch<{ success: boolean; data: string[] }>('/admin/dw-proveedores/')
+                          .then(j => { if (j.success) setDwProveedores(j.data) }).catch(() => {})
+                        apiFetch<{ success: boolean; data: string[] }>('/admin/dw-almacenes/')
+                          .then(j => { if (j.success) setDwAlmacenes(j.data) }).catch(() => {})
+                      }
+                    }}
+                    className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition-colors ${
+                      habilitarInventario
+                        ? 'bg-brand-100 text-brand-700 hover:bg-brand-200'
+                        : 'bg-slate-200 text-slate-500 hover:bg-slate-300'
+                    }`}
+                  >
+                    {habilitarInventario ? <><UserCheck size={13} /> Habilitado</> : <><UserX size={13} /> Deshabilitado</>}
+                  </button>
+                </div>
+
+                {habilitarInventario && (
+                  <div className="mt-3 space-y-3">
+                    {/* Proveedor — autocomplete */}
+                    <div ref={provRef}>
+                      <label className="block text-xs font-medium text-slate-600 mb-1">Proveedor asignado</label>
+                      {proveedorAsignado ? (
+                        <div className="flex items-center gap-3 px-4 py-3 bg-brand-50 border border-brand-200 rounded-xl">
+                          <Check size={15} className="text-brand-600 shrink-0" />
+                          <span className="flex-1 text-sm font-semibold text-slate-800">{proveedorAsignado}</span>
+                          <button type="button" onClick={() => { setProveedorAsignado(''); setProvSearch('') }}
+                            className="text-xs text-slate-400 hover:text-red-500 transition-colors shrink-0">
+                            Cambiar
+                          </button>
+                        </div>
+                      ) : (
+                        <div className="relative">
+                          <input
+                            type="text"
+                            value={provSearch}
+                            onChange={e => { setProvSearch(e.target.value); setProvOpen(true) }}
+                            onFocus={() => setProvOpen(true)}
+                            placeholder={dwProveedores.length === 0 ? 'Cargando proveedores…' : 'Buscar proveedor…'}
+                            disabled={dwProveedores.length === 0}
+                            className="input-field"
+                            autoComplete="off"
+                          />
+                          {provOpen && dwProveedores.length > 0 && (
+                            <div className="absolute z-50 top-full mt-1 w-full bg-white border border-slate-200 rounded-xl shadow-xl max-h-48 overflow-y-auto">
+                              {dwProveedores
+                                .filter(p => p.toLowerCase().includes(provSearch.toLowerCase()))
+                                .map(p => (
+                                  <button key={p} type="button"
+                                    onClick={() => { setProveedorAsignado(p); setProvSearch(p); setProvOpen(false) }}
+                                    className="w-full text-left px-4 py-2 text-sm hover:bg-brand-50 border-b border-slate-50 last:border-0 font-medium text-slate-800">
+                                    {p}
+                                  </button>
+                                ))
+                              }
+                            </div>
+                          )}
+                        </div>
+                      )}
+                    </div>
+
+                    {/* Almacenes — checkboxes */}
+                    <div>
+                      <label className="block text-xs font-medium text-slate-600 mb-1">
+                        Almacenes habilitados <span className="font-normal text-slate-400">(sin selección = todos)</span>
+                      </label>
+                      {dwAlmacenes.length === 0 ? (
+                        <p className="text-xs text-slate-400">Cargando almacenes…</p>
+                      ) : (
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-1 max-h-36 overflow-y-auto pr-1">
+                          {dwAlmacenes.map(a => (
+                            <label key={a} className="flex items-center gap-2 cursor-pointer">
+                              <input
+                                type="checkbox"
+                                checked={almacenesHabilitados.includes(a)}
+                                onChange={() => setAlmacenesHabilitados(p =>
+                                  p.includes(a) ? p.filter(x => x !== a) : [...p, a]
+                                )}
+                                className="w-3.5 h-3.5 rounded accent-brand-600 cursor-pointer"
+                              />
+                              <span className="text-sm text-slate-600">{a}</span>
+                            </label>
+                          ))}
+                        </div>
+                      )}
+                      {almacenesHabilitados.length > 0 && (
+                        <p className="text-[11px] text-slate-400 mt-1">
+                          {almacenesHabilitados.length} almacén{almacenesHabilitados.length > 1 ? 'es' : ''} seleccionado{almacenesHabilitados.length > 1 ? 's' : ''}.
+                        </p>
+                      )}
+                    </div>
+                  </div>
+                )}
+              </div>
             </div>
           )}
 

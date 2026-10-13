@@ -566,6 +566,7 @@ export default function DashboardNewNacional() {
   const [comparacion,     setComparacion]     = useState<ComparacionRow[]>([]);
   const [groupBy,         setGroupBy]         = useState("total");
   const [prevLabel,       setPrevLabel]       = useState("");
+  const [compDiasComp,   setCompDiasComp]   = useState(0);
   const [skus,            setSkus]            = useState<SkuRow[]>([]);
   const [prevSkuLabel,    setPrevSkuLabel]    = useState("");
 
@@ -781,13 +782,14 @@ export default function DashboardNewNacional() {
     try {
       const qs        = buildQS(selectedRegional, canal, anho, mes, fCats, fProvs, fSubs, fMarcs, fProductos);
       const vendParam = selectedVend ? `&vendedor=${encodeURIComponent(selectedVend)}` : "";
-      const j = await apiFetchRef.current<{ success: boolean; data: ComparacionRow[]; group_by: string; prev_anho: number; prev_mes: number }>(
+      const j = await apiFetchRef.current<{ success: boolean; data: ComparacionRow[]; group_by: string; prev_anho: number; prev_mes: number; dias_comparados?: number }>(
         `/dashboard/new-nacional/comparacion/?${qs}${vendParam}`
       );
       if (j.success) {
         setComparacion(j.data);
         setGroupBy(j.group_by);
         setPrevLabel(`${MESES[j.prev_mes]} ${j.prev_anho}`);
+        setCompDiasComp(j.dias_comparados ?? 0);
       }
     } catch { setComparacion([]); }
     finally { setLoadingComp(false); }
@@ -1436,6 +1438,11 @@ export default function DashboardNewNacional() {
             </h2>
             <p className="text-[11px] text-slate-400 mt-0.5">
               {MESES[mes]} {anho} vs {prevLabel || "mes anterior"} · {REGIONALES.find(r => r.key === selectedRegional)?.label}
+              {compDiasComp > 0 && (
+                <span className="ml-1.5 px-1.5 py-0.5 rounded bg-amber-50 text-amber-600 font-medium text-[10px]">
+                  comparando días 1–{compDiasComp} en ambos meses
+                </span>
+              )}
             </p>
           </div>
           {compDrill && (

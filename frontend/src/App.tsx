@@ -19,6 +19,8 @@ import AdminGestionUsuarios from "./pages/AdminGestionUsuarios";
 import AdminReportes from "./pages/AdminReportes";
 import AdminCambiarContrasena from "./pages/AdminCambiarContrasena";
 import AdminRoute from "./components/AdminRoute";
+import { useAuth } from "./context/AuthContext";
+import { getFirstDashboardRoute } from "./constants/routes";
 import DashboardProveedor from "./pages/DashboardProveedor";
 import DashboardSoftysCanales from "./pages/DashboardSoftysCanales";
 import DashboardNewNacional from "./pages/DashboardNewNacional";
@@ -33,6 +35,12 @@ import DashboardInventarioAlmacen from "./pages/DashboardInventarioAlmacen";
 import DashboardPreventas from "./pages/DashboardPreventas";
 import DescargaArchivos from "./pages/DescargaArchivos";
 import DownloadToast from "./components/DownloadToast";
+
+function DefaultRedirect() {
+  const { user } = useAuth()
+  if (!user) return <Navigate to="/login" replace />
+  return <Navigate to={getFirstDashboardRoute(user)} replace />
+}
 
 function Protected({ children }: { children: React.ReactNode }) {
   return <ProtectedRoute>{children}</ProtectedRoute>;
@@ -141,6 +149,9 @@ export default function App() {
           <Route path="/dashboard/colher"
             element={<Dash perm="colher"><DashboardProveedor perm="colher" nombre="COLHER" /></Dash>}
           />
+          <Route path="/dashboard/johnspop"
+            element={<Dash perm="johnspop"><DashboardProveedor perm="johnspop" nombre="Johns Pop" /></Dash>}
+          />
 
           {/* ── Mock-ups ────────────────────────────────────────────────────── */}
           <Route path="/dashboard/new-nacional"
@@ -169,10 +180,10 @@ export default function App() {
             element={<Protected><AdminCambiarContrasena /></Protected>}
           />
 
-          {/* Redirects por defecto */}
-          <Route path="/dashboard" element={<Navigate to="/dashboard/nacional" replace />} />
-          <Route path="/"          element={<Navigate to="/dashboard/nacional" replace />} />
-          <Route path="*"          element={<Navigate to="/dashboard/nacional" replace />} />
+          {/* Redirects por defecto — según cargo del usuario */}
+          <Route path="/dashboard" element={<DefaultRedirect />} />
+          <Route path="/"          element={<DefaultRedirect />} />
+          <Route path="*"          element={<DefaultRedirect />} />
         </Routes>
         <DownloadToast />
       </BrowserRouter>

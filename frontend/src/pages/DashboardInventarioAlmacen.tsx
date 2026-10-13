@@ -18,11 +18,13 @@ interface InventarioRow {
 }
 
 interface ApiResponse {
-  success:   boolean;
-  fecha:     string | null;
-  almacenes: string[];
-  data:      InventarioRow[];
-  error?:    string;
+  success:             boolean;
+  fecha:               string | null;
+  almacenes:           string[];
+  data:                InventarioRow[];
+  proveedor_forzado?:  string;
+  almacenes_forzados?: string[];
+  error?:              string;
 }
 
 interface ProductoPivot {
@@ -159,9 +161,10 @@ export default function DashboardInventarioAlmacen() {
   const [fecha,          setFecha]          = useState<string | null>(null);
   const [loading,        setLoading]        = useState(false);
   const [error,          setError]          = useState<string | null>(null);
-  const [exportando,     setExportando]     = useState(false);
-  const [busqueda,       setBusqueda]       = useState("");
+  const [exportando,      setExportando]      = useState(false);
+  const [busqueda,        setBusqueda]        = useState("");
   const [proveedorFiltro, setProveedorFiltro] = useState("");
+  const [proveedorForzado, setProveedorForzado] = useState("");
 
   const cargar = useCallback(async () => {
     setLoading(true);
@@ -172,6 +175,9 @@ export default function DashboardInventarioAlmacen() {
       setFecha(j.fecha);
       setAlmacenes(j.almacenes);
       setRows(j.data);
+      const pf = j.proveedor_forzado ?? "";
+      setProveedorForzado(pf);
+      if (pf) setProveedorFiltro(pf);
     } catch {
       setError("Error de conexión con el servidor");
     } finally {
@@ -281,19 +287,29 @@ export default function DashboardInventarioAlmacen() {
               </div>
             )}
 
-            {/* Proveedor */}
-            <div className="flex flex-col gap-1">
-              <label className="text-[10px] font-semibold uppercase tracking-wide text-slate-400">Proveedor</label>
-              <select
-                value={proveedorFiltro}
-                onChange={e => setProveedorFiltro(e.target.value)}
-                disabled={!proveedores.length}
-                className="text-xs border border-slate-200 rounded-lg px-2.5 py-2 bg-white text-slate-700 focus:outline-none focus:ring-2 focus:ring-brand-500 disabled:opacity-50 disabled:cursor-not-allowed"
-              >
-                <option value="">Todos los proveedores</option>
-                {proveedores.map(p => <option key={p} value={p}>{p}</option>)}
-              </select>
-            </div>
+            {/* Proveedor — dropdown para internos, banner para proveedores externos */}
+            {proveedorForzado ? (
+              <div className="flex flex-col gap-1">
+                <span className="text-[10px] font-semibold uppercase tracking-wide text-slate-400">Proveedor</span>
+                <div className="flex items-center gap-1.5 px-3 py-2 bg-brand-50 border border-brand-200 rounded-lg text-xs font-semibold text-brand-700 whitespace-nowrap">
+                  <Warehouse size={12} className="shrink-0" />
+                  {proveedorForzado}
+                </div>
+              </div>
+            ) : (
+              <div className="flex flex-col gap-1">
+                <label className="text-[10px] font-semibold uppercase tracking-wide text-slate-400">Proveedor</label>
+                <select
+                  value={proveedorFiltro}
+                  onChange={e => setProveedorFiltro(e.target.value)}
+                  disabled={!proveedores.length}
+                  className="text-xs border border-slate-200 rounded-lg px-2.5 py-2 bg-white text-slate-700 focus:outline-none focus:ring-2 focus:ring-brand-500 disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  <option value="">Todos los proveedores</option>
+                  {proveedores.map(p => <option key={p} value={p}>{p}</option>)}
+                </select>
+              </div>
+            )}
 
             {/* Buscador */}
             <div className="flex flex-col gap-1 flex-1 min-w-56">

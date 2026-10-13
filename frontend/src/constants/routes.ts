@@ -25,13 +25,16 @@ export const PERM_TO_ROUTE: Record<string, string> = {
   'dmujer':                    '/dashboard/dmujer',
   'apego':                     '/dashboard/apego',
   'colher':                    '/dashboard/colher',
+  'johnspop':                  '/dashboard/johnspop',
   'new-nacional':              '/dashboard/new-nacional',
   'vendedores-personal':       '/dashboard/vendedores-personal',
 }
 
 const ADMIN_CARGOS = new Set(['Administrador de Sistema', 'Subadministrador de Sistemas'])
 
-const PROVEEDOR_PERMS = new Set(['pepsico', 'softys', 'softys-nuevo', 'dmujer', 'apego', 'colher'])
+// Orden de prioridad: softys-nuevo antes que softys (legacy)
+const PROVEEDOR_PERM_PRIORITY = ['pepsico', 'softys-nuevo', 'dmujer', 'apego', 'colher', 'johnspop']
+const PROVEEDOR_PERMS = new Set(PROVEEDOR_PERM_PRIORITY)
 
 export function getFirstDashboardRoute(user: {
   is_staff?: boolean
@@ -41,16 +44,20 @@ export function getFirstDashboardRoute(user: {
   const isAdmin = user.is_staff || ADMIN_CARGOS.has(user.cargo ?? '')
   if (isAdmin) return '/dashboard/nacional'
 
-  const perms = user.dashboard_permissions ?? []
+  const perms = new Set(user.dashboard_permissions ?? [])
 
-  // Proveedores: ignorar permisos genéricos, ir directo al dashboard del proveedor asignado
+  // Proveedores: buscar en orden de prioridad (softys-nuevo antes que softys legacy)
   if (user.cargo === 'Proveedor') {
-    const route = perms
-      .filter(p => PROVEEDOR_PERMS.has(p))
-      .map(p => PERM_TO_ROUTE[p])
-      .find(Boolean)
-    if (route) return route
+    for (const p of PROVEEDOR_PERM_PRIORITY) {
+      if (perms.has(p) && PERM_TO_ROUTE[p]) return PERM_TO_ROUTE[p]
+    }
   }
 
-  return perms.map(p => PERM_TO_ROUTE[p]).find(Boolean) ?? '/dashboard/nacional'
+  // Vendedores: priorizar su dashboard personal
+  if (user.cargo === 'Vendedor' && perms.has('vendedores-personal')) {
+    return '/dashboard/vendedores-personal'
+  }
+
+  const permsArr = user.dashboard_permissions ?? []
+  return permsArr.map(p => PERM_TO_ROUTE[p]).find(Boolean) ?? '/dashboard/nacional'
 }

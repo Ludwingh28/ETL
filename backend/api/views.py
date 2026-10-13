@@ -117,7 +117,7 @@ _PERMISOS_POR_CARGO: dict[str, list[str]] = {
                            'avances-ventas', 'unidades-vendidas', 'unidades-supervisores',
                            'informacion-rutas', 'tendencia-estacional', 'ticket-promedio',
                            'ficha-sku', 'margen-bruto', 'matriz', 'descargas', 'lista-precios',
-                           'pepsico', 'softys-nuevo', 'dmujer', 'apego', 'colher'],
+                           'pepsico', 'softys-nuevo', 'dmujer', 'apego', 'colher', 'johnspop'],
     'Gerente de Ventas':  ['nacional', 'regionales', 'canales', 'supervisores', 'unidades-vendidas',
                            'unidades-supervisores', 'informacion-rutas', 'tendencia-estacional',
                            'ticket-promedio', 'ficha-sku', 'margen-bruto', 'lista-precios'],
@@ -127,7 +127,7 @@ _PERMISOS_POR_CARGO: dict[str, list[str]] = {
     'Supervisor':         ['canales', 'supervisores', 'preventas-realizadas', 'avances-ventas',
                            'unidades-supervisores', 'informacion-rutas'],
     'Vendedor':           ['preventas-realizadas', 'avances-ventas', 'lista-precios'],
-    'Proveedor':          ['lista-precios', 'pepsico', 'softys-nuevo', 'dmujer', 'apego', 'colher'],
+    'Proveedor':          ['lista-precios', 'pepsico', 'softys-nuevo', 'dmujer', 'apego', 'colher', 'johnspop'],
     'Analista de Datos':  ['nacional', 'regionales', 'canales', 'supervisores', 'preventas-realizadas',
                            'avances-ventas', 'unidades-vendidas', 'unidades-supervisores',
                            'informacion-rutas', 'tendencia-estacional', 'ticket-promedio',
@@ -299,6 +299,8 @@ def _serialize_user(user):
         'is_staff':              user.is_staff,
         'dashboard_permissions': profile.dashboard_permissions,
         'listas_precios':        profile.listas_precios,
+        'proveedor_asignado':    profile.proveedor_asignado,
+        'almacenes_habilitados': profile.almacenes_habilitados,
         'groups':                list(user.groups.values_list('name', flat=True)),
         'date_joined':           user.date_joined.isoformat() if user.date_joined else None,
         'last_seen':             profile.last_seen.isoformat() if profile.last_seen else None,
@@ -1383,6 +1385,53 @@ def admin_dw_vendedores(request):
 @api_view(['GET'])
 @authentication_classes([ExpiringTokenAuthentication])
 @permission_classes([IsAuthenticated])
+def admin_dw_proveedores(request):
+    """Lista de proveedores distintos del DW para asignar a usuarios externos."""
+    if not _is_user_manager(request.user):
+        return JsonResponse({'success': False, 'error': 'Sin permisos'}, status=403)
+    try:
+        _, rows = _run_dw_query(
+            """
+            SELECT DISTINCT dp.proveedor
+            FROM dw.dim_producto dp
+            WHERE dp.proveedor IS NOT NULL AND TRIM(dp.proveedor) <> ''
+            ORDER BY dp.proveedor
+            """,
+            [],
+        )
+        return JsonResponse({'success': True, 'data': [r['proveedor'] for r in rows]})
+    except Exception:
+        logger.exception("Error interno admin_dw_proveedores")
+        return JsonResponse({'success': False, 'error': 'Error interno del servidor'}, status=500)
+
+
+@api_view(['GET'])
+@authentication_classes([ExpiringTokenAuthentication])
+@permission_classes([IsAuthenticated])
+def admin_dw_almacenes(request):
+    """Lista de almacenes distintos del DW para habilitar a usuarios externos."""
+    if not _is_user_manager(request.user):
+        return JsonResponse({'success': False, 'error': 'Sin permisos'}, status=403)
+    try:
+        _, rows = _run_dw_query(
+            """
+            SELECT DISTINCT da.almacen_nombre
+            FROM dw.dim_almacen da
+            JOIN dw.fact_inventario fi ON fi.almacen_sk = da.almacen_sk
+            WHERE fi.estado = true AND da.almacen_nombre IS NOT NULL AND TRIM(da.almacen_nombre) <> ''
+            ORDER BY da.almacen_nombre
+            """,
+            [],
+        )
+        return JsonResponse({'success': True, 'data': [r['almacen_nombre'] for r in rows]})
+    except Exception:
+        logger.exception("Error interno admin_dw_almacenes")
+        return JsonResponse({'success': False, 'error': 'Error interno del servidor'}, status=500)
+
+
+@api_view(['GET'])
+@authentication_classes([ExpiringTokenAuthentication])
+@permission_classes([IsAuthenticated])
 def admin_listas_precios(request):
     """Lista de nombres de listas de precios disponibles en el DW (para gestión de usuarios)."""
     if not _is_user_manager(request.user):
@@ -1525,6 +1574,12 @@ def admin_update_permissions(request, user_id):
         listas = request.data['listas_precios']
         if isinstance(listas, list) and all(isinstance(l, str) for l in listas):
             profile.listas_precios = listas
+    if 'proveedor_asignado' in request.data:
+        profile.proveedor_asignado = (request.data['proveedor_asignado'] or '').strip()
+    if 'almacenes_habilitados' in request.data:
+        alms = request.data['almacenes_habilitados']
+        if isinstance(alms, list) and all(isinstance(a, str) for a in alms):
+            profile.almacenes_habilitados = alms
     profile.save()
     logger.warning("ADMIN_UPDATE_PERMS actor=%s target=%s perms=%s", request.user.username, target.username, perms)
 
@@ -5279,9 +5334,27 @@ def dashboard_new_nacional_comparacion(request):
         """
         _, v_rows = _run_dw_query(sql_v, [anho, mes] + canal_param + vend_param + ruta_params + all_params)
 
-        # Ventas mes anterior
+        # Día máximo con datos en el mes actual (para comparar igual cantidad de días)
+        max_dia = 0
+        try:
+            sql_maxdia = f"""
+                SELECT MAX(df.dia_numero) AS max_dia
+                FROM dw.fact_ventas fv
+                JOIN dw.dim_fecha    df ON fv.fecha_sk    = df.fecha_sk
+                JOIN dw.dim_vendedor dv ON fv.vendedor_sk = dv.vendedor_sk
+                WHERE df.anho = %s AND df.mes_numero = %s
+                  AND fv.es_anulado = FALSE AND fv.venta_neta > 0
+                  AND ({ciudad_cond}) {canal_cond} {vend_cond}
+            """
+            _, md_rows = _run_dw_query(sql_maxdia, [anho, mes] + canal_param + vend_param)
+            max_dia = int(md_rows[0]['max_dia'] or 0) if md_rows else 0
+        except Exception:
+            logger.exception("Error al obtener max_dia comparacion")
+
+        # Ventas mes anterior (recortado a los mismos N días que hay datos en el mes actual)
         ant_map = {}
         try:
+            dia_ant_cond = "AND df.dia_numero <= %s" if max_dia > 0 else ""
             sql_ant = f"""
                 SELECT {grp_expr} AS name,
                        COALESCE(SUM(fv.cantidad), 0)   AS cantidad_ant,
@@ -5293,9 +5366,12 @@ def dashboard_new_nacional_comparacion(request):
                 WHERE df.anho = %s AND df.mes_numero = %s
                   AND fv.es_anulado = FALSE AND fv.venta_neta > 0
                   AND ({ciudad_cond}) {canal_cond} {vend_cond} {ruta_cond} {all_cond}
+                  {dia_ant_cond}
                 {grp_by_clause}
             """
-            _, ant_rows = _run_dw_query(sql_ant, [prev_anho, prev_mes] + canal_param + vend_param + ruta_params + all_params)
+            ant_base_params = [prev_anho, prev_mes] + canal_param + vend_param + ruta_params + all_params
+            ant_params = ant_base_params + ([max_dia] if max_dia > 0 else [])
+            _, ant_rows = _run_dw_query(sql_ant, ant_params)
             _SIN_CLAS = 'Sin Clasificar' if group_by == 'categoria' else None
             ant_map = {(r['name'] or _SIN_CLAS): r for r in ant_rows}
         except Exception:
@@ -5380,11 +5456,12 @@ def dashboard_new_nacional_comparacion(request):
             })
 
         return JsonResponse({
-            'success':   True,
-            'data':      result,
-            'group_by':  group_by,
-            'prev_anho': prev_anho,
-            'prev_mes':  prev_mes,
+            'success':        True,
+            'data':           result,
+            'group_by':       group_by,
+            'prev_anho':      prev_anho,
+            'prev_mes':       prev_mes,
+            'dias_comparados': max_dia,
         })
     except Exception:
         logger.exception("Error interno")
@@ -6534,20 +6611,23 @@ def dashboard_unidades_por_vendedor(request):
 # â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€
 
 _PROV_PERM_MAP = {
-    'PEPSICO': 'pepsico',
-    'SOFTYS':  'softys',
-    'DMUJER':  'dmujer',
-    'APEGO':   'apego',
-    'COLHER':  'colher',
+    'PEPSICO':   'pepsico',
+    'SOFTYS':    'softys',
+    'DMUJER':    'dmujer',
+    'APEGO':     'apego',
+    'COLHER':    'colher',
+    'JHONS POP': 'johnspop',
 }
 
 # Lineas de marca conocidas por proveedor (fallback cuando dp.proveedor no está cargado)
 _PROV_LINEAS: dict[str, list[str]] = {
-    'PEPSICO': ['CHEETOS', 'QUAKER', 'QUACKER', 'SALTY'],
-    'SOFTYS':  ['BABYSEC', 'COTIDIAN', 'ELITE', 'LADYSOFT', 'NOBLE', 'HIGIENOL'],
-    'DMUJER':  ['DMUJER'],
-    'APEGO':   ['APEGO', 'DEZERO', 'MIO'],
-    'COLHER':  ['GENOMMA'],
+    'PEPSICO':   ['CHEETOS', 'QUAKER', 'QUACKER', 'SALTY'],
+    'SOFTYS':    ['BABYSEC', 'COTIDIAN', 'ELITE', 'LADYSOFT', 'NOBLE', 'HIGIENOL'],
+    'DMUJER':    ['DMUJER'],
+    'APEGO':     ['APEGO', 'DEZERO', 'MIO'],
+    'COLHER':    ['GENOMMA'],
+    # dp.proveedor tiene typo 'JHONS POP'; linea_proveedor es 'JOHNS POP'
+    'JHONS POP': ['JOHNS POP'],
 }
 
 
@@ -8516,29 +8596,53 @@ def dashboard_inventario_almacen(request):
     Usa automáticamente la fecha más reciente disponible en fact_inventario.
     """
     try:
+        # Restricciones del perfil (proveedor externo)
+        profile             = getattr(request.user, 'profile', None)
+        proveedor_forzado   = (getattr(profile, 'proveedor_asignado', '') or '').strip()
+        almacenes_forzados  = list(getattr(profile, 'almacenes_habilitados', []) or [])
+
         _, fecha_rows = _run_dw_query(
             "SELECT MAX(fi.fecha_inventario::date)::TEXT AS fecha FROM dw.fact_inventario fi WHERE fi.estado = true",
             [],
         )
         fecha = (fecha_rows[0]['fecha'] if fecha_rows else None)
         if not fecha:
-            return JsonResponse({'success': True, 'data': [], 'almacenes': [], 'fecha': None})
+            return JsonResponse({'success': True, 'data': [], 'almacenes': [], 'fecha': None,
+                                 'proveedor_forzado': proveedor_forzado, 'almacenes_forzados': almacenes_forzados})
 
-        # Todos los almacenes que alguna vez tuvieron inventario (para siempre mostrar la columna)
+        # Almacenes disponibles (ya filtrados si hay restricción)
+        alm_where  = ""
+        alm_params = []
+        if almacenes_forzados:
+            phs       = ", ".join(["%s"] * len(almacenes_forzados))
+            alm_where = f"AND da.almacen_nombre IN ({phs})"
+            alm_params = almacenes_forzados
+
         _, alm_rows = _run_dw_query(
-            """
+            f"""
             SELECT DISTINCT da.almacen_nombre
             FROM dw.fact_inventario fi
             JOIN dw.dim_almacen da ON da.almacen_sk = fi.almacen_sk
-            WHERE fi.estado = true
+            WHERE fi.estado = true {alm_where}
             ORDER BY da.almacen_nombre
             """,
-            [],
+            alm_params,
         )
         almacenes_todos = [r['almacen_nombre'] for r in alm_rows]
 
+        # Condiciones de filtrado para la query principal
+        extra_where  = ""
+        extra_params = []
+        if proveedor_forzado:
+            extra_where  += " AND dp.proveedor = %s"
+            extra_params += [proveedor_forzado]
+        if almacenes_forzados:
+            phs           = ", ".join(["%s"] * len(almacenes_forzados))
+            extra_where  += f" AND da.almacen_nombre IN ({phs})"
+            extra_params += almacenes_forzados
+
         _, rows = _run_dw_query(
-            """
+            f"""
             SELECT
                 da.almacen_nombre                                           AS almacen,
                 dp.producto_codigo_erp                                      AS cod_interno,
@@ -8551,10 +8655,11 @@ def dashboard_inventario_almacen(request):
             JOIN dw.dim_almacen  da ON da.almacen_sk  = fi.almacen_sk
             WHERE fi.fecha_inventario::date = %s::date
               AND fi.estado = true
+              {extra_where}
             GROUP BY da.almacen_nombre, dp.producto_codigo_erp, dp.producto_nombre, dp.proveedor, fi.u_medida
             ORDER BY dp.producto_nombre, da.almacen_nombre
             """,
-            [fecha],
+            [fecha] + extra_params,
         )
 
         data = [
@@ -8569,10 +8674,12 @@ def dashboard_inventario_almacen(request):
             for r in rows
         ]
         return JsonResponse({
-            'success':   True,
-            'fecha':     fecha,
-            'almacenes': almacenes_todos,
-            'data':      data,
+            'success':            True,
+            'fecha':              fecha,
+            'almacenes':          almacenes_todos,
+            'data':               data,
+            'proveedor_forzado':  proveedor_forzado,
+            'almacenes_forzados': almacenes_forzados,
         })
     except Exception:
         logger.exception("Error interno inventario-almacen")

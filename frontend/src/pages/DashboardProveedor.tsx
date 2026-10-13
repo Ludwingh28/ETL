@@ -65,11 +65,12 @@ interface Periodo {
 // ─── Mapeo perm → nombre DB ──────────────────────────────────────────────────
 
 const PROV_DB: Record<string, string> = {
-  pepsico: 'PEPSICO',
-  softys:  'SOFTYS',
-  dmujer:  'DMUJER',
-  apego:   'APEGO',
-  colher:  'COLHER',
+  pepsico:  'PEPSICO',
+  softys:   'SOFTYS',
+  dmujer:   'DMUJER',
+  apego:    'APEGO',
+  colher:   'COLHER',
+  johnspop: 'JHONS POP',
 }
 
 // ─── Formatters ──────────────────────────────────────────────────────────────
