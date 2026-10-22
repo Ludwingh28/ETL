@@ -701,6 +701,9 @@ export default function DashboardNewNacional() {
     fSubs.forEach(v => qs.append("subgrupo", v));
     fMarcs.forEach(v => qs.append("marca", v));
     fProductos.forEach(v => qs.append("producto", v));
+    selectedSku.forEach(s => qs.append("producto", s.producto));
+    if (selectedVend)  qs.set("vendedor",        selectedVend);
+    if (selectedCli)   qs.set("cliente_codigo",  selectedCli.codigo);
     apiFetchRef.current<{ success: boolean; data: { anho: number; mes_numero: number; total: number; cantidad: number; presupuesto?: number }[] }>(
       `/dashboard/tendencia-estacional/?${qs}`
     ).then(j => {
@@ -727,7 +730,7 @@ export default function DashboardNewNacional() {
       }));
     }).catch(() => setEvoData([]))
       .finally(() => setLoadingEvo(false));
-  }, [tendenciaMode, selectedRegional, canal, anho, mes, fCats, fProvs, fSubs, fMarcs, fProductos]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [tendenciaMode, selectedRegional, canal, anho, mes, fCats, fProvs, fSubs, fMarcs, fProductos, selectedVend, selectedSku, selectedCli]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // ── Canales ───────────────────────────────────────────────────────────────────
   const fetchCanales = useCallback(async () => {
@@ -775,38 +778,16 @@ export default function DashboardNewNacional() {
 
   useEffect(() => { void fetchOpciones(); }, [fetchOpciones]);
 
-  // ── Comparación ───────────────────────────────────────────────────────────────
-  const fetchComparacion = useCallback(async () => {
-    if (!anho || !mes) return;
-    setLoadingComp(true);
-    try {
-      const qs        = buildQS(selectedRegional, canal, anho, mes, fCats, fProvs, fSubs, fMarcs, fProductos);
-      const vendParam = selectedVend ? `&vendedor=${encodeURIComponent(selectedVend)}` : "";
-      const j = await apiFetchRef.current<{ success: boolean; data: ComparacionRow[]; group_by: string; prev_anho: number; prev_mes: number; dias_comparados?: number }>(
-        `/dashboard/new-nacional/comparacion/?${qs}${vendParam}`
-      );
-      if (j.success) {
-        setComparacion(j.data);
-        setGroupBy(j.group_by);
-        setPrevLabel(`${MESES[j.prev_mes]} ${j.prev_anho}`);
-        setCompDiasComp(j.dias_comparados ?? 0);
-      }
-    } catch { setComparacion([]); }
-    finally { setLoadingComp(false); }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selectedRegional, canal, fCats, fProvs, fSubs, fMarcs, fProductos, anho, mes, selectedVend]);
-
-  useEffect(() => { void fetchComparacion(); }, [fetchComparacion]);
-
   // ── SKUs ──────────────────────────────────────────────────────────────────────
   const fetchSkus = useCallback(async () => {
     if (!anho || !mes) return;
     setLoadingSkus(true); setSkuSearch("");
     try {
-      const qs       = buildDrillQS(selectedRegional, canal, anho, mes, fCats, fProvs, fSubs, fMarcs, fProductos, compDrill);
+      const qs        = buildDrillQS(selectedRegional, canal, anho, mes, fCats, fProvs, fSubs, fMarcs, fProductos, compDrill);
       const vendParam = selectedVend ? `&vendedor=${encodeURIComponent(selectedVend)}` : "";
+      const cliParam  = selectedCli  ? `&cliente_codigo=${encodeURIComponent(selectedCli.codigo)}` : "";
       const j = await apiFetchRef.current<{ success: boolean; data: SkuRow[]; prev_anho: number; prev_mes: number }>(
-        `/dashboard/new-nacional/skus/?${qs}${vendParam}`
+        `/dashboard/new-nacional/skus/?${qs}${vendParam}${cliParam}`
       );
       if (j.success) {
         setSkus(j.data);
@@ -815,7 +796,7 @@ export default function DashboardNewNacional() {
     } catch { setSkus([]); }
     finally { setLoadingSkus(false); }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selectedRegional, canal, fCats, fProvs, fSubs, fMarcs, fProductos, compDrill, selectedVend, anho, mes]);
+  }, [selectedRegional, canal, fCats, fProvs, fSubs, fMarcs, fProductos, compDrill, selectedVend, selectedCli, anho, mes]);
 
   useEffect(() => { void fetchSkus(); }, [fetchSkus]);
 
@@ -847,6 +828,30 @@ export default function DashboardNewNacional() {
     }
     return "";
   }, [selectedSku, skuSearch, filteredSkus, skus.length]);
+
+  // ── Comparación ───────────────────────────────────────────────────────────────
+  const fetchComparacion = useCallback(async () => {
+    if (!anho || !mes) return;
+    setLoadingComp(true);
+    try {
+      const qs        = buildQS(selectedRegional, canal, anho, mes, fCats, fProvs, fSubs, fMarcs, fProductos);
+      const vendParam = selectedVend ? `&vendedor=${encodeURIComponent(selectedVend)}` : "";
+      const cliParam  = selectedCli  ? `&cliente_codigo=${encodeURIComponent(selectedCli.codigo)}` : "";
+      const j = await apiFetchRef.current<{ success: boolean; data: ComparacionRow[]; group_by: string; prev_anho: number; prev_mes: number; dias_comparados?: number }>(
+        `/dashboard/new-nacional/comparacion/?${qs}${vendParam}${skuDrillParam}${cliParam}`
+      );
+      if (j.success) {
+        setComparacion(j.data);
+        setGroupBy(j.group_by);
+        setPrevLabel(`${MESES[j.prev_mes]} ${j.prev_anho}`);
+        setCompDiasComp(j.dias_comparados ?? 0);
+      }
+    } catch { setComparacion([]); }
+    finally { setLoadingComp(false); }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedRegional, canal, fCats, fProvs, fSubs, fMarcs, fProductos, anho, mes, selectedVend, skuDrillParam, selectedCli]);
+
+  useEffect(() => { void fetchComparacion(); }, [fetchComparacion]);
 
   const fetchVendedores = useCallback(async () => {
     if (!anho || !mes) return;

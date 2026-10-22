@@ -5281,6 +5281,18 @@ def dashboard_new_nacional_comparacion(request):
         marc_cond, marc_params = _multi_marc_cond(marcas)
         prod_cond, prod_params = _multi_prod_cond(productos)
 
+        sku_drills = [s for s in request.GET.getlist('sku_drill') if s]
+        if sku_drills:
+            _phs = ", ".join(["%s"] * len(sku_drills))
+            sku_in_cond = f"AND dp.producto_nombre IN ({_phs})"
+        else:
+            sku_in_cond = ""
+
+        cliente_codigo = _safe_str(request.GET.get('cliente_codigo', ''))
+        cli_join  = "JOIN dw.dim_cliente dc ON fv.cliente_sk = dc.cliente_sk" if cliente_codigo else ""
+        cli_cond  = "AND dc.cliente_codigo_erp = %s" if cliente_codigo else ""
+        cli_param = [cliente_codigo] if cliente_codigo else []
+
         # Dimensión de agrupamiento (más específica primero)
         if marcas:
             grp_expr  = "dp.clase_descripcion"
@@ -5334,13 +5346,14 @@ def dashboard_new_nacional_comparacion(request):
             JOIN dw.dim_fecha    df ON fv.fecha_sk    = df.fecha_sk
             JOIN dw.dim_vendedor dv ON fv.vendedor_sk = dv.vendedor_sk
             JOIN dw.dim_producto dp ON fv.producto_sk = dp.producto_sk
+            {cli_join}
             WHERE df.anho = %s AND df.mes_numero = %s
               AND fv.es_anulado = FALSE AND fv.venta_neta > 0
-              AND ({ciudad_cond}) {canal_cond} {vend_cond} {ruta_cond} {all_cond}
+              AND ({ciudad_cond}) {canal_cond} {vend_cond} {ruta_cond} {all_cond} {sku_in_cond} {cli_cond}
             {grp_by_clause}
             {order_clause}
         """
-        _, v_rows = _run_dw_query(sql_v, [anho, mes] + canal_param + vend_param + ruta_params + all_params)
+        _, v_rows = _run_dw_query(sql_v, [anho, mes] + canal_param + vend_param + ruta_params + all_params + sku_drills + cli_param)
 
         # Día máximo con datos en el mes actual (para comparar igual cantidad de días)
         max_dia = 0
@@ -5371,13 +5384,14 @@ def dashboard_new_nacional_comparacion(request):
                 JOIN dw.dim_fecha    df ON fv.fecha_sk    = df.fecha_sk
                 JOIN dw.dim_vendedor dv ON fv.vendedor_sk = dv.vendedor_sk
                 JOIN dw.dim_producto dp ON fv.producto_sk = dp.producto_sk
+                {cli_join}
                 WHERE df.anho = %s AND df.mes_numero = %s
                   AND fv.es_anulado = FALSE AND fv.venta_neta > 0
-                  AND ({ciudad_cond}) {canal_cond} {vend_cond} {ruta_cond} {all_cond}
+                  AND ({ciudad_cond}) {canal_cond} {vend_cond} {ruta_cond} {all_cond} {sku_in_cond} {cli_cond}
                   {dia_ant_cond}
                 {grp_by_clause}
             """
-            ant_base_params = [prev_anho, prev_mes] + canal_param + vend_param + ruta_params + all_params
+            ant_base_params = [prev_anho, prev_mes] + canal_param + vend_param + ruta_params + all_params + sku_drills + cli_param
             ant_params = ant_base_params + ([max_dia] if max_dia > 0 else [])
             _, ant_rows = _run_dw_query(sql_ant, ant_params)
             _SIN_CLAS = 'Sin Clasificar' if group_by == 'categoria' else None
@@ -5396,11 +5410,11 @@ def dashboard_new_nacional_comparacion(request):
                 JOIN dw.dim_vendedor dv ON fp.vendedor_sk = dv.vendedor_sk
                 JOIN dw.dim_producto dp ON fp.producto_sk = dp.producto_sk
                 WHERE 1=1
-                  AND ({ciudad_cond}) {canal_cond} {vend_cond} {all_cond}
+                  AND ({ciudad_cond}) {canal_cond} {vend_cond} {all_cond} {sku_in_cond}
                   AND fp.version_sk = (SELECT MAX(version_sk) FROM dw.dim_presupuesto WHERE anho = %s AND mes = %s AND activa = TRUE)
                 {grp_by_clause}
             """
-            _, p_rows = _run_dw_query(sql_p, canal_param + vend_param + all_params + [anho, mes])
+            _, p_rows = _run_dw_query(sql_p, canal_param + vend_param + all_params + sku_drills + [anho, mes])
             _SIN_CLAS_P = 'Sin Clasificar' if group_by == 'categoria' else None
             ppto_map = {(r['name'] or _SIN_CLAS_P): r for r in p_rows}
         except Exception:
@@ -5519,6 +5533,11 @@ def dashboard_new_nacional_skus(request):
         filter_cond   = f"{cat_cond} {prov_cond} {sub_cond} {marc_cond} {prod_cond}"
         filter_params = cat_params + prov_params + sub_params + marc_params + prod_params
 
+        cliente_codigo = _safe_str(request.GET.get('cliente_codigo', ''))
+        cli_join  = "JOIN dw.dim_cliente dc ON fv.cliente_sk = dc.cliente_sk" if cliente_codigo else ""
+        cli_cond  = "AND dc.cliente_codigo_erp = %s" if cliente_codigo else ""
+        cli_param = [cliente_codigo] if cliente_codigo else []
+
         # Ventas mes actual
         sql_v = f"""
             SELECT dp.producto_codigo_erp                                       AS codigo,
@@ -5530,14 +5549,15 @@ def dashboard_new_nacional_skus(request):
             JOIN dw.dim_fecha    df ON fv.fecha_sk    = df.fecha_sk
             JOIN dw.dim_vendedor dv ON fv.vendedor_sk = dv.vendedor_sk
             JOIN dw.dim_producto dp ON fv.producto_sk = dp.producto_sk
+            {cli_join}
             WHERE df.anho = %s AND df.mes_numero = %s
               AND fv.es_anulado = FALSE AND fv.venta_neta > 0
-              AND ({ciudad_cond}) {canal_cond} {vend_cond} {ruta_cond} {filter_cond}
+              AND ({ciudad_cond}) {canal_cond} {vend_cond} {ruta_cond} {filter_cond} {cli_cond}
             GROUP BY dp.producto_codigo_erp, dp.producto_nombre, ({_CATEGORIA_CASE})
             ORDER BY venta_neta DESC
             LIMIT %s
         """
-        _, v_rows = _run_dw_query(sql_v, [anho, mes] + canal_param + vend_param + ruta_params + filter_params + [limit])
+        _, v_rows = _run_dw_query(sql_v, [anho, mes] + canal_param + vend_param + ruta_params + filter_params + cli_param + [limit])
 
         # Ventas mes anterior
         ant_map = {}
@@ -5550,12 +5570,13 @@ def dashboard_new_nacional_skus(request):
                 JOIN dw.dim_fecha    df ON fv.fecha_sk    = df.fecha_sk
                 JOIN dw.dim_vendedor dv ON fv.vendedor_sk = dv.vendedor_sk
                 JOIN dw.dim_producto dp ON fv.producto_sk = dp.producto_sk
+                {cli_join}
                 WHERE df.anho = %s AND df.mes_numero = %s
                   AND fv.es_anulado = FALSE AND fv.venta_neta > 0
-                  AND ({ciudad_cond}) {canal_cond} {vend_cond} {ruta_cond} {filter_cond}
+                  AND ({ciudad_cond}) {canal_cond} {vend_cond} {ruta_cond} {filter_cond} {cli_cond}
                 GROUP BY dp.producto_codigo_erp
             """
-            _, ant_rows = _run_dw_query(sql_ant, [prev_anho, prev_mes] + canal_param + vend_param + ruta_params + filter_params)
+            _, ant_rows = _run_dw_query(sql_ant, [prev_anho, prev_mes] + canal_param + vend_param + ruta_params + filter_params + cli_param)
             ant_map = {r['codigo']: r for r in ant_rows}
         except Exception:
             logger.exception("Error al cargar presupuesto")
@@ -8341,7 +8362,8 @@ def dashboard_tendencia_estacional(request):
     lineas      = [s for s in request.GET.getlist('linea')     if s]
     marcas      = [s for s in request.GET.getlist('marca')     if s]
     productos   = [s for s in request.GET.getlist('producto')  if s]
-    cliente     = _safe_str(request.GET.get('cliente', ''), 200).strip()
+    cliente         = _safe_str(request.GET.get('cliente',         ''), 200).strip()
+    cliente_codigo  = _safe_str(request.GET.get('cliente_codigo',  ''), 100).strip()
     cadenas     = [s for s in request.GET.getlist('cadena')    if s]
     ruta        = _safe_str(request.GET.get('ruta', ''), 100).strip()
     cat_cond,  cat_params  = _multi_cat_cond(categorias)
@@ -8357,7 +8379,7 @@ def dashboard_tendencia_estacional(request):
     prod_join = "JOIN dw.dim_producto dp ON dp.producto_sk = fv.producto_sk" if has_prod else \
                 "LEFT JOIN dw.dim_producto dp ON dp.producto_sk = fv.producto_sk"
     # dim_cliente join requerido para filtro por cliente/cadena o desglose por cadena (SPM)
-    needs_cli_join  = bool(cliente) or bool(cadenas) or canal.upper() == 'SPM'
+    needs_cli_join  = bool(cliente) or bool(cliente_codigo) or bool(cadenas) or canal.upper() == 'SPM'
     cli_join  = "LEFT JOIN dw.dim_cliente dc ON dc.cliente_sk = fv.cliente_sk" if needs_cli_join else ""
     joins = f"""
         FROM dw.fact_ventas fv
@@ -8384,9 +8406,16 @@ def dashboard_tendencia_estacional(request):
     if supervisor:
         extra_conds.append("UPPER(dv.supervisor) = UPPER(%s)")
         extra_params.append(supervisor)
+    vendedor_te = _safe_str(request.GET.get('vendedor', ''), 200).strip()
+    if vendedor_te:
+        extra_conds.append("dv.vendedor_nombre = %s")
+        extra_params.append(vendedor_te)
     if cliente:
         extra_conds.append("dc.cliente_nombre ILIKE %s")
         extra_params.append(f"%{cliente}%")
+    if cliente_codigo:
+        extra_conds.append("dc.cliente_codigo_erp = %s")
+        extra_params.append(cliente_codigo)
     cadena_cond, cadena_params = _cadena_filter_cond(cadenas)
     if cadena_cond:
         extra_conds.append(cadena_cond)
