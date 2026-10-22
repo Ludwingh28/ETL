@@ -4706,6 +4706,14 @@ def _multi_sub_cond(subgrupos):
     return f"AND dp.subgrupo_descripcion IN ({phs})", list(subgrupos)
 
 
+def _multi_linea_prov_cond(lineas):
+    """Multi-select línea de proveedor (linea_proveedor) → IN (...)."""
+    if not lineas:
+        return "", []
+    phs = ", ".join(["%s"] * len(lineas))
+    return f"AND dp.linea_proveedor IN ({phs})", list(lineas)
+
+
 def _multi_marc_cond(marcas):
     """Multi-select marca → dp.clase_descripcion IN (...)."""
     if not marcas:
@@ -6185,6 +6193,32 @@ def dashboard_new_nacional_cliente_fechas(request):
         q_cond     = "AND (dc.cliente_codigo_erp ILIKE %s OR UPPER(dc.cliente_nombre) ILIKE %s)" if q_search else ""
         q_params   = [f'%{q_search}%', f'%{q_search.upper()}%'] if q_search else []
 
+        # Detect SPM vendedor to show cadena column
+        is_spm = False
+        if vendedor:
+            _, _vend_rows = _run_dw_query(
+                "SELECT canal_rrhh FROM dw.dim_vendedor WHERE vendedor_nombre = %s AND es_vendedor_actual = true LIMIT 1",
+                [vendedor]
+            )
+            if _vend_rows:
+                is_spm = 'SPM' in (_vend_rows[0].get('canal_rrhh') or '').upper()
+
+        # CASE expression to assign cadena label per client (used in outer SELECT)
+        _CADENA_CASE_DEFS = [
+            ('%hipermaxi%',  'Hipermaxi'),
+            ('%farmahiper%', 'Farmahiper'),
+            ('%(macro)%',    'Macrofidalga'),
+            ('%(super sur)%','Surfidalga'),
+            ('%fidasur%',    'Fidasur'),
+            ('%delicor%',    'Delicor'),
+            ('%farmacorp%',  'Farmacorp'),
+            ('% tia%',       'TIA'),
+            ('%ic norte%',   'IC Norte'),
+        ]
+        _cadena_case_lines = "\n                    ".join("WHEN dc.cliente_nombre ILIKE %s THEN %s" for _ in _CADENA_CASE_DEFS)
+        cadena_case_sql = f"CASE {_cadena_case_lines} ELSE 'Otros' END AS cadena,"
+        cadena_case_params = [v for pair in _CADENA_CASE_DEFS for v in pair]
+
         # Cadena filter (SPM only)
         _CADENA_PATTERNS = {
             'hipermaxi':    '%hipermaxi%',
@@ -6324,6 +6358,7 @@ def dashboard_new_nacional_cliente_fechas(request):
             SELECT
                 dc.cliente_codigo_erp                              AS codigo,
                 COALESCE(dc.cliente_nombre, dc.cliente_codigo_erp) AS nombre,
+                {cadena_case_sql}
                 df.fecha_completa::text                            AS fecha,
                 COALESCE(SUM(fv.venta_neta), 0)                   AS venta_neta,
                 COALESCE(SUM(fv.cantidad), 0)                     AS cantidad
@@ -6340,20 +6375,22 @@ def dashboard_new_nacional_cliente_fechas(request):
             GROUP BY dc.cliente_codigo_erp, dc.cliente_nombre, df.fecha_completa
             ORDER BY dc.cliente_nombre, df.fecha_completa
         """
-        data_params = filter_base + [page_size, offset] + [anho, mes] + canal_param + vend_param + ruta_params + filter_params + sku_drill_param
+        # cadena_case_params go between LIMIT/OFFSET (CTE end) and outer WHERE
+        data_params = filter_base + [page_size, offset] + cadena_case_params + [anho, mes] + canal_param + vend_param + ruta_params + filter_params + sku_drill_param
         _, rows = _run_dw_query(sql, data_params)
 
         result = [
             {
                 'codigo':     r['codigo'],
                 'nombre':     r['nombre'],
+                'cadena':     r['cadena'],
                 'fecha':      str(r['fecha'])[:10],
                 'venta_neta': float(r['venta_neta'] or 0),
                 'cantidad':   int(r['cantidad'] or 0),
             }
             for r in rows
         ]
-        return JsonResponse({'success': True, 'data': result, 'total': total, 'page': page, 'page_size': page_size, 'pages': pages, 'cadenas_disponibles': cadenas_disponibles, 'total_bs': grand_total_bs, 'total_uds': grand_total_uds, 'totals_by_date': totals_by_date})
+        return JsonResponse({'success': True, 'data': result, 'total': total, 'page': page, 'page_size': page_size, 'pages': pages, 'is_spm': is_spm, 'cadenas_disponibles': cadenas_disponibles, 'total_bs': grand_total_bs, 'total_uds': grand_total_uds, 'totals_by_date': totals_by_date})
     except Exception:
         logger.exception("Error interno")
         return JsonResponse({'success': False, 'error': 'Error interno del servidor'}, status=500)
@@ -7991,9 +8028,269 @@ def exportar_clientes_sin_compra(request):
     return response
 
 
+def _auth_and_perm(request, perm):
+    """Valida token y permiso; retorna (token_obj, error_response)."""
+    token_str  = ""
+    auth_header = request.META.get("HTTP_AUTHORIZATION", "")
+    if auth_header.startswith("Token "):
+        token_str = auth_header[6:]
+    else:
+        token_str = request.GET.get("_t", "")
+    if not token_str:
+        return None, JsonResponse({"error": "No autorizado"}, status=401)
+    try:
+        from rest_framework.authtoken.models import Token as DRFToken
+        token_obj = DRFToken.objects.select_related("user").get(key=token_str)
+        if not token_obj.user.is_active:
+            return None, JsonResponse({"error": "Usuario inactivo"}, status=401)
+    except Exception:
+        return None, JsonResponse({"error": "Token inválido"}, status=401)
+    if not _has_dashboard_perm(token_obj.user, perm):
+        return None, JsonResponse({"error": "Sin acceso a este recurso"}, status=403)
+    return token_obj, None
+
+
+def _dp_canal_cte(ciudad_cond: str, canal: str) -> tuple[str, list]:
+    """
+    Construye el CTE 'rutas_canal' que resuelve qué rutas y vendedores pertenecen
+    al canal indicado usando dos estrategias en UNION:
+      1. Primaria:  fact_planificacion → dim_vendedor via codigo_erp
+      2. Fallback:  dim_vendedor.vendedor_nombre → fact_planificacion.vendedor
+    Si canal está vacío, devuelve todas las rutas activas de planificación.
+    Retorna (cte_sql_fragment, params_list).
+    """
+    if not canal:
+        cte = f"""
+            WITH rutas_canal AS (
+                SELECT DISTINCT fp.ruta, fp.vendedor, NULL::varchar AS canal
+                FROM dual.fact_planificacion fp
+                WHERE fp.es_actual = true
+                  AND fp.ruta IS NOT NULL AND fp.ruta <> ''
+            )
+        """
+        return cte, []
+
+    cte = f"""
+        WITH rutas_canal AS (
+            -- Estrategia 1: join via codigo_erp (caso normal)
+            SELECT DISTINCT fp.ruta, fp.vendedor, dv.canal_rrhh AS canal
+            FROM dual.fact_planificacion fp
+            JOIN dw.dim_vendedor dv
+                ON dv.vendedor_codigo_erp = SPLIT_PART(fp.codigo_erp, '.', 1)
+                AND dv.es_vendedor_actual = true
+            WHERE fp.es_actual = true
+              AND ({ciudad_cond})
+              AND dv.canal_rrhh = %s
+
+            UNION
+
+            -- Estrategia 2: match por nombre vendedor (canales sin codigo_erp en planificación)
+            SELECT DISTINCT fp.ruta, fp.vendedor, %s AS canal
+            FROM dual.fact_planificacion fp
+            WHERE fp.es_actual = true
+              AND fp.ruta IS NOT NULL AND fp.ruta <> ''
+              AND fp.vendedor IN (
+                  SELECT dv.vendedor_nombre
+                  FROM dw.dim_vendedor dv
+                  WHERE dv.canal_rrhh = %s
+                    AND dv.es_vendedor_actual = true
+                    AND ({ciudad_cond})
+              )
+        )
+    """
+    return cte, [canal, canal, canal]
+
+
+def exportar_clientes_dualpoint_opciones(request):
+    """
+    Retorna la lista de vendedores activos para los filtros de la exportación.
+    Params: regional, canal (opcional)
+    """
+    _, err = _auth_and_perm(request, 'descargas')
+    if err: return err
+
+    regional_raw = request.GET.get('regional', 'nacional').lower().replace(' ', '_')
+    regional     = regional_raw if regional_raw in REGIONALES_VALID else 'nacional'
+    canal        = _safe_str(request.GET.get('canal', ''), 30).strip()
+
+    ciudad_cond = _regional_filter(regional)
+
+    # Canales sin rutas en DualPoint — excluidos por patrón (ILIKE) para cubrir variantes
+    _excluir_canal = """
+        NOT (
+            UPPER(dv.canal_rrhh) LIKE 'CODIS%%'
+            OR UPPER(dv.canal_rrhh) LIKE 'OFIC%%'
+            OR UPPER(dv.canal_rrhh) LIKE 'E%%COMER%%'
+            OR UPPER(dv.canal_rrhh) LIKE '%%ECOM%%'
+        )
+    """
+
+    # Canales disponibles en dim_vendedor para la regional
+    sql_canales = f"""
+        SELECT DISTINCT dv.canal_rrhh
+        FROM dw.dim_vendedor dv
+        WHERE dv.es_vendedor_actual = true
+          AND ({ciudad_cond})
+          AND dv.canal_rrhh IS NOT NULL AND dv.canal_rrhh <> ''
+          AND {_excluir_canal}
+        ORDER BY dv.canal_rrhh
+    """
+    _, canal_rows = _run_dw_query(sql_canales, [])
+    canales = [r['canal_rrhh'] for r in canal_rows if r.get('canal_rrhh')]
+
+    # Vendedores según canal seleccionado
+    cte, cte_params = _dp_canal_cte(ciudad_cond, canal)
+    sql_vend = f"""
+        {cte}
+        SELECT DISTINCT rc.vendedor
+        FROM rutas_canal rc
+        WHERE rc.vendedor IS NOT NULL AND rc.vendedor <> ''
+        ORDER BY rc.vendedor
+    """
+    try:
+        _, vend_rows = _run_dw_query(sql_vend, cte_params)
+        return JsonResponse({
+            'success':   True,
+            'canales':   canales,
+            'vendedores': [r['vendedor'] for r in vend_rows],
+        })
+    except Exception:
+        logger.exception("Error interno")
+        return JsonResponse({'success': False, 'error': 'Error interno'}, status=500)
+
+
+def exportar_clientes_dualpoint(request):
+    """
+    Exporta a XLSX los clientes cuyas rutas pertenecen al canal/regional/vendedor indicados.
+    Usa doble estrategia (codigo_erp + nombre) para cubrir canales sin codigo_erp en planificación.
+    Params: regional, canal (opcional), vendedor (opcional)
+    """
+    _, err = _auth_and_perm(request, 'descargas')
+    if err: return err
+
+    regional_raw = request.GET.get('regional', 'nacional').lower().replace(' ', '_')
+    regional     = regional_raw if regional_raw in REGIONALES_VALID else 'nacional'
+    canal        = _safe_str(request.GET.get('canal',    ''), 30).strip()
+    vendedor     = _safe_str(request.GET.get('vendedor', ''), 150).strip()
+
+    ciudad_cond = _regional_filter(regional)
+    cte, cte_params = _dp_canal_cte(ciudad_cond, canal)
+
+    vend_clause  = "AND rc.vendedor = %s" if vendedor else ""
+    vend_params  = [vendedor] if vendedor else []
+
+    sql = f"""
+        {cte}
+        SELECT DISTINCT
+            dc.codigo_cliente,
+            dc.nombre_punto_venta,
+            dc.nombre_compania,
+            dc.nombre_punto_venta          AS nombre_punto_venta_extra,
+            dc.nit_factura,
+            dc.nombre_factura,
+            COALESCE(rc.canal, dc.canal)   AS canal,
+            dc.clasificacion,
+            rc.ruta,
+            dc.zona,
+            dc.fecha_registro::date,
+            rc.vendedor
+        FROM rutas_canal rc
+        JOIN dual.dim_clientes dc ON dc.ruta = rc.ruta
+        {vend_clause}
+        ORDER BY rc.ruta, dc.nombre_compania
+    """
+
+    headers = ["CODIGO", "NOMBRE", "NOMBRE COMPANIA", "NOMBRE PUNTO DE VENTA",
+               "NIT", "NOMBRE FACTURA", "CANAL", "CLASIFICACION",
+               "RUTA", "ZONA", "FECHA REGISTRO", "VENDEDOR"]
+
+    wb = openpyxl.Workbook(write_only=True)
+    ws = wb.create_sheet(title="Clientes DualPoint")
+    bold = Font(bold=True)
+    header_row = []
+    for h in headers:
+        c = openpyxl.cell.WriteOnlyCell(ws, value=h)
+        c.font = bold
+        header_row.append(c)
+    ws.append(header_row)
+
+    all_params = cte_params + vend_params
+
+    try:
+        with connections['dw'].cursor() as cursor:
+            cursor.execute(sql, all_params)
+            while True:
+                batch = cursor.fetchmany(2000)
+                if not batch: break
+                for row in batch:
+                    ws.append(list(row))
+    except Exception:
+        logger.exception("Error interno")
+        return JsonResponse({"success": False, "error": "Error interno del servidor"}, status=500)
+
+    buffer = io.BytesIO()
+    wb.save(buffer)
+    file_size = buffer.tell()
+    buffer.seek(0)
+
+    def _chunks(buf, size=65536):
+        chunk = buf.read(size)
+        while chunk:
+            yield chunk
+            chunk = buf.read(size)
+
+    reg_slug   = regional if regional != 'nacional' else 'todos'
+    canal_slug = canal.replace(' ', '_') if canal else 'todos'
+    vend_slug  = vendedor.replace(' ', '_') if vendedor else 'todos'
+    filename   = f"clientes_dualpoint_{reg_slug}_{canal_slug}_{vend_slug}.xlsx"
+    resp = StreamingHttpResponse(
+        _chunks(buffer),
+        content_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    )
+    resp["Content-Disposition"] = f'attachment; filename="{filename}"'
+    resp["Content-Encoding"]    = "identity"
+    resp["X-File-Size"]         = str(file_size)
+    return resp
+
+
 # â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€
 #  DASHBOARD TENDENCIA ESTACIONAL
 # â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€
+
+# Mapeo cadena-nombre → patrón ILIKE (se pasan como parámetros %s, sin escaping %%
+_CADENA_ILIKE_PARAMS = {
+    'Hipermaxi':    '%hipermaxi%',
+    'Farmahiper':   '%farmahiper%',
+    'MacroFidalga': '%macrofidalga%',
+    'SurFidalga':   '%surfidalga%',
+    'Fidasur':      '%fidasur%',
+    'DeLicor':      '%de licor%',
+    'Farmacorp':    '%farmacorp%',
+    'Tia':          '% tia%',
+    'IC Norte':     '%ic norte%',
+}
+
+
+def _cadena_filter_cond(cadenas):
+    """Devuelve (condición_sql_sin_AND, params) para filtrar por cadena(s)."""
+    if not cadenas:
+        return "", []
+    known  = [c for c in cadenas if c in _CADENA_ILIKE_PARAMS]
+    otros  = 'Otros' in cadenas
+    parts  = []
+    params = []
+    if known:
+        ilike = " OR ".join(["dc.cliente_nombre ILIKE %s"] * len(known))
+        parts.append(f"({ilike})")
+        params.extend(_CADENA_ILIKE_PARAMS[c] for c in known)
+    if otros:
+        not_ = " AND ".join(["dc.cliente_nombre NOT ILIKE %s"] * len(_CADENA_ILIKE_PARAMS))
+        parts.append(f"({not_})")
+        params.extend(_CADENA_ILIKE_PARAMS.values())
+    if not parts:
+        return "", []
+    return parts[0] if len(parts) == 1 else f"({' OR '.join(parts)})", params
+
 
 @api_view(['GET'])
 @authentication_classes([ExpiringTokenAuthentication])
@@ -8041,24 +8338,41 @@ def dashboard_tendencia_estacional(request):
     categorias  = [s for s in request.GET.getlist('categoria') if s]
     proveedores = [s for s in request.GET.getlist('proveedor') if s]
     subgrupos   = [s for s in request.GET.getlist('subgrupo')  if s]
+    lineas      = [s for s in request.GET.getlist('linea')     if s]
     marcas      = [s for s in request.GET.getlist('marca')     if s]
     productos   = [s for s in request.GET.getlist('producto')  if s]
+    cliente     = _safe_str(request.GET.get('cliente', ''), 200).strip()
+    cadenas     = [s for s in request.GET.getlist('cadena')    if s]
+    ruta        = _safe_str(request.GET.get('ruta', ''), 100).strip()
     cat_cond,  cat_params  = _multi_cat_cond(categorias)
     prov_cond, prov_params = _multi_prov_cond(proveedores)
     sub_cond,  sub_params  = _multi_sub_cond(subgrupos)
+    lin_cond,  lin_params  = _multi_linea_prov_cond(lineas)
     marc_cond, marc_params = _multi_marc_cond(marcas)
     nom_cond,  nom_params  = _multi_prod_cond(productos)
-    prod_cond   = f"{cat_cond} {prov_cond} {sub_cond} {marc_cond} {nom_cond}".strip()
-    prod_params = cat_params + prov_params + sub_params + marc_params + nom_params
+    prod_cond   = f"{cat_cond} {prov_cond} {sub_cond} {lin_cond} {marc_cond} {nom_cond}".strip()
+    prod_params = cat_params + prov_params + sub_params + lin_params + marc_params + nom_params
     has_prod    = bool(prod_cond)
 
     prod_join = "JOIN dw.dim_producto dp ON dp.producto_sk = fv.producto_sk" if has_prod else \
                 "LEFT JOIN dw.dim_producto dp ON dp.producto_sk = fv.producto_sk"
+    # dim_cliente join requerido para filtro por cliente/cadena o desglose por cadena (SPM)
+    needs_cli_join  = bool(cliente) or bool(cadenas) or canal.upper() == 'SPM'
+    cli_join  = "LEFT JOIN dw.dim_cliente dc ON dc.cliente_sk = fv.cliente_sk" if needs_cli_join else ""
     joins = f"""
         FROM dw.fact_ventas fv
         JOIN dw.dim_fecha        df ON df.fecha_sk    = fv.fecha_sk
         JOIN dw.dim_vendedor     dv ON dv.vendedor_sk = fv.vendedor_sk
         {prod_join}
+        {cli_join}
+    """
+    # Variante con dim_cliente para el desglose de cadena (siempre la necesita)
+    joins_cli = f"""
+        FROM dw.fact_ventas fv
+        JOIN dw.dim_fecha        df ON df.fecha_sk    = fv.fecha_sk
+        JOIN dw.dim_vendedor     dv ON dv.vendedor_sk = fv.vendedor_sk
+        {prod_join}
+        LEFT JOIN dw.dim_cliente dc ON dc.cliente_sk = fv.cliente_sk
     """
 
     ciudad_cond = _regional_filter(regional)
@@ -8070,12 +8384,30 @@ def dashboard_tendencia_estacional(request):
     if supervisor:
         extra_conds.append("UPPER(dv.supervisor) = UPPER(%s)")
         extra_params.append(supervisor)
+    if cliente:
+        extra_conds.append("dc.cliente_nombre ILIKE %s")
+        extra_params.append(f"%{cliente}%")
+    cadena_cond, cadena_params = _cadena_filter_cond(cadenas)
+    if cadena_cond:
+        extra_conds.append(cadena_cond)
+        extra_params.extend(cadena_params)
+    if ruta:
+        extra_conds.append(
+            "fv.cliente_sk IN ("
+            "  SELECT DISTINCT dck.cliente_sk"
+            "  FROM dual.fact_planificacion fp"
+            "  JOIN dual.dim_clientes dc ON dc.ruta = fp.ruta"
+            "  JOIN dw.dim_cliente dck ON dck.cliente_codigo_erp = dc.codigo_cliente"
+            "  WHERE fp.es_actual = true AND fp.ruta = %s"
+            ")"
+        )
+        extra_params.append(ruta)
     extra_where = " AND " + " AND ".join(extra_conds)
     if prod_cond:
         extra_where += f" {prod_cond}"
         extra_params.extend(prod_params)
 
-    # Helper: ejecuta queries de desglose por categoría y canal para un WHERE+params dado
+    # Helper: ejecuta queries de desglose por categoría, canal y cadena (SPM)
     def _desgloses(where_conds, params_base):
         # Categorías
         sql_cat = f"""
@@ -8105,7 +8437,34 @@ def dashboard_tendencia_estacional(request):
             """
             _, canal_rows = _run_dw_query(sql_canal, params_base)
 
-        return cat_rows, canal_rows
+        # Cadenas (solo cuando canal es SPM)
+        cadena_rows = []
+        if canal.upper() == 'SPM':
+            cadena_case = """CASE
+                WHEN dc.cliente_nombre ILIKE '%%hipermaxi%%'    THEN 'Hipermaxi'
+                WHEN dc.cliente_nombre ILIKE '%%farmahiper%%'   THEN 'Farmahiper'
+                WHEN dc.cliente_nombre ILIKE '%%macrofidalga%%' THEN 'MacroFidalga'
+                WHEN dc.cliente_nombre ILIKE '%%surfidalga%%'   THEN 'SurFidalga'
+                WHEN dc.cliente_nombre ILIKE '%%fidasur%%'      THEN 'Fidasur'
+                WHEN dc.cliente_nombre ILIKE '%%de licor%%'     THEN 'DeLicor'
+                WHEN dc.cliente_nombre ILIKE '%%farmacorp%%'    THEN 'Farmacorp'
+                WHEN dc.cliente_nombre ILIKE '%% tia%%'         THEN 'Tia'
+                WHEN dc.cliente_nombre ILIKE '%%ic norte%%'     THEN 'IC Norte'
+                ELSE 'Otros'
+            END"""
+            sql_cadena = f"""
+                SELECT ({cadena_case}) AS cadena,
+                       df.anho, df.mes_numero,
+                       ROUND(COALESCE(SUM(fv.venta_neta), 0)::NUMERIC, 2) AS total,
+                       COALESCE(SUM(fv.cantidad), 0)                       AS cantidad
+                {joins_cli}
+                WHERE {where_conds}
+                GROUP BY 1, df.anho, df.mes_numero
+                ORDER BY df.anho, df.mes_numero, 1
+            """
+            _, cadena_rows = _run_dw_query(sql_cadena, params_base)
+
+        return cat_rows, canal_rows, cadena_rows
 
     try:
         if modo == 'estacional':
@@ -8127,7 +8486,7 @@ def dashboard_tendencia_estacional(request):
                 ORDER BY df.anho
             """
             _, rows = _run_dw_query(sql, params)
-            cat_rows, canal_rows = _desgloses(where_str, params)
+            cat_rows, canal_rows, cadena_rows = _desgloses(where_str, params)
 
             return JsonResponse({
                 'success':        True,
@@ -8138,6 +8497,44 @@ def dashboard_tendencia_estacional(request):
                 'data':           rows,
                 'data_categoria': cat_rows,
                 'data_canal':     canal_rows,
+                'data_cadena':    cadena_rows,
+            })
+
+        elif modo == 'rango':
+            mes_inicio = max(1, min(12, _safe_int(request.GET.get('mes_inicio'), 1)))
+            mes_fin    = max(mes_inicio, min(12, _safe_int(request.GET.get('mes_fin'), mes)))
+            conds  = ["df.mes_numero BETWEEN %s AND %s", "df.anho BETWEEN %s AND %s"]
+            params = [mes_inicio, mes_fin, anho - 2, anho]
+            if dia_corte > 0:
+                # Corte de días solo aplica al último mes del rango
+                conds.append("(df.mes_numero < %s OR df.dia_numero <= %s)")
+                params.extend([mes_fin, dia_corte])
+            params.extend(extra_params)
+            where_str = " AND ".join(conds) + extra_where
+
+            sql = f"""
+                SELECT df.anho,
+                       ROUND(COALESCE(SUM(fv.venta_neta), 0)::NUMERIC, 2) AS total,
+                       COALESCE(SUM(fv.cantidad), 0)                       AS cantidad
+                {joins}
+                WHERE {where_str}
+                GROUP BY df.anho
+                ORDER BY df.anho
+            """
+            _, rows = _run_dw_query(sql, params)
+            cat_rows, canal_rows, cadena_rows = _desgloses(where_str, params)
+
+            return JsonResponse({
+                'success':        True,
+                'modo':           'rango',
+                'mes_inicio':     mes_inicio,
+                'mes_fin':        mes_fin,
+                'anho_ref':       anho,
+                'dia_corte':      dia_corte,
+                'data':           rows,
+                'data_categoria': cat_rows,
+                'data_canal':     canal_rows,
+                'data_cadena':    cadena_rows,
             })
 
         else:  # ultimos6
@@ -8164,7 +8561,7 @@ def dashboard_tendencia_estacional(request):
                 ORDER BY df.anho, df.mes_numero
             """
             _, rows = _run_dw_query(sql, u6_params)
-            cat_rows, canal_rows = _desgloses(where_str, u6_params)
+            cat_rows, canal_rows, cadena_rows = _desgloses(where_str, u6_params)
 
             # Presupuesto por mes para enriquecer el gráfico evolutivo
             ppto_prod_join = "JOIN dw.dim_producto dp ON fp.producto_sk = dp.producto_sk" if has_prod else ""
@@ -8197,8 +8594,110 @@ def dashboard_tendencia_estacional(request):
                 'data':           rows,
                 'data_categoria': cat_rows,
                 'data_canal':     canal_rows,
+                'data_cadena':    cadena_rows,
             })
 
+    except Exception:
+        logger.exception("Error interno")
+        return JsonResponse({'success': False, 'error': 'Error interno del servidor'}, status=500)
+
+
+@api_view(['GET'])
+@authentication_classes([ExpiringTokenAuthentication])
+@permission_classes([IsAuthenticated])
+@_require_perm('tendencia-estacional')
+def dashboard_tendencia_estacional_opciones(request):
+    """
+    Opciones de filtro para el dashboard de Tendencia Estacional.
+    Devuelve: proveedores[], lineas[], clientes[]
+    Params: regional, canal, anho, mes, cadena[] (filtra clientes por cadena)
+    """
+    try:
+        regional_raw = request.GET.get('regional', 'nacional').lower().replace(' ', '_')
+        regional     = regional_raw if regional_raw in REGIONALES_VALID else 'nacional'
+        canal        = _safe_str(request.GET.get('canal', 'Todos'), 20)
+        anho         = _safe_int(request.GET.get('anho'),  datetime.now().year)
+        mes          = _safe_int(request.GET.get('mes'),   datetime.now().month)
+        cadenas      = [s for s in request.GET.getlist('cadena') if s]
+        ruta_op      = _safe_str(request.GET.get('ruta', ''), 100).strip()
+
+        ciudad_cond = _regional_filter(regional)
+        canal_cond  = "AND dv.canal_rrhh = %s" if (canal and canal != 'Todos') else ""
+        canal_param = [canal] if (canal and canal != 'Todos') else []
+
+        base_params = [anho, mes] + canal_param
+        base_where  = f"""
+            df.anho = %s AND df.mes_numero = %s
+            AND fv.es_anulado = FALSE AND fv.venta_neta > 0
+            AND ({ciudad_cond})
+            {canal_cond}
+        """
+
+        # Proveedores + líneas
+        sql_prod = f"""
+            SELECT DISTINCT dp.proveedor, dp.linea_proveedor
+            FROM dw.fact_ventas fv
+            JOIN dw.dim_fecha    df ON df.fecha_sk    = fv.fecha_sk
+            JOIN dw.dim_vendedor dv ON dv.vendedor_sk = fv.vendedor_sk
+            JOIN dw.dim_producto dp ON dp.producto_sk = fv.producto_sk
+            WHERE {base_where}
+              AND dp.proveedor IS NOT NULL
+            ORDER BY dp.proveedor, dp.linea_proveedor
+        """
+        _, prod_rows = _run_dw_query(sql_prod, base_params)
+        proveedores = sorted({r['proveedor']       for r in prod_rows if r.get('proveedor')})
+        lineas      = sorted({r['linea_proveedor'] for r in prod_rows if r.get('linea_proveedor')})
+
+        # Clientes (cuando hay canal específico, filtro de cadena o filtro de ruta)
+        clientes = []
+        needs_cli = (canal and canal != 'Todos') or bool(cadenas) or bool(ruta_op)
+        if needs_cli:
+            cadena_cond, cadena_params = _cadena_filter_cond(cadenas)
+            cadena_clause = f"AND {cadena_cond}" if cadena_cond else ""
+            ruta_clause   = (
+                "AND fv.cliente_sk IN ("
+                "  SELECT DISTINCT dck.cliente_sk"
+                "  FROM dual.fact_planificacion fp"
+                "  JOIN dual.dim_clientes dc2 ON dc2.ruta = fp.ruta"
+                "  JOIN dw.dim_cliente dck ON dck.cliente_codigo_erp = dc2.codigo_cliente"
+                "  WHERE fp.es_actual = true AND fp.ruta = %s"
+                ")"
+            ) if ruta_op else ""
+            ruta_op_params = [ruta_op] if ruta_op else []
+            sql_cli = f"""
+                SELECT DISTINCT dc.cliente_nombre
+                FROM dw.fact_ventas fv
+                JOIN dw.dim_fecha    df ON df.fecha_sk    = fv.fecha_sk
+                JOIN dw.dim_vendedor dv ON dv.vendedor_sk = fv.vendedor_sk
+                LEFT JOIN dw.dim_cliente dc ON dc.cliente_sk = fv.cliente_sk
+                WHERE {base_where}
+                  AND dc.cliente_nombre IS NOT NULL
+                  {cadena_clause}
+                  {ruta_clause}
+                ORDER BY dc.cliente_nombre
+            """
+            _, cli_rows = _run_dw_query(sql_cli, base_params + cadena_params + ruta_op_params)
+            clientes = [r['cliente_nombre'] for r in cli_rows if r.get('cliente_nombre')]
+
+        # Rutas (cuando hay canal específico) — desde planificación activa
+        rutas = []
+        if canal and canal != 'Todos':
+            sql_ruta = f"""
+                SELECT DISTINCT fp.ruta
+                FROM dual.fact_planificacion fp
+                JOIN dw.dim_vendedor dv
+                    ON  dv.vendedor_codigo_erp = SPLIT_PART(fp.codigo_erp, '.', 1)
+                    AND dv.es_vendedor_actual  = true
+                WHERE fp.es_actual = true
+                  AND ({ciudad_cond})
+                  AND dv.canal_rrhh = %s
+                  AND fp.ruta IS NOT NULL AND fp.ruta <> ''
+                ORDER BY fp.ruta
+            """
+            _, ruta_rows = _run_dw_query(sql_ruta, canal_param)
+            rutas = [r['ruta'] for r in ruta_rows if r.get('ruta')]
+
+        return JsonResponse({'success': True, 'proveedores': proveedores, 'lineas': lineas, 'clientes': clientes, 'rutas': rutas})
     except Exception:
         logger.exception("Error interno")
         return JsonResponse({'success': False, 'error': 'Error interno del servidor'}, status=500)

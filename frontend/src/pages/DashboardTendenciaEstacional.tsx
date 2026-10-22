@@ -1,9 +1,9 @@
-﻿import { useState, useEffect, useCallback, useMemo, type ChangeEvent } from "react";
+﻿import { useState, useEffect, useCallback, useMemo, useRef, type ChangeEvent } from "react";
 import {
   ResponsiveContainer, BarChart, Bar, XAxis, YAxis,
   CartesianGrid, Tooltip, Cell, Legend,
 } from "recharts";
-import { TrendingUp, TrendingDown, Minus, AlertCircle } from "lucide-react";
+import { TrendingUp, TrendingDown, Minus, AlertCircle, ChevronDown, X, SlidersHorizontal, Search } from "lucide-react";
 import { useAuth } from "../context/AuthContext";
 import DashboardLayout from "../components/DashboardLayout";
 import { setActiveFilters } from "../utils/filterStore";
@@ -11,13 +11,15 @@ import type { AuthContextValue } from "../types";
 
 // ─── Tipos ────────────────────────────────────────────────────────────────────
 
-interface PuntoBase  { anho: number; mes_numero: number; total: number; cantidad: number }
-interface PuntoCat   extends PuntoBase { categoria: string }
-interface PuntoCanal extends PuntoBase { canal: string }
-interface Periodo    { anho: number; mes_numero: number; mes_nombre: string }
+interface PuntoBase   { anho: number; mes_numero: number; total: number; cantidad: number }
+interface PuntoCat    extends PuntoBase { categoria: string }
+interface PuntoCanal  extends PuntoBase { canal: string }
+interface PuntoCadena extends PuntoBase { cadena: string }
+interface Periodo     { anho: number; mes_numero: number; mes_nombre: string }
 
-type CorteModo = "completo" | "hoy" | "personalizado";
-type Metrica   = "total" | "cantidad";
+type CorteModo    = "completo" | "hoy" | "personalizado";
+type Metrica      = "total" | "cantidad";
+type ModoTemporal = "ultimos6" | "estacional" | "rango";
 
 // ─── Constantes / paletas ─────────────────────────────────────────────────────
 
@@ -41,6 +43,8 @@ const YEAR_PAL  = ["#94a3b8","#60a5fa","#16a34a","#f59e0b","#e11d48"];
 const MONTH_PAL = ["#6366f1","#0ea5e9","#14b8a6","#84cc16","#f97316","#ec4899"];
 const CANAL_PAL = ["#3b82f6","#10b981","#f59e0b","#8b5cf6","#ef4444",
                    "#06b6d4","#84cc16","#f97316","#ec4899","#6366f1","#14b8a6","#a3e635"];
+
+const CADENA_NAMES = ["Hipermaxi","Farmahiper","MacroFidalga","SurFidalga","Fidasur","DeLicor","Farmacorp","Tia","IC Norte","Otros"] as const;
 
 const CAT_COLORS: Record<string, string> = {
   "Alimentos":            "#3b82f6",
@@ -150,7 +154,7 @@ function CustomTooltip({ active, payload, label, metrica, pct = false }: {
               <span className="text-slate-600 truncate">{p.name}</span>
             </span>
             <span className="font-semibold text-slate-800 shrink-0">
-              {pct ? `${p.value.toFixed(1)}% · ${fmtVal(raw, metrica)}` : fmtVal(p.value, metrica)}
+              {pct ? `${Number(p.value).toFixed(1)}% · ${fmtVal(raw, metrica)}` : fmtVal(p.value, metrica)}
             </span>
           </div>
         );
@@ -189,27 +193,60 @@ export default function DashboardTendenciaEstacional() {
   const [supervisorList,setSupervisorList]= useState<string[]>([]);
   const [anho,      setAnho]      = useState<number>(0);
   const [mes,       setMes]       = useState<number>(0);
+  const [mesInicio, setMesInicio] = useState<number>(1);
   const [metrica,   setMetrica]   = useState<Metrica>("total");
-  const [estacional,         setEstacional]         = useState<boolean>(false);
+  const [modoTemporal,       setModoTemporal]       = useState<ModoTemporal>("estacional");
   const [corteModo,          setCorteModo]          = useState<CorteModo>("hoy");
   const [cortePersonalizado, setCortePersonalizado] = useState<number>(now.getDate());
 
+  // Filtros de sección
+  const [fLineas,      setFLineas]      = useState<string[]>([]);
+  const [fProveedores, setFProveedores] = useState<string[]>([]);
+  const [fCadenas,     setFCadenas]     = useState<string[]>([]);
+  const [fCliente,     setFCliente]     = useState<string>("");
+  const [opLineas,     setOpLineas]     = useState<string[]>([]);
+  const [opProveedores,setOpProveedores]= useState<string[]>([]);
+  const [opClientes,   setOpClientes]   = useState<string[]>([]);
+  const [opRutas,      setOpRutas]      = useState<string[]>([]);
+  const [fRuta,        setFRuta]        = useState<string>("");
+  const [showSecFiltros, setShowSecFiltros] = useState<boolean>(false);
+  const secOpLoaded   = useRef(false);
+  const cliOpLoaded   = useRef(false);
+  // Dropdown states
+  const [showProvDrop, setShowProvDrop] = useState(false);
+  const [provSearch,   setProvSearch]   = useState("");
+  const [showLinDrop,  setShowLinDrop]  = useState(false);
+  const [linSearch,    setLinSearch]    = useState("");
+  const [showCadDrop,  setShowCadDrop]  = useState(false);
+  const [cadSearch,    setCadSearch]    = useState("");
+  const [showCliDrop,  setShowCliDrop]  = useState(false);
+  const [cliSearch,    setCliSearch]    = useState("");
+  const [showRutaDrop, setShowRutaDrop] = useState(false);
+  const [rutaSearch,   setRutaSearch]   = useState("");
+  const provRef = useRef<HTMLDivElement>(null);
+  const linRef  = useRef<HTMLDivElement>(null);
+  const cadRef  = useRef<HTMLDivElement>(null);
+  const cliRef  = useRef<HTMLDivElement>(null);
+  const rutaRef = useRef<HTMLDivElement>(null);
 
   // Datos
   const [dataMain,     setDataMain]     = useState<PuntoBase[]>([]);
   const [dataCat,      setDataCat]      = useState<PuntoCat[]>([]);
   const [dataCanalDsg, setDataCanalDsg] = useState<PuntoCanal[]>([]);
+  const [dataCadena,   setDataCadena]   = useState<PuntoCadena[]>([]);
   const [periodos,     setPeriodos]     = useState<Periodo[]>([]);
   const [loading,      setLoading]      = useState<boolean>(true);
   const [error,        setError]        = useState<string | null>(null);
+
+  const esAnual = modoTemporal === "estacional" || modoTemporal === "rango";
 
   const diaCorte = corteModo === "completo" ? 0
     : corteModo === "hoy" ? now.getDate()
     : cortePersonalizado;
 
   useEffect(() => {
-    setActiveFilters({ regional, canal, supervisor, anho, mes, metrica, estacional, corteModo, cortePersonalizado });
-  }, [regional, canal, supervisor, anho, mes, metrica, estacional, corteModo, cortePersonalizado]);
+    setActiveFilters({ regional, canal, supervisor, anho, mes, mesInicio, metrica, modoTemporal, corteModo, cortePersonalizado });
+  }, [regional, canal, supervisor, anho, mes, mesInicio, metrica, modoTemporal, corteModo, cortePersonalizado]);
 
   // Init regional/canal desde perfil para no-admin
   useEffect(() => {
@@ -256,30 +293,120 @@ export default function DashboardTendenciaEstacional() {
       .catch(() => undefined);
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
+  // Cargar opciones de sección (lazy: solo cuando se abre el panel)
+  const fetchOpciones = useCallback(async () => {
+    if (secOpLoaded.current || !anho || !mes) return;
+    const qs = new URLSearchParams({
+      regional: regional.toLowerCase().replace(/ /g, "_"),
+      canal, anho: String(anho), mes: String(mes),
+    });
+    try {
+      const r = await apiFetch<{ success: boolean; proveedores: string[]; lineas: string[]; rutas: string[] }>(
+        `/dashboard/tendencia-estacional/opciones/?${qs}`
+      );
+      if (r.success) {
+        setOpProveedores(r.proveedores ?? []);
+        setOpLineas(r.lineas ?? []);
+        setOpRutas(r.rutas ?? []);
+        secOpLoaded.current = true;
+      }
+    } catch { /* silencioso */ }
+  }, [regional, canal, anho, mes]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  useEffect(() => {
+    if (showSecFiltros) void fetchOpciones();
+  }, [showSecFiltros, fetchOpciones]);
+
+  // Resetear opciones cargadas cuando cambian los filtros base
+  useEffect(() => {
+    secOpLoaded.current = false;
+    cliOpLoaded.current = false;
+    setOpClientes([]);
+    setOpRutas([]);
+    setFCadenas([]);
+    setFCliente("");
+    setFRuta("");
+  }, [regional, canal, anho, mes]);
+
+  // Cargar clientes (lazy, filtrado por cadenas seleccionadas)
+  const fetchClientes = useCallback(async () => {
+    if (!anho || !mes) return;
+    const qs = new URLSearchParams({
+      regional: regional.toLowerCase().replace(/ /g, "_"),
+      canal, anho: String(anho), mes: String(mes),
+    });
+    fCadenas.forEach(c => qs.append("cadena", c));
+    if (fRuta) qs.set("ruta", fRuta);
+    try {
+      const r = await apiFetch<{ success: boolean; clientes: string[] }>(
+        `/dashboard/tendencia-estacional/opciones/?${qs}`
+      );
+      if (r.success) setOpClientes(r.clientes ?? []);
+    } catch { /* silencioso */ }
+  }, [regional, canal, anho, mes, fCadenas, fRuta]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Recargar clientes cuando cambia fCadenas o fRuta, y limpiar cliente seleccionado
+  useEffect(() => {
+    if (!showSecFiltros) return;
+    cliOpLoaded.current = false;
+    setFCliente("");
+    setCliSearch("");
+    void fetchClientes();
+  }, [fCadenas, fRuta]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Cargar clientes cuando se abre el dropdown de cliente (si aún no cargaron)
+  useEffect(() => {
+    if (showCliDrop && !cliOpLoaded.current) {
+      cliOpLoaded.current = true;
+      void fetchClientes();
+    }
+  }, [showCliDrop, fetchClientes]);
+
+  // Cerrar dropdowns al hacer click fuera
+  useEffect(() => {
+    const handler = (e: MouseEvent) => {
+      if (provRef.current && !provRef.current.contains(e.target as Node)) setShowProvDrop(false);
+      if (linRef.current  && !linRef.current.contains(e.target as Node))  setShowLinDrop(false);
+      if (cadRef.current  && !cadRef.current.contains(e.target as Node))  setShowCadDrop(false);
+      if (cliRef.current  && !cliRef.current.contains(e.target as Node))  setShowCliDrop(false);
+      if (rutaRef.current && !rutaRef.current.contains(e.target as Node)) setShowRutaDrop(false);
+    };
+    document.addEventListener("mousedown", handler);
+    return () => document.removeEventListener("mousedown", handler);
+  }, []);
+
   // Cargar datos
   useEffect(() => {
     if (!anho || !mes) return;
     const load = async () => {
       setLoading(true); setError(null);
-      setDataMain([]); setDataCat([]); setDataCanalDsg([]);
+      setDataMain([]); setDataCat([]); setDataCanalDsg([]); setDataCadena([]);
       const qs = new URLSearchParams({
         regional:  regional.toLowerCase().replace(/ /g,"_"),
         canal,
         anho:      String(anho),
         mes:       String(mes),
-        modo:      estacional ? "estacional" : "ultimos6",
+        modo:      modoTemporal,
         dia_corte: String(diaCorte),
       });
+      if (modoTemporal === "rango") qs.set("mes_inicio", String(mesInicio));
       if (supervisor) qs.set("supervisor", supervisor);
+      fLineas.forEach(l => qs.append("linea", l));
+      fProveedores.forEach(p => qs.append("proveedor", p));
+      fCadenas.forEach(c => qs.append("cadena", c));
+      if (fCliente.trim()) qs.set("cliente", fCliente.trim());
+      if (fRuta.trim())    qs.set("ruta",    fRuta.trim());
       try {
         const r = await apiFetch<{
           success: boolean; data: PuntoBase[];
           data_categoria: PuntoCat[]; data_canal: PuntoCanal[];
+          data_cadena: PuntoCadena[];
         }>(`/dashboard/tendencia-estacional/?${qs}`);
         if (!r.success) throw new Error("Error al cargar datos");
         setDataMain(r.data ?? []);
         setDataCat(r.data_categoria ?? []);
         setDataCanalDsg(r.data_canal ?? []);
+        setDataCadena(r.data_cadena ?? []);
       } catch (e) {
         setError(e instanceof Error ? e.message : "Error desconocido");
       } finally {
@@ -287,26 +414,34 @@ export default function DashboardTendenciaEstacional() {
       }
     };
     void load();
-  }, [regional, canal, supervisor, anho, mes, estacional, diaCorte]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [regional, canal, supervisor, anho, mes, mesInicio, modoTemporal, diaCorte, fLineas, fProveedores, fCadenas, fCliente, fRuta]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // ── Helpers ───────────────────────────────────────────────────────────────
   const periodLabel = (a: number, m: number) =>
-    estacional ? String(a) : `${(MESES[m] ?? "").slice(0,3)} ${a}`;
+    esAnual ? String(a) : `${(MESES[m] ?? "").slice(0,3)} ${a}`;
 
   // KPIs globales
-  const kpiActual   = estacional
+  const kpiActual   = esAnual
     ? (dataMain.find(d => d.anho === anho)?.[metrica] ?? 0)
     : (dataMain.at(-1)?.[metrica] ?? 0);
-  const kpiAnterior = estacional
+  const kpiAnterior = esAnual
     ? (dataMain.find(d => d.anho === anho - 1)?.[metrica] ?? 0)
     : (dataMain.at(-2)?.[metrica] ?? 0);
 
-  // Gráfico principal — canal desglosado o barra simple
+  // Gráfico principal — canal, cadena (SPM) o barra simple
   const canalKeys = useMemo(
     () => [...new Set(dataCanalDsg.map(d => d.canal))].sort(),
     [dataCanalDsg],
   );
+  const cadenaKeys = useMemo(
+    () => [...new Set(dataCadena.map(d => d.cadena))].sort(),
+    [dataCadena],
+  );
+  const isSPM = canal === "SPM";
   const chartMainData = useMemo(() => {
+    if (isSPM && dataCadena.length > 0) {
+      return pivotRows(dataCadena, d => d.cadena, d => periodLabel(d.anho, d.mes_numero), metrica);
+    }
     if (canal !== "Todos") {
       return dataMain.map((d, i) => ({
         _key: periodLabel(d.anho, d.mes_numero), _idx: i, _anho: d.anho,
@@ -315,7 +450,7 @@ export default function DashboardTendenciaEstacional() {
     }
     return pivotRows(dataCanalDsg, d => d.canal, d => periodLabel(d.anho, d.mes_numero), metrica);
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [canal, dataMain, dataCanalDsg, metrica, estacional]);
+  }, [canal, isSPM, dataMain, dataCanalDsg, dataCadena, metrica, esAnual]);
 
   // Categorías — orden y colores
   const catKeys = useMemo(
@@ -327,7 +462,7 @@ export default function DashboardTendenciaEstacional() {
   const chartCatRaw = useMemo(
     () => pivotRows(dataCat, d => d.categoria, d => periodLabel(d.anho, d.mes_numero), metrica),
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [dataCat, metrica, estacional],
+    [dataCat, metrica, esAnual],
   );
   // Normalizar a porcentaje para el gráfico de categorías
   const chartCatPct = useMemo(() =>
@@ -346,7 +481,8 @@ export default function DashboardTendenciaEstacional() {
 
   // KPI por categoría
   const catKpiData = useMemo(() => {
-    const periods = dataMain.map(d => ({ anho: d.anho, mes: d.mes_numero }));
+    // En modos anuales (estacional/rango) la query principal no incluye mes_numero, usar `mes` directamente
+    const periods = dataMain.map(d => ({ anho: d.anho, mes: esAnual ? mes : d.mes_numero }));
     const curr = periods.at(-1);
     const prev = periods.at(-2);
     if (!curr) return [];
@@ -358,7 +494,7 @@ export default function DashboardTendenciaEstacional() {
       const anterior = prev ? getVal(prev.anho, prev.mes) : 0;
       return { cat, actual, anterior };
     });
-  }, [dataCat, dataMain, metrica, catKeys]);
+  }, [dataCat, dataMain, metrica, catKeys, esAnual, mes]);
 
   const anhos        = [...new Set(periodos.map(p => p.anho))].sort((a,b)=>b-a);
   const mesesDelAnho = periodos.filter(p => p.anho === anho);
@@ -373,18 +509,20 @@ export default function DashboardTendenciaEstacional() {
           <div>
             <h1 className="text-2xl font-bold text-slate-800">Tendencia Estacional</h1>
             <p className="text-slate-500 text-sm mt-0.5">
-              {estacional
+              {modoTemporal === "rango"
+                ? `Acumulado ${MESES[mesInicio]}–${MESES[mes]} entre gestiones${diaCorte>0?` — primeros ${diaCorte} días en ${MESES[mes]}`:""}`
+                : modoTemporal === "estacional"
                 ? `Comparación de ${MESES[mes]} entre gestiones${diaCorte>0?` — primeros ${diaCorte} días`:""}`
                 : `Últimos 6 meses${diaCorte>0?` — primeros ${diaCorte} días`:""}`}
             </p>
           </div>
-          <div className="flex items-center gap-2 bg-slate-100 p-1 rounded-xl">
-            {[false,true].map(v => (
-              <button key={String(v)} onClick={() => setEstacional(v)}
-                className={`px-4 py-1.5 rounded-lg text-sm font-medium transition-colors ${
-                  estacional===v ? "bg-white text-slate-800 shadow-sm" : "text-slate-500 hover:text-slate-700"
+          <div className="flex items-center gap-1 bg-slate-100 p-1 rounded-xl">
+            {(["ultimos6","estacional","rango"] as ModoTemporal[]).map(m => (
+              <button key={m} onClick={() => setModoTemporal(m)}
+                className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-colors ${
+                  modoTemporal===m ? "bg-white text-slate-800 shadow-sm" : "text-slate-500 hover:text-slate-700"
                 }`}>
-                {v ? "Comparación estacional" : "Últimos 6 meses"}
+                {m === "ultimos6" ? "Últimos 6 meses" : m === "estacional" ? "Mes puntual" : "Acumulado año"}
               </button>
             ))}
           </div>
@@ -440,8 +578,20 @@ export default function DashboardTendenciaEstacional() {
                 {anhos.map(y => <option key={y} value={y}>{y}</option>)}
               </select>
             </div>
+            {modoTemporal === "rango" && (
+              <div className="flex flex-col gap-1">
+                <label className="text-[10px] uppercase tracking-widest text-slate-400 font-semibold">Desde</label>
+                <select value={mesInicio} onChange={(e: ChangeEvent<HTMLSelectElement>) => setMesInicio(Number(e.target.value))} className={selectCls}>
+                  {MESES.slice(1).map((nombre, i) => (
+                    <option key={i+1} value={i+1}>{nombre}</option>
+                  ))}
+                </select>
+              </div>
+            )}
             <div className="flex flex-col gap-1">
-              <label className="text-[10px] uppercase tracking-widest text-slate-400 font-semibold">Mes</label>
+              <label className="text-[10px] uppercase tracking-widest text-slate-400 font-semibold">
+                {modoTemporal === "rango" ? "Hasta" : "Mes"}
+              </label>
               <select value={mes} onChange={(e: ChangeEvent<HTMLSelectElement>) => setMes(Number(e.target.value))} className={selectCls}>
                 {mesesDelAnho.map(p => (
                   <option key={p.mes_numero} value={p.mes_numero}>{MESES[p.mes_numero]}</option>
@@ -470,6 +620,463 @@ export default function DashboardTendenciaEstacional() {
           </div>
         </div>
 
+        {/* ── Filtros de sección ──────────────────────────────────────────── */}
+        <div className="bg-white rounded-xl border border-slate-200 shadow-sm">
+          <button onClick={() => setShowSecFiltros(v => !v)}
+            className="w-full flex items-center justify-between px-5 py-3 text-sm font-semibold text-slate-700 hover:bg-slate-50 transition-colors rounded-xl">
+            <span className="flex items-center gap-2">
+              <SlidersHorizontal size={14} className="text-slate-400" />
+              Filtros de sección
+              {(fLineas.length + fProveedores.length + fCadenas.length + (fCliente ? 1 : 0)) > 0 && (
+                <span className="bg-blue-600 text-white text-[10px] font-bold px-1.5 py-0.5 rounded-full">
+                  {fLineas.length + fProveedores.length + fCadenas.length + (fCliente ? 1 : 0)}
+                </span>
+              )}
+            </span>
+            <ChevronDown size={14} className={`text-slate-400 transition-transform ${showSecFiltros ? "rotate-180" : ""}`} />
+          </button>
+          {/* Chips de filtros activos visibles cuando el panel está colapsado */}
+          {!showSecFiltros && (fLineas.length + fProveedores.length + fCadenas.length + (fCliente ? 1 : 0) + (fRuta ? 1 : 0)) > 0 && (
+            <div className="px-5 pb-3 flex flex-wrap gap-1.5">
+              {fProveedores.map(p => (
+                <span key={p} className="flex items-center gap-1 text-[11px] bg-blue-50 text-blue-700 border border-blue-200 px-2 py-0.5 rounded-full font-medium">
+                  {p}<button onClick={() => setFProveedores(prev => prev.filter(x => x !== p))}><X size={10} /></button>
+                </span>
+              ))}
+              {fLineas.map(l => (
+                <span key={l} className="flex items-center gap-1 text-[11px] bg-violet-50 text-violet-700 border border-violet-200 px-2 py-0.5 rounded-full font-medium">
+                  {l}<button onClick={() => setFLineas(prev => prev.filter(x => x !== l))}><X size={10} /></button>
+                </span>
+              ))}
+              {fCadenas.map(c => (
+                <span key={c} className="flex items-center gap-1 text-[11px] bg-teal-50 text-teal-700 border border-teal-200 px-2 py-0.5 rounded-full font-medium">
+                  {c}<button onClick={() => setFCadenas(prev => prev.filter(x => x !== c))}><X size={10} /></button>
+                </span>
+              ))}
+              {fRuta && (
+                <span className="flex items-center gap-1 text-[11px] bg-orange-50 text-orange-700 border border-orange-200 px-2 py-0.5 rounded-full font-medium">
+                  {fRuta}<button onClick={() => { setFRuta(""); setRutaSearch(""); }}><X size={10} /></button>
+                </span>
+              )}
+              {fCliente && (
+                <span className="flex items-center gap-1 text-[11px] bg-slate-100 text-slate-700 border border-slate-200 px-2 py-0.5 rounded-full font-medium">
+                  {fCliente.length > 28 ? fCliente.slice(0,28)+"…" : fCliente}<button onClick={() => { setFCliente(""); setCliSearch(""); }}><X size={10} /></button>
+                </span>
+              )}
+            </div>
+          )}
+          {showSecFiltros && (
+            <div className="border-t border-slate-100 px-5 py-4">
+              <div className="flex flex-wrap gap-4 items-start">
+
+                {/* ── Proveedor combobox ── */}
+                <div className="flex flex-col gap-1 min-w-56" ref={provRef}>
+                  <label className="text-[10px] uppercase tracking-widest text-slate-400 font-semibold flex items-center gap-1.5">
+                    Proveedor
+                    {fProveedores.length > 0 && (
+                      <span className="px-1.5 py-0.5 bg-blue-100 text-blue-700 rounded-full text-[9px] font-bold">{fProveedores.length}</span>
+                    )}
+                  </label>
+                  <div className="relative">
+                    <div
+                      className={`flex items-center gap-2 px-3 py-2 rounded-lg border bg-white text-sm cursor-text transition-colors ${
+                        showProvDrop ? "border-brand-500 ring-2 ring-brand-500" : "border-slate-200 hover:border-slate-300"
+                      }`}
+                      onClick={() => { setShowProvDrop(true); void fetchOpciones(); }}
+                    >
+                      <Search size={13} className="text-slate-400 shrink-0" />
+                      <input
+                        type="text"
+                        placeholder={fProveedores.length ? `${fProveedores.length} seleccionado(s)` : "Buscar proveedor…"}
+                        value={provSearch}
+                        onChange={e => { setProvSearch(e.target.value); setShowProvDrop(true); }}
+                        onFocus={() => { setShowProvDrop(true); void fetchOpciones(); }}
+                        className="flex-1 outline-none bg-transparent text-slate-700 placeholder-slate-400 text-sm min-w-0"
+                      />
+                      {fProveedores.length > 0 && (
+                        <button className="text-slate-400 hover:text-slate-600 shrink-0"
+                          onMouseDown={e => { e.stopPropagation(); setFProveedores([]); setProvSearch(""); }}>
+                          <X size={13} />
+                        </button>
+                      )}
+                    </div>
+                    {showProvDrop && (
+                      <div className="absolute z-50 top-full mt-1 left-0 w-full min-w-64 bg-white border border-slate-200 rounded-xl shadow-xl overflow-hidden">
+                        {fProveedores.length > 0 && (
+                          <div className="px-3 py-2 border-b border-slate-100 flex flex-wrap gap-1.5 max-h-20 overflow-y-auto">
+                            {fProveedores.map(p => (
+                              <span key={p} className="flex items-center gap-1 bg-blue-100 text-blue-700 text-xs px-2 py-0.5 rounded-full font-medium">
+                                {p.length > 20 ? p.slice(0,20)+"…" : p}
+                                <button onMouseDown={e => { e.stopPropagation(); setFProveedores(prev => prev.filter(x => x !== p)); }}>
+                                  <X size={10} />
+                                </button>
+                              </span>
+                            ))}
+                          </div>
+                        )}
+                        <div className="max-h-52 overflow-y-auto">
+                          {opProveedores.length === 0 ? (
+                            <p className="text-xs text-slate-400 px-4 py-3 italic">
+                              {secOpLoaded.current ? "Sin opciones disponibles" : "Cargando opciones…"}
+                            </p>
+                          ) : opProveedores
+                              .filter(p => !provSearch || p.toLowerCase().includes(provSearch.toLowerCase()))
+                              .map(p => {
+                                const sel = fProveedores.includes(p);
+                                return (
+                                  <button key={p}
+                                    className={`w-full text-left px-4 py-2 text-sm transition-colors flex items-center gap-2.5 ${sel ? "bg-blue-50" : "hover:bg-slate-50"}`}
+                                    onMouseDown={e => { e.preventDefault(); setFProveedores(prev => prev.includes(p) ? prev.filter(x => x !== p) : [...prev, p]); }}>
+                                    <span className={`w-4 h-4 rounded border flex items-center justify-center shrink-0 ${sel ? "bg-blue-600 border-blue-600" : "border-slate-300"}`}>
+                                      {sel && <span className="text-white text-[10px] font-bold leading-none">✓</span>}
+                                    </span>
+                                    <span className={`text-xs ${sel ? "text-blue-700 font-medium" : "text-slate-700"}`}>{p}</span>
+                                  </button>
+                                );
+                              })
+                          }
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                </div>
+
+                {/* ── Línea de producto combobox ── */}
+                <div className="flex flex-col gap-1 min-w-56" ref={linRef}>
+                  <label className="text-[10px] uppercase tracking-widest text-slate-400 font-semibold flex items-center gap-1.5">
+                    Línea de producto
+                    {fLineas.length > 0 && (
+                      <span className="px-1.5 py-0.5 bg-violet-100 text-violet-700 rounded-full text-[9px] font-bold">{fLineas.length}</span>
+                    )}
+                  </label>
+                  <div className="relative">
+                    <div
+                      className={`flex items-center gap-2 px-3 py-2 rounded-lg border bg-white text-sm cursor-text transition-colors ${
+                        showLinDrop ? "border-brand-500 ring-2 ring-brand-500" : "border-slate-200 hover:border-slate-300"
+                      }`}
+                      onClick={() => { setShowLinDrop(true); void fetchOpciones(); }}
+                    >
+                      <Search size={13} className="text-slate-400 shrink-0" />
+                      <input
+                        type="text"
+                        placeholder={fLineas.length ? `${fLineas.length} seleccionada(s)` : "Buscar línea…"}
+                        value={linSearch}
+                        onChange={e => { setLinSearch(e.target.value); setShowLinDrop(true); }}
+                        onFocus={() => { setShowLinDrop(true); void fetchOpciones(); }}
+                        className="flex-1 outline-none bg-transparent text-slate-700 placeholder-slate-400 text-sm min-w-0"
+                      />
+                      {fLineas.length > 0 && (
+                        <button className="text-slate-400 hover:text-slate-600 shrink-0"
+                          onMouseDown={e => { e.stopPropagation(); setFLineas([]); setLinSearch(""); }}>
+                          <X size={13} />
+                        </button>
+                      )}
+                    </div>
+                    {showLinDrop && (
+                      <div className="absolute z-50 top-full mt-1 left-0 w-full min-w-64 bg-white border border-slate-200 rounded-xl shadow-xl overflow-hidden">
+                        {fLineas.length > 0 && (
+                          <div className="px-3 py-2 border-b border-slate-100 flex flex-wrap gap-1.5 max-h-20 overflow-y-auto">
+                            {fLineas.map(l => (
+                              <span key={l} className="flex items-center gap-1 bg-violet-100 text-violet-700 text-xs px-2 py-0.5 rounded-full font-medium">
+                                {l.length > 20 ? l.slice(0,20)+"…" : l}
+                                <button onMouseDown={e => { e.stopPropagation(); setFLineas(prev => prev.filter(x => x !== l)); }}>
+                                  <X size={10} />
+                                </button>
+                              </span>
+                            ))}
+                          </div>
+                        )}
+                        <div className="max-h-52 overflow-y-auto">
+                          {opLineas.length === 0 ? (
+                            <p className="text-xs text-slate-400 px-4 py-3 italic">
+                              {secOpLoaded.current ? "Sin opciones disponibles" : "Cargando opciones…"}
+                            </p>
+                          ) : opLineas
+                              .filter(l => !linSearch || l.toLowerCase().includes(linSearch.toLowerCase()))
+                              .map(l => {
+                                const sel = fLineas.includes(l);
+                                return (
+                                  <button key={l}
+                                    className={`w-full text-left px-4 py-2 text-sm transition-colors flex items-center gap-2.5 ${sel ? "bg-violet-50" : "hover:bg-slate-50"}`}
+                                    onMouseDown={e => { e.preventDefault(); setFLineas(prev => prev.includes(l) ? prev.filter(x => x !== l) : [...prev, l]); }}>
+                                    <span className={`w-4 h-4 rounded border flex items-center justify-center shrink-0 ${sel ? "bg-violet-600 border-violet-600" : "border-slate-300"}`}>
+                                      {sel && <span className="text-white text-[10px] font-bold leading-none">✓</span>}
+                                    </span>
+                                    <span className={`text-xs ${sel ? "text-violet-700 font-medium" : "text-slate-700"}`}>{l}</span>
+                                  </button>
+                                );
+                              })
+                          }
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                </div>
+
+                {/* ── Cadenas (solo canal SPM) ── */}
+                {canal === "SPM" && (
+                  <div className="flex flex-col gap-1 min-w-56" ref={cadRef}>
+                    <label className="text-[10px] uppercase tracking-widest text-slate-400 font-semibold flex items-center gap-1.5">
+                      Cadena
+                      {fCadenas.length > 0 && (
+                        <span className="px-1.5 py-0.5 bg-teal-100 text-teal-700 rounded-full text-[9px] font-bold">{fCadenas.length}</span>
+                      )}
+                    </label>
+                    <div className="relative">
+                      <div
+                        className={`flex items-center gap-2 px-3 py-2 rounded-lg border bg-white text-sm cursor-text transition-colors ${
+                          showCadDrop ? "border-brand-500 ring-2 ring-brand-500" : "border-slate-200 hover:border-slate-300"
+                        }`}
+                        onClick={() => setShowCadDrop(true)}
+                      >
+                        <Search size={13} className="text-slate-400 shrink-0" />
+                        <input
+                          type="text"
+                          placeholder={fCadenas.length ? `${fCadenas.length} seleccionada(s)` : "Buscar cadena…"}
+                          value={cadSearch}
+                          onChange={e => { setCadSearch(e.target.value); setShowCadDrop(true); }}
+                          onFocus={() => setShowCadDrop(true)}
+                          className="flex-1 outline-none bg-transparent text-slate-700 placeholder-slate-400 text-sm min-w-0"
+                        />
+                        {fCadenas.length > 0 && (
+                          <button className="text-slate-400 hover:text-slate-600 shrink-0"
+                            onMouseDown={e => { e.stopPropagation(); setFCadenas([]); setCadSearch(""); }}>
+                            <X size={13} />
+                          </button>
+                        )}
+                      </div>
+                      {showCadDrop && (
+                        <div className="absolute z-50 top-full mt-1 left-0 w-full min-w-56 bg-white border border-slate-200 rounded-xl shadow-xl overflow-hidden">
+                          {fCadenas.length > 0 && (
+                            <div className="px-3 py-2 border-b border-slate-100 flex flex-wrap gap-1.5 max-h-20 overflow-y-auto">
+                              {fCadenas.map(c => (
+                                <span key={c} className="flex items-center gap-1 bg-teal-100 text-teal-700 text-xs px-2 py-0.5 rounded-full font-medium">
+                                  {c}
+                                  <button onMouseDown={e => { e.stopPropagation(); setFCadenas(prev => prev.filter(x => x !== c)); }}>
+                                    <X size={10} />
+                                  </button>
+                                </span>
+                              ))}
+                            </div>
+                          )}
+                          <div className="max-h-52 overflow-y-auto">
+                            {(CADENA_NAMES as readonly string[])
+                              .filter(c => !cadSearch || c.toLowerCase().includes(cadSearch.toLowerCase()))
+                              .map(c => {
+                                const sel = fCadenas.includes(c);
+                                return (
+                                  <button key={c}
+                                    className={`w-full text-left px-4 py-2 text-sm transition-colors flex items-center gap-2.5 ${sel ? "bg-teal-50" : "hover:bg-slate-50"}`}
+                                    onMouseDown={e => { e.preventDefault(); setFCadenas(prev => prev.includes(c) ? prev.filter(x => x !== c) : [...prev, c]); }}>
+                                    <span className={`w-4 h-4 rounded border flex items-center justify-center shrink-0 ${sel ? "bg-teal-600 border-teal-600" : "border-slate-300"}`}>
+                                      {sel && <span className="text-white text-[10px] font-bold leading-none">✓</span>}
+                                    </span>
+                                    <span className={`text-xs ${sel ? "text-teal-700 font-medium" : "text-slate-700"}`}>{c}</span>
+                                  </button>
+                                );
+                              })}
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                )}
+
+                {/* ── Ruta combobox (visible cuando hay canal seleccionado) ── */}
+                {canal !== "Todos" && (
+                  <div className="flex flex-col gap-1 min-w-56" ref={rutaRef}>
+                    <label className="text-[10px] uppercase tracking-widest text-slate-400 font-semibold flex items-center gap-1.5">
+                      Ruta
+                      {fRuta && <span className="px-1.5 py-0.5 bg-orange-100 text-orange-700 rounded-full text-[9px] font-bold">1</span>}
+                    </label>
+                    <div className="relative">
+                      <div
+                        className={`flex items-center gap-2 px-3 py-2 rounded-lg border bg-white text-sm cursor-text transition-colors ${
+                          showRutaDrop ? "border-brand-500 ring-2 ring-brand-500" : "border-slate-200 hover:border-slate-300"
+                        }`}
+                        onClick={() => { setShowRutaDrop(true); void fetchOpciones(); }}
+                      >
+                        <Search size={13} className="text-slate-400 shrink-0" />
+                        <input
+                          type="text"
+                          placeholder={fRuta || "Buscar ruta…"}
+                          value={rutaSearch}
+                          onChange={e => { setRutaSearch(e.target.value); setShowRutaDrop(true); }}
+                          onFocus={() => { setShowRutaDrop(true); void fetchOpciones(); }}
+                          className="flex-1 outline-none bg-transparent text-slate-700 placeholder-slate-400 text-sm min-w-0"
+                        />
+                        {fRuta && (
+                          <button className="text-slate-400 hover:text-slate-600 shrink-0"
+                            onMouseDown={e => { e.stopPropagation(); setFRuta(""); setRutaSearch(""); }}>
+                            <X size={13} />
+                          </button>
+                        )}
+                      </div>
+                      {showRutaDrop && (
+                        <div className="absolute z-50 top-full mt-1 left-0 w-full min-w-56 bg-white border border-slate-200 rounded-xl shadow-xl overflow-hidden">
+                          {fRuta && (
+                            <div className="px-3 py-2 border-b border-slate-100">
+                              <span className="flex items-center gap-1 bg-orange-50 text-orange-700 text-xs px-2 py-0.5 rounded-full font-medium w-fit">
+                                {fRuta}
+                                <button onMouseDown={e => { e.stopPropagation(); setFRuta(""); setRutaSearch(""); }}>
+                                  <X size={10} />
+                                </button>
+                              </span>
+                            </div>
+                          )}
+                          <div className="max-h-52 overflow-y-auto">
+                            {opRutas.length === 0 ? (
+                              <p className="text-xs text-slate-400 px-4 py-3 italic">
+                                {secOpLoaded.current ? "Sin rutas disponibles" : "Cargando rutas…"}
+                              </p>
+                            ) : opRutas
+                                .filter(r => !rutaSearch || r.toLowerCase().includes(rutaSearch.toLowerCase()))
+                                .map(r => {
+                                  const sel = fRuta === r;
+                                  return (
+                                    <button key={r}
+                                      className={`w-full text-left px-4 py-2 text-sm transition-colors flex items-center gap-2.5 ${sel ? "bg-orange-50" : "hover:bg-slate-50"}`}
+                                      onMouseDown={e => {
+                                        e.preventDefault();
+                                        setFRuta(sel ? "" : r);
+                                        setRutaSearch("");
+                                        setShowRutaDrop(false);
+                                      }}>
+                                      <span className={`w-4 h-4 rounded border flex items-center justify-center shrink-0 ${sel ? "bg-orange-600 border-orange-600" : "border-slate-300"}`}>
+                                        {sel && <span className="text-white text-[10px] font-bold leading-none">✓</span>}
+                                      </span>
+                                      <span className={`text-xs ${sel ? "text-orange-700 font-medium" : "text-slate-700"}`}>{r}</span>
+                                    </button>
+                                  );
+                                })
+                            }
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                )}
+
+                {/* ── Cliente combobox (visible cuando hay canal seleccionado) ── */}
+                {canal !== "Todos" && (
+                <div className="flex flex-col gap-1 min-w-56" ref={cliRef}>
+                  <label className="text-[10px] uppercase tracking-widest text-slate-400 font-semibold flex items-center gap-1.5">
+                    Cliente
+                    {fCliente && <span className="px-1.5 py-0.5 bg-slate-100 text-slate-600 rounded-full text-[9px] font-bold">1</span>}
+                  </label>
+                  <div className="relative">
+                    <div
+                      className={`flex items-center gap-2 px-3 py-2 rounded-lg border bg-white text-sm cursor-text transition-colors ${
+                        showCliDrop ? "border-brand-500 ring-2 ring-brand-500" : "border-slate-200 hover:border-slate-300"
+                      }`}
+                      onClick={() => setShowCliDrop(true)}
+                    >
+                      <Search size={13} className="text-slate-400 shrink-0" />
+                      <input
+                        type="text"
+                        placeholder={fCliente || "Buscar cliente…"}
+                        value={cliSearch}
+                        onChange={e => { setCliSearch(e.target.value); setShowCliDrop(true); }}
+                        onFocus={() => { setShowCliDrop(true); }}
+                        className="flex-1 outline-none bg-transparent text-slate-700 placeholder-slate-400 text-sm min-w-0"
+                      />
+                      {fCliente && (
+                        <button className="text-slate-400 hover:text-slate-600 shrink-0"
+                          onMouseDown={e => { e.stopPropagation(); setFCliente(""); setCliSearch(""); }}>
+                          <X size={13} />
+                        </button>
+                      )}
+                    </div>
+                    {showCliDrop && (
+                      <div className="absolute z-50 top-full mt-1 left-0 w-full min-w-64 bg-white border border-slate-200 rounded-xl shadow-xl overflow-hidden">
+                        {fCliente && (
+                          <div className="px-3 py-2 border-b border-slate-100">
+                            <span className="flex items-center gap-1 bg-slate-100 text-slate-700 text-xs px-2 py-0.5 rounded-full font-medium w-fit">
+                              {fCliente.length > 30 ? fCliente.slice(0,30)+"…" : fCliente}
+                              <button onMouseDown={e => { e.stopPropagation(); setFCliente(""); setCliSearch(""); }}>
+                                <X size={10} />
+                              </button>
+                            </span>
+                          </div>
+                        )}
+                        <div className="max-h-52 overflow-y-auto">
+                          {opClientes.length === 0 ? (
+                            <p className="text-xs text-slate-400 px-4 py-3 italic">
+                              {cliOpLoaded.current ? "Sin clientes disponibles" : "Abriendo lista de clientes…"}
+                            </p>
+                          ) : opClientes
+                              .filter(c => !cliSearch || c.toLowerCase().includes(cliSearch.toLowerCase()))
+                              .map(c => {
+                                const sel = fCliente === c;
+                                return (
+                                  <button key={c}
+                                    className={`w-full text-left px-4 py-2 text-sm transition-colors flex items-center gap-2.5 ${sel ? "bg-slate-100" : "hover:bg-slate-50"}`}
+                                    onMouseDown={e => {
+                                      e.preventDefault();
+                                      setFCliente(sel ? "" : c);
+                                      setCliSearch("");
+                                      setShowCliDrop(false);
+                                    }}>
+                                    <span className={`w-4 h-4 rounded border flex items-center justify-center shrink-0 ${sel ? "bg-slate-600 border-slate-600" : "border-slate-300"}`}>
+                                      {sel && <span className="text-white text-[10px] font-bold leading-none">✓</span>}
+                                    </span>
+                                    <span className={`text-xs ${sel ? "text-slate-800 font-medium" : "text-slate-700"}`}>{c}</span>
+                                  </button>
+                                );
+                              })
+                          }
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                </div>
+                )}
+
+              </div>
+
+              {/* ── Resumen de filtros activos ── */}
+              {(fLineas.length + fProveedores.length + fCadenas.length + (fCliente ? 1 : 0) + (fRuta ? 1 : 0)) > 0 && (
+                <div className="mt-3 pt-3 border-t border-slate-100 flex flex-wrap items-center gap-1.5">
+                  <span className="text-[10px] uppercase tracking-widest text-slate-400 font-semibold mr-1">Activos:</span>
+                  {fProveedores.map(p => (
+                    <span key={p} className="flex items-center gap-1 text-[11px] bg-blue-50 text-blue-700 border border-blue-200 px-2 py-0.5 rounded-full font-medium">
+                      {p}<button onClick={() => setFProveedores(prev => prev.filter(x => x !== p))}><X size={10} /></button>
+                    </span>
+                  ))}
+                  {fLineas.map(l => (
+                    <span key={l} className="flex items-center gap-1 text-[11px] bg-violet-50 text-violet-700 border border-violet-200 px-2 py-0.5 rounded-full font-medium">
+                      {l}<button onClick={() => setFLineas(prev => prev.filter(x => x !== l))}><X size={10} /></button>
+                    </span>
+                  ))}
+                  {fCadenas.map(c => (
+                    <span key={c} className="flex items-center gap-1 text-[11px] bg-teal-50 text-teal-700 border border-teal-200 px-2 py-0.5 rounded-full font-medium">
+                      {c}<button onClick={() => setFCadenas(prev => prev.filter(x => x !== c))}><X size={10} /></button>
+                    </span>
+                  ))}
+                  {fRuta && (
+                    <span className="flex items-center gap-1 text-[11px] bg-orange-50 text-orange-700 border border-orange-200 px-2 py-0.5 rounded-full font-medium">
+                      {fRuta}<button onClick={() => { setFRuta(""); setRutaSearch(""); }}><X size={10} /></button>
+                    </span>
+                  )}
+                  {fCliente && (
+                    <span className="flex items-center gap-1 text-[11px] bg-slate-100 text-slate-700 border border-slate-200 px-2 py-0.5 rounded-full font-medium">
+                      {fCliente.length > 28 ? fCliente.slice(0,28)+"…" : fCliente}<button onClick={() => { setFCliente(""); setCliSearch(""); }}><X size={10} /></button>
+                    </span>
+                  )}
+                  <button
+                    onClick={() => {
+                      setFLineas([]); setFProveedores([]); setFCadenas([]); setFCliente(""); setFRuta("");
+                      setProvSearch(""); setLinSearch(""); setCadSearch(""); setCliSearch(""); setRutaSearch("");
+                    }}
+                    className="text-[11px] text-slate-400 hover:text-red-500 transition-colors ml-1">
+                    Limpiar todo
+                  </button>
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+
         {error && (
           <div className="flex items-center gap-2 bg-red-50 border border-red-200 text-red-700 rounded-xl px-4 py-3 text-sm">
             <AlertCircle size={16} className="shrink-0" /> {error}
@@ -480,18 +1087,20 @@ export default function DashboardTendenciaEstacional() {
         {!loading && (
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
             <KpiCard
-              label={estacional
-                ? `${MESES[mes]} ${anho}${diaCorte>0?` (primeros ${diaCorte} días)`:""}`
+              label={esAnual
+                ? modoTemporal === "rango"
+                  ? `${MESES[mesInicio]}–${MESES[mes]} ${anho}${diaCorte>0?` (prim. ${diaCorte}d en ${MESES[mes].slice(0,3)})`:""}`
+                  : `${MESES[mes]} ${anho}${diaCorte>0?` (primeros ${diaCorte} días)`:""}`
                 : `${MESES[dataMain.at(-1)?.mes_numero??mes]} ${dataMain.at(-1)?.anho??anho}`}
               actual={kpiActual} anterior={kpiAnterior} metrica={metrica}
-              vsLabel={estacional ? "vs año anterior" : "vs mes anterior"}
+              vsLabel={esAnual ? "vs año anterior" : "vs mes anterior"}
             />
-            {estacional
+            {esAnual
               ? dataMain.map(d => (
                   <div key={d.anho} className="bg-white rounded-xl border border-slate-200 shadow-sm px-5 py-4">
                     <p className="text-xs text-slate-500 font-medium flex items-center gap-1.5">
                       <span className="w-2.5 h-2.5 rounded-full" style={{ background: yearColor(d.anho,anho) }} />
-                      {MESES[mes]} {d.anho}
+                      {modoTemporal === "rango" ? `${MESES[mesInicio].slice(0,3)}–${MESES[mes].slice(0,3)} ` : `${MESES[mes]} `}{d.anho}
                     </p>
                     <p className="text-lg font-bold text-slate-800 mt-0.5">{fmtVal(d[metrica],metrica)}</p>
                   </div>
@@ -517,8 +1126,10 @@ export default function DashboardTendenciaEstacional() {
             <div className="mb-4">
               <h2 className="text-sm font-semibold text-slate-800">
                 {canal === "Todos"
-                  ? estacional ? `${MESES[mes]} — desglose por canal` : "Evolución por canal — últimos 6 meses"
-                  : estacional ? `${MESES[mes]} — comparación por gestión` : `Evolución de ${canal} — últimos 6 meses`}
+                  ? esAnual ? `${MESES[mes]} — desglose por canal` : "Evolución por canal — últimos 6 meses"
+                  : isSPM && dataCadena.length > 0
+                  ? esAnual ? `${MESES[mes]} — SPM por cadena` : "SPM por cadena — últimos 6 meses"
+                  : esAnual ? `${MESES[mes]} — comparación por gestión` : `Evolución de ${canal} — últimos 6 meses`}
                 {diaCorte > 0 ? ` (primeros ${diaCorte} días)` : ""}
               </h2>
               <p className="text-xs text-slate-400 mt-0.5">{regional} · {metrica === "total" ? "Venta Bs" : "Unidades"}</p>
@@ -539,11 +1150,20 @@ export default function DashboardTendenciaEstacional() {
                           radius={i === canalKeys.length-1 ? [4,4,0,0] : [0,0,0,0]} />
                       ))}
                     </>
+                  ) : isSPM && cadenaKeys.length > 0 ? (
+                    <>
+                      <Legend wrapperStyle={{ fontSize: 12 }} />
+                      {cadenaKeys.map((c, i) => (
+                        <Bar key={c} dataKey={c} name={c} stackId="cadena"
+                          fill={canalColor(i)}
+                          radius={i === cadenaKeys.length-1 ? [4,4,0,0] : [0,0,0,0]} />
+                      ))}
+                    </>
                   ) : (
                     <Bar dataKey="valor" name={metrica==="total"?"Venta Bs":"Unidades"} radius={[6,6,0,0]}>
                       {chartMainData.map((d, i) => (
                         <Cell key={i} fill={
-                          estacional
+                          esAnual
                             ? yearColor(d._anho as number, anho)
                             : "#3b82f6"
                         } />
@@ -560,7 +1180,7 @@ export default function DashboardTendenciaEstacional() {
             <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden w-full lg:w-72 shrink-0 flex flex-col">
               <div className="px-4 py-3 border-b border-slate-100 shrink-0">
                 <h2 className="text-sm font-semibold text-slate-700">
-                  {estacional ? "Resumen por gestión" : "Detalle mensual"}
+                  {esAnual ? "Resumen por gestión" : "Detalle mensual"}
                 </h2>
               </div>
               <div className="overflow-y-auto flex-1">
@@ -568,13 +1188,13 @@ export default function DashboardTendenciaEstacional() {
                   <thead className="sticky top-0 z-10">
                     <tr className="bg-slate-50 text-left">
                       <th className="px-3 py-2.5 text-xs font-semibold text-slate-500 uppercase tracking-wider">
-                        {estacional ? "Gestión" : "Período"}
+                        {esAnual ? "Gestión" : "Período"}
                       </th>
                       <th className="px-3 py-2.5 text-xs font-semibold text-slate-500 uppercase tracking-wider text-right">
                         {metrica === "total" ? "Venta Bs" : "Unidades"}
                       </th>
                       <th className="px-3 py-2.5 text-xs font-semibold text-slate-500 uppercase tracking-wider text-right">
-                        {estacional ? "% vs año ant." : "% vs mes ant."}
+                        {esAnual ? "% vs año ant." : "% vs mes ant."}
                       </th>
                     </tr>
                   </thead>
@@ -585,12 +1205,12 @@ export default function DashboardTendenciaEstacional() {
                         ? ((d[metrica]-prev[metrica])/prev[metrica])*100 : null;
                       const dot = (
                         <span className="inline-block w-2.5 h-2.5 rounded-full mr-1.5 align-middle"
-                          style={{ background: estacional ? yearColor(d.anho,anho) : "#3b82f6" }} />
+                          style={{ background: esAnual ? yearColor(d.anho,anho) : "#3b82f6" }} />
                       );
                       return (
                         <tr key={`${d.anho}-${d.mes_numero}`} className="hover:bg-slate-50 transition-colors">
                           <td className="px-3 py-2.5 font-semibold text-slate-800 text-xs whitespace-nowrap">
-                            {dot}{estacional ? d.anho : `${(MESES[d.mes_numero] ?? "").slice(0,3)} ${d.anho}`}
+                            {dot}{esAnual ? d.anho : `${(MESES[d.mes_numero] ?? "").slice(0,3)} ${d.anho}`}
                           </td>
                           <td className="px-3 py-2.5 text-right text-slate-700 text-xs whitespace-nowrap">{fmtVal(d[metrica],metrica)}</td>
                           <td className="px-3 py-2.5 text-right text-xs whitespace-nowrap">
@@ -657,7 +1277,7 @@ export default function DashboardTendenciaEstacional() {
                         {metrica === "total" ? "Venta Bs" : "Unidades"}
                       </th>
                       <th className="px-3 py-2.5 text-xs font-semibold text-slate-500 uppercase tracking-wider text-right">
-                        {estacional ? "% vs año ant." : "% vs mes ant."}
+                        {esAnual ? "% vs año ant." : "% vs mes ant."}
                       </th>
                     </tr>
                   </thead>

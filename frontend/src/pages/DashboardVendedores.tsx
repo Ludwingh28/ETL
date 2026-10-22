@@ -27,7 +27,7 @@ interface SkuRow {
   presupuesto: number; presupuesto_uds: number; pct_cumpl: number | null; gap_pct: number | null;
   cantidad_ant: number; venta_neta_ant: number; pct_camb_bs: number | null; pct_camb_uds: number | null;
 }
-interface ClienteFechaFlat { codigo: string; nombre: string; fecha: string; venta_neta: number; cantidad: number; }
+interface ClienteFechaFlat { codigo: string; nombre: string; cadena: string; fecha: string; venta_neta: number; cantidad: number; }
 interface ClienteSkuRow { codigo: string; producto: string; cantidad: number; venta_neta: number; }
 
 type SortDir     = "desc" | "asc";
@@ -339,6 +339,9 @@ export default function DashboardVendedores() {
   const [prevSkuLabel, setPrevSkuLabel] = useState("");
   const [clientesFlat,     setClientesFlat]     = useState<ClienteFechaFlat[]>([]);
   const [loadingCliFechas, setLoadingCliFechas] = useState(false);
+  const [isSpm,            setIsSpm]            = useState(false);
+  const [cliCadena,        setCliCadena]        = useState("");
+  const [cadenaDisponibles, setCadenaDisponibles] = useState<string[]>([]);
   const [selectedCliFecha, setSelectedCliFecha] = useState<string | null>(null);
   const [cliSkus,     setCliSkus]     = useState<ClienteSkuRow[]>([]);
   const [cliSkuSearch, setCliSkuSearch] = useState("");
@@ -365,6 +368,9 @@ export default function DashboardVendedores() {
   const [cliViewUds,   setCLiViewUds]   = useState(false);
   const [cliSortAsc,   setCliSortAsc]   = useState(false);
   const [cliDateFilter, setCLiDateFilter] = useState<string>("");
+
+  // Reset cadena pills cuando cambia el vendedor
+  useEffect(() => { setCliCadena(""); setIsSpm(false); setCadenaDisponibles([]); }, [vendedorNombre]);
 
   // ── Reset drills cuando cambian filtros base ──────────────────────────────────
   function resetDrill() { setCompDrill(null); setSelectedSku(null); setSelectedCli(null); setSelectedCliFecha(null); setCLiDateFilter(""); }
@@ -471,13 +477,20 @@ export default function DashboardVendedores() {
     try {
       const qs = buildDrillQS(regionalKey, canalPerfil, anho, mes, fCats, fProvs, fSubs, fMarcs, fProductos, compDrill, fRutas)
         + `&vendedor=${encodeURIComponent(vendedorNombre)}`
-        + (selectedSku ? `&sku_drill=${encodeURIComponent(selectedSku.producto)}` : "");
-      const j = await apiFetchRef.current<{ success: boolean; data: ClienteFechaFlat[] }>(
+        + (selectedSku ? `&sku_drill=${encodeURIComponent(selectedSku.producto)}` : "")
+        + (cliCadena ? `&cadena=${encodeURIComponent(cliCadena)}` : "");
+      const j = await apiFetchRef.current<{ success: boolean; data: ClienteFechaFlat[]; is_spm?: boolean; cadenas_disponibles?: string[] }>(
         `/dashboard/new-nacional/cliente-fechas/?${qs}`);
-      if (j.success) setClientesFlat(j.data); else setClientesFlat([]);
+      if (j.success) {
+        setClientesFlat(j.data);
+        setIsSpm(j.is_spm ?? false);
+        const disp = j.cadenas_disponibles ?? [];
+        setCadenaDisponibles(disp);
+        if (cliCadena && cliCadena !== 'otros' && !disp.includes(cliCadena)) setCliCadena("");
+      } else setClientesFlat([]);
     } catch { setClientesFlat([]); }
     finally { setLoadingCliFechas(false); }
-  }, [anho, mes, vendedorNombre, regionalKey, canalPerfil, fCats, fProvs, fSubs, fMarcs, fProductos, fRutas, compDrill, selectedSku]);
+  }, [anho, mes, vendedorNombre, regionalKey, canalPerfil, fCats, fProvs, fSubs, fMarcs, fProductos, fRutas, compDrill, selectedSku, cliCadena]);
 
   useEffect(() => { void fetchClientesFechas(); }, [fetchClientesFechas]);
 
@@ -1155,6 +1168,36 @@ export default function DashboardVendedores() {
               </button>
             </div>
           </div>
+
+          {/* Cadena pills — solo cuando el vendedor es SPM */}
+          {isSpm && (() => {
+            const ALL_NAMED = ["Hipermaxi", "Farmahiper", "MacroFidalga", "SurFidalga", "Fidasur", "DeLicor", "Farmacorp", "Tia", "IC Norte"] as const;
+            const visibles = cadenaDisponibles.length > 0
+              ? ALL_NAMED.filter(c => cadenaDisponibles.includes(c.toLowerCase()))
+              : [...ALL_NAMED];
+            const pills = ["Todos", ...visibles, "Otros"] as const;
+            return (
+              <div className="flex flex-wrap gap-1 mb-3">
+                {pills.map(c => {
+                  const val = c === "Todos" ? "" : c.toLowerCase();
+                  const active = cliCadena === val;
+                  return (
+                    <button
+                      key={c}
+                      onClick={() => setCliCadena(val)}
+                      className={`px-2.5 py-0.5 text-[11px] font-semibold rounded-full border transition-colors ${
+                        active
+                          ? "bg-brand-600 text-white border-brand-600"
+                          : "bg-white text-slate-500 border-slate-200 hover:border-slate-400 hover:text-slate-700"
+                      }`}
+                    >
+                      {c}
+                    </button>
+                  );
+                })}
+              </div>
+            );
+          })()}
 
           <div className="relative mb-3">
             <Search size={13} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" />

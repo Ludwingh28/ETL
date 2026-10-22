@@ -256,6 +256,124 @@ function DownloadBtn({ loading, onClick }: { loading: boolean; onClick: () => vo
   );
 }
 
+// ── Card Clientes DualPoint ─────────────────────────────────────────────────
+
+function SeccionClientesDual() {
+  const { token } = useAuth() as AuthContextValue;
+  const [canal,      setCanal]      = useState("");
+  const [regional,   setRegional]   = useState("nacional");
+  const [vendedor,   setVendedor]   = useState("");
+  const [canales,    setCanales]    = useState<string[]>([]);
+  const [vendedores, setVendedores] = useState<string[]>([]);
+  const [loading,    setLoading]    = useState(false);
+  const [error,      setError]      = useState("");
+
+  // Recarga canales y vendedores cuando cambia regional o canal
+  useEffect(() => {
+    setVendedor("");
+    setVendedores([]);
+    const qs = new URLSearchParams({ regional });
+    if (canal) qs.set("canal", canal);
+    fetch(`${API_BASE}/exportar/clientes-dualpoint/opciones/?${qs}`,
+      { headers: { Authorization: `Token ${token ?? ""}` } })
+      .then(r => r.json())
+      .then(j => {
+        if (j.canales)    setCanales(j.canales);
+        if (j.vendedores) setVendedores(j.vendedores);
+      })
+      .catch(() => {});
+  }, [canal, regional]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const handleDescargar = async () => {
+    setError("");
+    setLoading(true);
+    const parts = [regional, canal || "todos", vendedor || "todos"].filter(Boolean);
+    const filename = `clientes_dualpoint_${parts.join("_")}.xlsx`;
+    window.dispatchEvent(new CustomEvent("dl:start", { detail: { name: filename, titulo: "Clientes DualPoint" } }));
+
+    try {
+      const qs = new URLSearchParams({ regional });
+      if (canal)    qs.set("canal",    canal);
+      if (vendedor) qs.set("vendedor", vendedor);
+      const res = await fetch(
+        `${API_BASE}/exportar/clientes-dualpoint/?${qs}`,
+        { headers: { Authorization: `Token ${token ?? ""}` } },
+      );
+      if (!res.ok) throw new Error(`Error del servidor: ${res.status}`);
+      if (!res.body) throw new Error("No se pudo leer la respuesta.");
+
+      const reader = res.body.getReader();
+      const chunks: BlobPart[] = [];
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        chunks.push(value);
+      }
+      const blob = new Blob(chunks, { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" });
+      const url = URL.createObjectURL(blob);
+      window.dispatchEvent(new CustomEvent("dl:done", { detail: { url, name: filename } }));
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : "Error desconocido.";
+      setError(msg);
+      window.dispatchEvent(new CustomEvent("dl:error"));
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  return (
+    <CardShell
+      titulo="Clientes DualPoint"
+      descripcion="Clientes según planificación activa, filtrado por canal, regional y/o vendedor."
+      hasFilters
+    >
+      <div className="flex flex-col sm:flex-row gap-3">
+        <div className="flex-1">
+          <label className="block text-xs font-medium text-slate-600 mb-1.5">Canal</label>
+          <select
+            value={canal}
+            onChange={e => { setCanal(e.target.value); }}
+            className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm text-slate-700 focus:outline-none focus:ring-2 focus:ring-brand-500"
+          >
+            <option value="">Todos los canales</option>
+            {canales.map(c => <option key={c} value={c}>{c}</option>)}
+          </select>
+        </div>
+        <div className="flex-1">
+          <label className="block text-xs font-medium text-slate-600 mb-1.5">Regional</label>
+          <select
+            value={regional}
+            onChange={e => setRegional(e.target.value)}
+            className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm text-slate-700 focus:outline-none focus:ring-2 focus:ring-brand-500"
+          >
+            {REGIONALES.map(r => <option key={r.value} value={r.value}>{r.label}</option>)}
+          </select>
+        </div>
+      </div>
+
+      <div>
+        <label className="block text-xs font-medium text-slate-600 mb-1.5">
+          Vendedor
+          {vendedores.length > 0 && (
+            <span className="ml-1.5 text-slate-400 font-normal">({vendedores.length} disponibles)</span>
+          )}
+        </label>
+        <select
+          value={vendedor}
+          onChange={e => setVendedor(e.target.value)}
+          className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm text-slate-700 focus:outline-none focus:ring-2 focus:ring-brand-500"
+        >
+          <option value="">Todos los vendedores</option>
+          {vendedores.map(v => <option key={v} value={v}>{v}</option>)}
+        </select>
+      </div>
+
+      {error && <ErrorBanner msg={error} />}
+      <DownloadBtn loading={loading} onClick={handleDescargar} />
+    </CardShell>
+  );
+}
+
 // ── Page ────────────────────────────────────────────────────────────────────
 
 const SIMPLES: SimpleDescarga[] = [
@@ -286,6 +404,7 @@ export default function DescargaArchivos() {
         <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
           {SIMPLES.map(s => <SeccionSimple key={s.key} sec={s} />)}
           <SeccionFiltros />
+          <SeccionClientesDual />
         </div>
       </div>
     </DashboardLayout>

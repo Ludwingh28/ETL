@@ -123,7 +123,8 @@ urlpatterns = [
     path('dashboard/informacion-rutas/cliente-detalle/', views.dashboard_informacion_rutas_cliente_detalle, name='informacion-rutas-cliente-detalle'),
 
     # Dashboard Tendencia Estacional
-    path('dashboard/tendencia-estacional/', views.dashboard_tendencia_estacional, name='tendencia-estacional'),
+    path('dashboard/tendencia-estacional/',          views.dashboard_tendencia_estacional,          name='tendencia-estacional'),
+    path('dashboard/tendencia-estacional/opciones/', views.dashboard_tendencia_estacional_opciones, name='tendencia-estacional-opciones'),
     path('dashboard/canales/lista/',        views.dashboard_canales_lista,         name='canales-lista'),
 
     # Tabla Matriz
@@ -163,4 +164,6 @@ urlpatterns = [
     path('exportar/ventas-combo-desarmado/',       views.exportar_ventas_combo_desarmado,       name='exportar-ventas-combo-desarmado'),
     path('exportar/ventas-combo-armado-filtros/',  views.exportar_ventas_combo_armado_filtros,  name='exportar-ventas-combo-armado-filtros'),
     path('exportar/clientes-sin-compra/',          views.exportar_clientes_sin_compra,          name='exportar-clientes-sin-compra'),
+    path('exportar/clientes-dualpoint/opciones/',  views.exportar_clientes_dualpoint_opciones,  name='exportar-clientes-dualpoint-opciones'),
+    path('exportar/clientes-dualpoint/',           views.exportar_clientes_dualpoint,           name='exportar-clientes-dualpoint'),
 ]

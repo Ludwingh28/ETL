@@ -1,4 +1,4 @@
-export const CURRENT_VERSION = "2.0.0.2";
+export const CURRENT_VERSION = "2.0.0.3";
 
 export interface ChangelogVersion {
   version: string;
@@ -12,6 +12,25 @@ export interface ChangelogVersion {
 // Descripciones simplificadas para usuarios finales.
 // El detalle técnico completo está en CHANGELOG.md en la raíz del proyecto.
 export const CHANGELOG: ChangelogVersion[] = [
+  {
+    version: "2.0.0.3",
+    date: "Octubre 2026",
+    fixes: [
+      "Tendencia Estacional — la tabla 'Detalle por categoría' ahora muestra datos correctamente al cambiar a modo Comparación anual; antes quedaba vacía porque el período de referencia no se calculaba bien en ese modo",
+      "Tendencia Estacional — seleccionar un canal ya no generaba un error al cargar los datos; el problema era causado por patrones de texto especiales en la lógica de desglose por cadena",
+    ],
+    features: [
+      "Sistema — nuevo ícono de pestaña del navegador (favicon) con el logo oficial de Cruzimex",
+      "Tendencia Estacional — nuevo panel de filtros de sección con buscadores desplegables para Proveedor, Línea de producto, Cadena (solo canal SPM), Ruta y Cliente; los filtros activos se muestran como chips tanto en el encabezado colapsado como en la parte inferior del panel",
+      "Tendencia Estacional — filtro por Cadena (Hipermaxi, Farmahiper, MacroFidalga, etc.): disponible solo en canal SPM; al seleccionar cadenas el listado de clientes se actualiza automáticamente para mostrar solo los de esas cadenas",
+      "Tendencia Estacional — filtro por Ruta: muestra las rutas activas de planificación para el canal seleccionado; al elegir una ruta el listado de clientes también se filtra a los clientes de esa ruta",
+      "Tendencia Estacional — filtro por Cliente: disponible cuando hay un canal seleccionado; la lista se carga con clic y no aplica hasta seleccionar un cliente específico",
+      "Descargar Archivos — nueva exportación 'Clientes DualPoint': genera un Excel con el padrón de clientes del sistema DualPoint (código, nombre, compañía, nombre punto de venta, NIT, nombre factura, canal, clasificación, ruta, zona, fecha de registro y vendedor asignado), filtrable por regional, canal y vendedor; el canal se determina desde la planificación activa para garantizar datos correctos",
+      "Dashboard Vendedores — cuando el vendedor pertenece al canal SPM, la tabla de clientes muestra pills de filtro por cadena (Hipermaxi, Farmahiper, MacroFidalga, SurFidalga, Fidasur, DeLicor, Farmacorp, Tia, IC Norte); solo aparecen las cadenas con ventas reales en el período y al seleccionar una se filtra la tabla completa a los clientes de esa cadena",
+    ],
+    newDashboardPerms: [],
+    newDashboardNames: {},
+  },
   {
     version: "2.0.0.2",
     date: "Octubre 2026",
