@@ -27,6 +27,8 @@ export const CHANGELOG: ChangelogVersion[] = [
       "Tendencia Estacional — filtro por Cliente: disponible cuando hay un canal seleccionado; la lista se carga con clic y no aplica hasta seleccionar un cliente específico",
       "Descargar Archivos — nueva exportación 'Clientes DualPoint': genera un Excel con el padrón de clientes del sistema DualPoint (código, nombre, compañía, nombre punto de venta, NIT, nombre factura, canal, clasificación, ruta, zona, fecha de registro y vendedor asignado), filtrable por regional, canal y vendedor; el canal se determina desde la planificación activa para garantizar datos correctos",
       "Dashboard Vendedores — cuando el vendedor pertenece al canal SPM, la tabla de clientes muestra pills de filtro por cadena (Hipermaxi, Farmahiper, MacroFidalga, SurFidalga, Fidasur, DeLicor, Farmacorp, Tia, IC Norte); solo aparecen las cadenas con ventas reales en el período y al seleccionar una se filtra la tabla completa a los clientes de esa cadena",
+      "New Ventas Nacional — hacer clic en un SKU ahora también filtra la tabla de Comparación (muestra el desglose por categoría/proveedor/etc. solo para ese SKU)",
+      "New Ventas Nacional — hacer clic en un cliente ahora también filtra la tabla de Comparación y la tabla de SKUs (muestran únicamente los datos de compra de ese cliente)",
     ],
     newDashboardPerms: [],
     newDashboardNames: {},
