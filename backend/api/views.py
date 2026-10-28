@@ -10445,6 +10445,7 @@ def dashboard_lista_precios_datos(request):
             dp.proveedor                AS proveedor,
             fp.precio_venta             AS costo,
             fp.precio_venta_publico     AS pvp,
+            fp.precio_con_ice           AS pvp_ice,
             fp.margen                   AS margen,
             lp.lista_nombre             AS lista
         FROM dw.fact_precio_producto fp
@@ -10469,6 +10470,7 @@ def dashboard_lista_precios_datos(request):
                 'proveedor':   r.get('proveedor') or '',
                 'costo':       _f(r.get('costo')),
                 'pvp':         _f(r.get('pvp')),
+                'pvp_ice':     _f(r.get('pvp_ice')),
                 'margen':      _f(r.get('margen')),
                 'lista':       r.get('lista') or '',
             })

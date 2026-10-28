@@ -16,6 +16,7 @@ interface ProductoPrecio {
   proveedor:   string;
   costo:       number | null;
   pvp:         number | null;
+  pvp_ice:     number | null;
   margen:      number | null;
   lista:       string;
 }
@@ -60,13 +61,14 @@ async function exportXLSX(rows: ProductoPrecio[], lista: string, anho: number, m
   const ws = wb.addWorksheet("Lista de Precios");
 
   ws.columns = [
-    { header: "Cod. Interno", key: "cod_interno", width: 16 },
-    { header: "Cod. Barra",   key: "cod_barra",   width: 16 },
-    { header: "SKU",          key: "producto",    width: 48 },
-    { header: "Costo (Bs)",   key: "costo",       width: 14 },
-    { header: "Margen (Bs)",  key: "margen",      width: 14 },
-    { header: "PVP (Bs)",     key: "pvp",         width: 14 },
-    { header: "Lista",        key: "lista",       width: 20 },
+    { header: "Cod. Interno",    key: "cod_interno", width: 16 },
+    { header: "Cod. Barra",      key: "cod_barra",   width: 16 },
+    { header: "SKU",             key: "producto",    width: 48 },
+    { header: "Precio (Bs)",     key: "costo",       width: 14 },
+    { header: "Precio c/ICE (Bs)", key: "pvp_ice",  width: 16 },
+    { header: "Margen (Bs)",     key: "margen",      width: 14 },
+    { header: "PVP (Bs)",        key: "pvp",         width: 14 },
+    { header: "Lista",           key: "lista",       width: 20 },
   ];
 
   // Estilo encabezado
@@ -85,12 +87,13 @@ async function exportXLSX(rows: ProductoPrecio[], lista: string, anho: number, m
       costo:       r.costo ?? "",
       margen:      margen,
       pvp:         r.pvp ?? "",
+      pvp_ice:     r.pvp_ice ?? "",
       lista:       r.lista,
     });
   }
 
   // Formato numérico
-  ["D", "E", "F"].forEach(col => {
+  ["D", "E", "F", "G"].forEach(col => {
     ws.getColumn(col).numFmt = '#,##0.00';
     ws.getColumn(col).alignment = { horizontal: "right" };
   });
@@ -126,28 +129,30 @@ function exportPDF(rows: ProductoPrecio[], lista: string, anho: number, mes: num
   // Tabla
   autoTable(doc, {
     startY: 25,
-    head: [["Cod. Interno", "Cod. Barra", "SKU", "Costo (Bs)", "Margen (Bs)", "PVP (Bs)"]],
+    head: [["Cod. Interno", "Cod. Barra", "SKU", "Precio (Bs)", "Precio c/ICE (Bs)", "Margen (Bs)", "PVP (Bs)"]],
     body: rows.map(r => {
       const margen = r.margen ?? calcMargen(r.costo, r.pvp);
       return [
         r.cod_interno,
         r.cod_barra ?? "—",
         r.producto,
-        r.costo != null ? fmtBs(r.costo) : "—",
+        r.costo   != null ? fmtBs(r.costo)   : "—",
+        r.pvp_ice != null ? fmtBs(r.pvp_ice) : "—",
         fmtBs(margen),
-        r.pvp   != null ? fmtBs(r.pvp)   : "—",
+        r.pvp     != null ? fmtBs(r.pvp)     : "—",
       ];
     }),
     styles:       { fontSize: 7.5, cellPadding: 2 },
     headStyles:   { fillColor: [30, 58, 95], textColor: 255, fontStyle: "bold", fontSize: 8 },
     alternateRowStyles: { fillColor: [248, 250, 252] },
     columnStyles: {
-      0: { cellWidth: 25 },
-      1: { cellWidth: 25 },
+      0: { cellWidth: 22 },
+      1: { cellWidth: 22 },
       2: { cellWidth: "auto" },
-      3: { cellWidth: 28, halign: "right" },
-      4: { cellWidth: 28, halign: "right" },
-      5: { cellWidth: 28, halign: "right" },
+      3: { cellWidth: 25, halign: "right" },
+      4: { cellWidth: 25, halign: "right" },
+      5: { cellWidth: 25, halign: "right" },
+      6: { cellWidth: 28, halign: "right" },
     },
     margin: { left: 14, right: 14 },
     didDrawPage: (data: any) => {
@@ -252,6 +257,8 @@ export default function DashboardListaPrecios() {
       (r.cod_barra?.toLowerCase().includes(q) ?? false)
     );
   }, [datos, busqueda, mostrarSinPvp, proveedorFiltro]);
+
+  const tieneIce = useMemo(() => datosFiltrados.some(r => r.pvp_ice != null), [datosFiltrados]);
 
   // ── Exportar ──────────────────────────────────────────────────────────────
   const handleXLSX = async () => {
@@ -411,7 +418,8 @@ export default function DashboardListaPrecios() {
                     <th className="text-left px-3 py-3 font-semibold text-slate-500 whitespace-nowrap">Cod. Interno</th>
                     <th className="text-left px-3 py-3 font-semibold text-slate-500 whitespace-nowrap">Cod. Barra</th>
                     <th className="text-left px-3 py-3 font-semibold text-slate-500 whitespace-nowrap min-w-52">SKU</th>
-                    <th className="text-right px-3 py-3 font-semibold text-slate-500 whitespace-nowrap">Costo (Bs)</th>
+                    <th className="text-right px-3 py-3 font-semibold text-slate-500 whitespace-nowrap">Precio (Bs)</th>
+                    {tieneIce && <th className="text-right px-3 py-3 font-semibold text-amber-600 whitespace-nowrap">Precio c/ICE (Bs)</th>}
                     <th className="text-right px-3 py-3 font-semibold text-slate-500 whitespace-nowrap">Margen (Bs)</th>
                     <th className="text-right px-3 py-3 font-semibold text-slate-500 whitespace-nowrap">PVP (Bs)</th>
                   </tr>
@@ -419,7 +427,7 @@ export default function DashboardListaPrecios() {
                 <tbody>
                   {loading ? (
                     <tr>
-                      <td colSpan={6} className="py-20 text-center">
+                      <td colSpan={tieneIce ? 7 : 6} className="py-20 text-center">
                         <div className="flex flex-col items-center gap-3">
                           <Loader size={28} className="animate-spin text-brand-400" />
                           <p className="text-xs text-slate-400">Cargando precios…</p>
@@ -428,7 +436,7 @@ export default function DashboardListaPrecios() {
                     </tr>
                   ) : datosFiltrados.length === 0 ? (
                     <tr>
-                      <td colSpan={6} className="py-20 text-center">
+                      <td colSpan={tieneIce ? 7 : 6} className="py-20 text-center">
                         <div className="flex flex-col items-center gap-3 text-slate-300">
                           <Tag size={36} />
                           <p className="text-sm font-medium text-slate-400">Sin datos disponibles</p>
@@ -458,6 +466,11 @@ export default function DashboardListaPrecios() {
                           <td className="px-3 py-2.5 text-right tabular-nums text-slate-700">
                             {fmtNullable(row.costo)}
                           </td>
+                          {tieneIce && (
+                            <td className="px-3 py-2.5 text-right tabular-nums font-semibold text-amber-600">
+                              {row.pvp_ice != null ? fmtBs(row.pvp_ice) : "—"}
+                            </td>
+                          )}
                           <td className="px-3 py-2.5 text-right tabular-nums font-semibold text-slate-400">
                             {fmtBs(margen)}
                           </td>

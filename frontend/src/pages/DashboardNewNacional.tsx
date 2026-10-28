@@ -2241,16 +2241,23 @@ export default function DashboardNewNacional() {
                       tick={(props: any) => { const { x, y, payload } = props as { x: number; y: number; payload: { value: string } }; // eslint-disable-line @typescript-eslint/no-explicit-any
                         const row = evoData.find(d => d._key === payload.value);
                         const pct = row?.pctCumpl ?? null;
-                        const ppto = row?.presupuesto ?? 0;
+                        const valor = row?.valor ?? 0;
+                        const proyectado = row?.valorProyectado ?? null;
+                        const hasClient = !!selectedCli;
                         const pctColor = pct == null ? "#94a3b8" : pct >= 100 ? "#10b981" : pct >= 80 ? "#f59e0b" : "#ef4444";
+                        const valorColor = row?.esMesActual ? "#93c5fd" : "#3b82f6";
+                        const fmtShort = (v: number) => v >= 1_000_000 ? `${(v / 1_000_000).toFixed(1)}M` : `${Math.round(v / 1_000)}K`;
                         return (
                           <g transform={`translate(${x},${y})`}>
                             <text x={0} y={0} dy={12} textAnchor="middle" fontSize={11} fontWeight={600} fill="#475569">{payload.value}</text>
-                            {pct != null && (
-                              <text x={0} y={0} dy={25} textAnchor="middle" fontSize={9} fontWeight={700} fill={pctColor}>{pct}%</text>
+                            {valor > 0 && (
+                              <text x={0} y={0} dy={25} textAnchor="middle" fontSize={9} fontWeight={600} fill={valorColor}>{fmtShort(valor)}</text>
                             )}
-                            {ppto > 0 && (
-                              <text x={0} y={0} dy={37} textAnchor="middle" fontSize={8} fill="#94a3b8">{(ppto / 1_000_000).toFixed(1)}M Bs</text>
+                            {!hasClient && pct != null && (
+                              <text x={0} y={0} dy={37} textAnchor="middle" fontSize={9} fontWeight={700} fill={pctColor}>{pct}%</text>
+                            )}
+                            {hasClient && row?.esMesActual && proyectado != null && (
+                              <text x={0} y={0} dy={37} textAnchor="middle" fontSize={8} fill="#f59e0b">~{fmtShort(proyectado)}</text>
                             )}
                           </g>
                         );

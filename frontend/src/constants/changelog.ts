@@ -1,4 +1,4 @@
-export const CURRENT_VERSION = "2.0.0.3";
+export const CURRENT_VERSION = "2.0.0.4";
 
 export interface ChangelogVersion {
   version: string;
@@ -12,6 +12,17 @@ export interface ChangelogVersion {
 // Descripciones simplificadas para usuarios finales.
 // El detalle técnico completo está en CHANGELOG.md en la raíz del proyecto.
 export const CHANGELOG: ChangelogVersion[] = [
+  {
+    version: "2.0.0.4",
+    date: "Octubre 2026",
+    fixes: [],
+    features: [
+      "New Ventas Nacional — el gráfico evolutivo ahora muestra el monto de ventas directamente en la etiqueta de cada mes (en K o M según la magnitud); sin filtro de cliente también muestra el % de cumplimiento vs presupuesto; con cliente seleccionado muestra el avance real y la proyección de cierre del mes actual",
+      "Lista de Precios — nueva columna 'Precio c/ICE (Bs)': aparece automáticamente solo cuando la lista tiene productos con ICE; muestra el precio que paga el cliente (con impuesto ICE incluido) junto al precio base, antes del margen y el PVP",
+    ],
+    newDashboardPerms: [],
+    newDashboardNames: {},
+  },
   {
     version: "2.0.0.3",
     date: "Octubre 2026",
