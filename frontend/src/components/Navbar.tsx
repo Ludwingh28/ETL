@@ -37,6 +37,17 @@ import {
   type LucideIcon,
 } from "lucide-react";
 import { useAuth } from "../context/AuthContext";
+
+const CartonIcon = (({ size = 24, strokeWidth = 2, className, color = "currentColor" }: {
+  size?: number | string; strokeWidth?: number | string; className?: string; color?: string;
+}) => (
+  <svg xmlns="http://www.w3.org/2000/svg" width={size} height={size} viewBox="0 0 24 24"
+    fill="none" stroke={color} strokeWidth={strokeWidth} strokeLinecap="round" strokeLinejoin="round" className={className}>
+    <rect x="5" y="9" width="14" height="12" rx="1"/>
+    <path d="M5 9l7-5 7 5"/>
+    <path d="M10 4V2h4v2"/>
+  </svg>
+)) as unknown as LucideIcon;
 import { getFirstDashboardRoute } from "../constants/routes";
 
 interface NavItem {
@@ -116,6 +127,7 @@ const NAV_GROUPS: NavGroup[] = [
       { to: "/dashboard/apego",            icon: Milk,               label: "Dashboard Apego",    perm: "apego"        },
       { to: "/dashboard/colher",           icon: SoapDispenserDroplet, label: "Dashboard COLHER",    perm: "colher"    },
       { to: "/dashboard/johnspop",         icon: Popcorn,              label: "Dashboard Johns Pop", perm: "johnspop"  },
+      { to: "/dashboard/vascal",           icon: CartonIcon,           label: "Dashboard Vascal",    perm: "vascal"    },
     ],
   },
   {

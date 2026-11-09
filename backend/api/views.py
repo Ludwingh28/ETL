@@ -117,7 +117,7 @@ _PERMISOS_POR_CARGO: dict[str, list[str]] = {
                            'avances-ventas', 'unidades-vendidas', 'unidades-supervisores',
                            'informacion-rutas', 'tendencia-estacional', 'ticket-promedio',
                            'ficha-sku', 'margen-bruto', 'matriz', 'descargas', 'lista-precios',
-                           'pepsico', 'softys-nuevo', 'dmujer', 'apego', 'colher', 'johnspop'],
+                           'pepsico', 'softys-nuevo', 'dmujer', 'apego', 'colher', 'johnspop', 'vascal'],
     'Gerente de Ventas':  ['nacional', 'regionales', 'canales', 'supervisores', 'unidades-vendidas',
                            'unidades-supervisores', 'informacion-rutas', 'tendencia-estacional',
                            'ticket-promedio', 'ficha-sku', 'margen-bruto', 'lista-precios'],
@@ -127,7 +127,7 @@ _PERMISOS_POR_CARGO: dict[str, list[str]] = {
     'Supervisor':         ['canales', 'supervisores', 'preventas-realizadas', 'avances-ventas',
                            'unidades-supervisores', 'informacion-rutas'],
     'Vendedor':           ['preventas-realizadas', 'avances-ventas', 'lista-precios'],
-    'Proveedor':          ['lista-precios', 'pepsico', 'softys-nuevo', 'dmujer', 'apego', 'colher', 'johnspop'],
+    'Proveedor':          ['lista-precios', 'pepsico', 'softys-nuevo', 'dmujer', 'apego', 'colher', 'johnspop', 'vascal'],
     'Analista de Datos':  ['nacional', 'regionales', 'canales', 'supervisores', 'preventas-realizadas',
                            'avances-ventas', 'unidades-vendidas', 'unidades-supervisores',
                            'informacion-rutas', 'tendencia-estacional', 'ticket-promedio',
@@ -6675,6 +6675,7 @@ _PROV_PERM_MAP = {
     'APEGO':     'apego',
     'COLHER':    'colher',
     'JHONS POP': 'johnspop',
+    'VASCAL':    'vascal',
 }
 
 # Lineas de marca conocidas por proveedor (fallback cuando dp.proveedor no está cargado)

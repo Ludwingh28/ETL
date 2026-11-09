@@ -152,6 +152,9 @@ export default function App() {
           <Route path="/dashboard/johnspop"
             element={<Dash perm="johnspop"><DashboardProveedor perm="johnspop" nombre="Johns Pop" /></Dash>}
           />
+          <Route path="/dashboard/vascal"
+            element={<Dash perm="vascal"><DashboardProveedor perm="vascal" nombre="Vascal" /></Dash>}
+          />
 
           {/* ── Mock-ups ────────────────────────────────────────────────────── */}
           <Route path="/dashboard/new-nacional"

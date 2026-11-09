@@ -71,6 +71,7 @@ const PROV_DB: Record<string, string> = {
   apego:    'APEGO',
   colher:   'COLHER',
   johnspop: 'JHONS POP',
+  vascal:   'VASCAL',
 }
 
 // ─── Formatters ──────────────────────────────────────────────────────────────
