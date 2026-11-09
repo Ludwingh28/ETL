@@ -1,4 +1,4 @@
-export const CURRENT_VERSION = "2.0.0.4";
+export const CURRENT_VERSION = "2.0.0.5";
 
 export interface ChangelogVersion {
   version: string;
@@ -12,6 +12,16 @@ export interface ChangelogVersion {
 // Descripciones simplificadas para usuarios finales.
 // El detalle técnico completo está en CHANGELOG.md en la raíz del proyecto.
 export const CHANGELOG: ChangelogVersion[] = [
+  {
+    version: "2.0.0.5",
+    date: "Noviembre 2026",
+    fixes: [],
+    features: [
+      "Nuevo Dashboard — Vascal: visualización de ventas por período, desglose por canal y tabla de productos, bajo el mismo modelo que los dashboards de Pepsico, Apego, Colher y Johns Pop",
+    ],
+    newDashboardPerms: ['vascal'],
+    newDashboardNames: { vascal: 'Dashboard Vascal' },
+  },
   {
     version: "2.0.0.4",
     date: "Octubre 2026",
