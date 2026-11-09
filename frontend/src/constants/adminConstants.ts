@@ -97,6 +97,7 @@ export const DASHBOARD_GROUPS: DashboardGroup[] = [
       { id: 'apego',        label: 'Dashboard Apego'     },
       { id: 'colher',       label: 'Dashboard COLHER'    },
       { id: 'johnspop',     label: 'Dashboard Johns Pop' },
+      { id: 'vascal',       label: 'Dashboard Vascal'    },
     ],
   },
   {
@@ -124,7 +125,7 @@ export const PERMISOS_POR_CARGO: Record<Cargo, string[]> = {
   'Gerente Regional':           ['regionales', 'canales', 'supervisores', 'preventas-realizadas', 'avances-ventas', 'unidades-vendidas', 'unidades-supervisores', 'informacion-rutas', 'tendencia-estacional', 'distribucion-rutas', 'comportamiento-productos'],
   'Supervisor':                  ['canales', 'supervisores', 'preventas-realizadas', 'avances-ventas', 'unidades-supervisores', 'informacion-rutas', 'distribucion-rutas'],
   'Vendedor':                    ['vendedores-personal', 'preventas-realizadas', 'avances-ventas'],
-  'Proveedor':                   ['lista-precios', 'pepsico', 'softys-nuevo', 'dmujer', 'apego', 'colher', 'johnspop'],
+  'Proveedor':                   ['lista-precios', 'pepsico', 'softys-nuevo', 'dmujer', 'apego', 'colher', 'johnspop', 'vascal'],
   'Analista de Datos':          ['nacional', 'regionales', 'canales', 'supervisores', 'preventas-realizadas', 'avances-ventas', 'unidades-vendidas', 'unidades-supervisores', 'informacion-rutas', 'ticket-promedio', 'ficha-sku', 'comportamiento-productos', 'margen-bruto', 'matriz', 'descargas'],
   'Administrador de Sistema':   ALL_DASHBOARD_IDS,
   'Subadministrador de Sistemas': ALL_DASHBOARD_IDS,

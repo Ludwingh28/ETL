@@ -26,6 +26,7 @@ export const PERM_TO_ROUTE: Record<string, string> = {
   'apego':                     '/dashboard/apego',
   'colher':                    '/dashboard/colher',
   'johnspop':                  '/dashboard/johnspop',
+  'vascal':                    '/dashboard/vascal',
   'new-nacional':              '/dashboard/new-nacional',
   'vendedores-personal':       '/dashboard/vendedores-personal',
 }
@@ -33,7 +34,7 @@ export const PERM_TO_ROUTE: Record<string, string> = {
 const ADMIN_CARGOS = new Set(['Administrador de Sistema', 'Subadministrador de Sistemas'])
 
 // Orden de prioridad: softys-nuevo antes que softys (legacy)
-const PROVEEDOR_PERM_PRIORITY = ['pepsico', 'softys-nuevo', 'dmujer', 'apego', 'colher', 'johnspop']
+const PROVEEDOR_PERM_PRIORITY = ['pepsico', 'softys-nuevo', 'dmujer', 'apego', 'colher', 'johnspop', 'vascal']
 
 export function getFirstDashboardRoute(user: {
   is_staff?: boolean
